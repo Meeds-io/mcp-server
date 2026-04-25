@@ -1,0 +1,126 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+
+  This file is part of the Meeds project (https://meeds.io/).
+
+  Copyright (C) 2020 - 2026 Meeds Association contact@meeds.io
+
+  This program is free software; you can redistribute it and/or
+  modify it under the terms of the GNU Lesser General Public
+  License as published by the Free Software Foundation; either
+  version 3 of the License, or (at your option) any later version.
+
+  This program is distributed in the hope that it will be useful,
+  but WITHOUT ANY WARRANTY; without even the implied warranty of
+  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
+  Lesser General Public License for more details.
+
+  You should have received a copy of the GNU Lesser General Public License
+  along with this program; if not, write to the Free Software Foundation,
+  Inc., 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301, USA.
+
+-->
+<project xmlns="http://maven.apache.org/POM/4.0.0" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
+  <modelVersion>4.0.0</modelVersion>
+  <parent>
+    <artifactId>addons-parent-pom</artifactId>
+    <groupId>io.meeds.addons</groupId>
+    <version>20-M02</version>
+    <relativePath/>
+  </parent>
+  <groupId>io.meeds.mcp-server</groupId>
+  <artifactId>mcp-server</artifactId>
+  <version>7.2.x-SNAPSHOT</version>
+  <packaging>pom</packaging>
+  <name>Meeds - MCP Server - Parent POM</name>
+  <description>MCP Server for Meeds Application</description>
+  <modules>
+    <module>mcp-server-service</module>
+    <module>mcp-server-tools</module>
+    <module>mcp-server-webapp</module>
+    <module>mcp-server-packaging</module>
+  </modules>
+  <scm>
+    <connection>scm:git:git://github.com/meeds-io/mcp-server.git</connection>
+    <developerConnection>scm:git:ssh://git@github.com/meeds-io/mcp-server.git</developerConnection>
+    <url>https://github.com/meeds-io/mcp-server</url>
+    <tag>HEAD</tag>
+  </scm>
+  <properties>
+    <addon.meeds.auth-server.version>7.2.x-SNAPSHOT</addon.meeds.auth-server.version>
+
+    <!-- Sonar properties -->
+    <sonar.organization>meeds-io</sonar.organization>
+  </properties>
+  <dependencyManagement>
+    <dependencies>
+      <!-- Import versions from platform project -->
+      <dependency>
+        <groupId>io.meeds.auth-server</groupId>
+        <artifactId>auth-server</artifactId>
+        <version>${addon.meeds.auth-server.version}</version>
+        <type>pom</type>
+        <scope>import</scope>
+      </dependency>
+
+      <!-- Current project artifacts -->
+      <dependency>
+        <groupId>${project.groupId}</groupId>
+        <artifactId>mcp-server-service</artifactId>
+        <version>${project.version}</version>
+      </dependency>
+
+      <dependency>
+        <groupId>${project.groupId}</groupId>
+        <artifactId>mcp-server-tools</artifactId>
+        <version>${project.version}</version>
+      </dependency>
+
+      <dependency>
+        <groupId>${project.groupId}</groupId>
+        <artifactId>mcp-server-webapp</artifactId>
+        <version>${project.version}</version>
+        <type>war</type>
+      </dependency>
+
+      <dependency>
+        <groupId>${project.groupId}</groupId>
+        <artifactId>mcp-server-packaging</artifactId>
+        <version>${project.version}</version>
+        <type>zip</type>
+      </dependency>
+
+    </dependencies>
+  </dependencyManagement>
+
+  <!-- This profile is used to allow github action to build branches. The github action is used for sonar analysis -->
+  <profiles>
+    <profile>
+      <id>project-repositories</id>
+      <activation>
+        <property>
+          <name>!skip-project-repositories</name>
+        </property>
+      </activation>
+      <repositories>
+        <repository>
+          <snapshots>
+            <enabled>true</enabled>
+          </snapshots>
+          <id>repository.exoplatform.org</id>
+          <url>https://repository.exoplatform.org/public</url>
+        </repository>
+      </repositories>
+      <pluginRepositories>
+        <pluginRepository>
+          <snapshots>
+            <enabled>true</enabled>
+          </snapshots>
+          <id>repository.exoplatform.org</id>
+          <url>https://repository.exoplatform.org/public</url>
+        </pluginRepository>
+      </pluginRepositories>
+    </profile>
+  </profiles>
+</project>
