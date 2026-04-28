@@ -45,8 +45,38 @@
       <useProjectArtifact>false</useProjectArtifact>
       <outputDirectory>/</outputDirectory>
       <includes>
-        <include>${project.groupId}:*:jar</include>
+        <include>*:*:jar</include>
       </includes>
+      <excludes>
+        <exclude>*:antlr-runtime</exclude>
+        <exclude>*:antlr4-runtime</exclude>
+        <exclude>*:classmate</exclude>
+        <exclude>*:micrometer-observation</exclude>
+        <exclude>*:micrometer-commons</exclude>
+        <exclude>*:jackson-core</exclude>
+        <exclude>*:jackson-databind</exclude>
+        <exclude>*:jackson-annotations</exclude>
+        <exclude>*:jakarta.annotation-api</exclude>
+        <exclude>*:jackson-datatype-jsr310</exclude>
+        <exclude>*:jackson-datatype-jdk8</exclude>
+        <exclude>*:jackson-module-parameter-names</exclude>
+        <exclude>*:reactor-core</exclude>
+        <exclude>*:reactive-streams</exclude>
+        <exclude>*:slf4j-api</exclude>
+        <exclude>*:snakeyaml</exclude>
+        <exclude>*:spring-webmvc</exclude>
+        <exclude>*:spring-aop</exclude>
+        <exclude>*:spring-beans</exclude>
+        <exclude>*:spring-context</exclude>
+        <exclude>*:spring-core</exclude>
+        <exclude>*:spring-messaging</exclude>
+        <exclude>*:spring-jcl</exclude>
+        <exclude>*:spring-web</exclude>
+        <exclude>*:spring-expression</exclude>
+        <exclude>*:spring-boot-starter-web</exclude>
+        <exclude>*:spring-boot-starter-json</exclude>
+        <exclude>*:spring-boot-starter-tomcat</exclude>
+      </excludes>
       <scope>compile</scope>
       <outputFileNameMapping>${artifact.artifactId}.jar</outputFileNameMapping>
     </dependencySet>

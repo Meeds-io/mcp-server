@@ -30,6 +30,9 @@
   <artifactId>mcp-server-webapp</artifactId>
   <packaging>war</packaging>
   <name>Meeds:: MCP Server - Webapp</name>
+  <properties>
+    <exo.test.coverage.ratio>0.14</exo.test.coverage.ratio>
+  </properties>
   <dependencies>
     <!-- Project dependencies -->
     <dependency>
@@ -52,7 +55,7 @@
       <scope>provided</scope>
     </dependency>
 
-    <!-- Spring AI Autoconfigure Jars
+    <!-- Spring AI Autoconfigure Jars to include in WAR -->
     <dependency>
       <groupId>org.springframework.ai</groupId>
       <artifactId>spring-ai-autoconfigure-mcp-server-common</artifactId>
@@ -92,7 +95,7 @@
           <artifactId>*</artifactId>
         </exclusion>
       </exclusions>
-    </dependency> -->
+    </dependency>
   </dependencies>
   <build>
     <finalName>mcp-server</finalName>
