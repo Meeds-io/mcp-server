@@ -37,7 +37,7 @@
       <artifactId>mcp-server-service</artifactId>
     </dependency>
 
-    <!-- Social API -->
+    <!-- Social -->
     <dependency>
       <groupId>io.meeds.social</groupId>
       <artifactId>social-component-core</artifactId>
@@ -45,6 +45,17 @@
     </dependency>
   </dependencies>
   <build>
-    <finalName>mcp-server-service</finalName>
+    <finalName>mcp-server-tools</finalName>
+    <plugins>
+      <plugin>
+        <groupId>org.apache.maven.plugins</groupId>
+        <artifactId>maven-compiler-plugin</artifactId>
+        <configuration>
+          <compilerArgs>
+            <arg>-parameters</arg>
+          </compilerArgs>
+        </configuration>
+      </plugin>
+    </plugins>
   </build>
 </project>
