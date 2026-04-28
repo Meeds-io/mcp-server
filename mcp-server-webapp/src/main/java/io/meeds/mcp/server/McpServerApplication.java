@@ -16,7 +16,7 @@
  * along with this program; if not, write to the Free Software Foundation,
  * Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301, USA.
  */
-package io.meeds.ai.mcp.server;
+package io.meeds.mcp.server;
 
 import org.springframework.ai.mcp.server.autoconfigure.McpServerStreamableHttpWebMvcAutoConfiguration;
 import org.springframework.ai.mcp.server.common.autoconfigure.annotations.StatelessServerSpecificationFactoryAutoConfiguration;
@@ -36,10 +36,8 @@ import io.meeds.spring.AvailableIntegration;
 import io.meeds.spring.kernel.PortalApplicationContextInitializer;
 
 @SpringBootApplication(scanBasePackages = {
-  AvailableIntegration.KERNEL_MODULE,
-  McpServerApplication.TOOLS_MODULE_NAME,
-  McpServerApplication.COMMON_MODULE_NAME,
   McpServerApplication.MODULE_NAME,
+  AvailableIntegration.KERNEL_MODULE,
 }, exclude = {
   LiquibaseAutoConfiguration.class,
   DataSourceAutoConfiguration.class,
@@ -57,10 +55,6 @@ import io.meeds.spring.kernel.PortalApplicationContextInitializer;
 @PropertySource("classpath:mcp-server.properties")
 public class McpServerApplication extends PortalApplicationContextInitializer {
 
-  public static final String MODULE_NAME        = "io.meeds.ai.mcp.server";
-
-  public static final String COMMON_MODULE_NAME = "io.meeds.ai.common";
-
-  public static final String TOOLS_MODULE_NAME  = "io.meeds.ai.tool";
+  public static final String MODULE_NAME        = "io.meeds.mcp.server";
 
 }

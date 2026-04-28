@@ -1,0 +1,794 @@
+{
+  "tools": [
+    {
+      "name": "list_space_templates",
+      "title": "Search space templates",
+      "description": "Retrieve the list of available Space Templates with their basic information.",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "query": {
+            "type": "string",
+            "description": "Keyword search across space names and descriptions"
+          }
+        }
+      },
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": false
+      }
+    },
+    {
+      "name": "get_space_template_by_id",
+      "title": "Get a space template",
+      "description": "Retrieve a Space Template using its technical identifier.",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "template_id": {
+            "type": "integer",
+            "description": "Space Template Technical Identifier"
+          }
+        },
+        "required": ["template_id"]
+      },
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": false
+      }
+    },
+    {
+      "name": "create_space",
+      "title": "Create a space",
+      "description": "Creates a new Space for the current user based on a template.",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "space_template_id": {
+            "type": "integer",
+            "description": "Template ID of the space (required). Use 'listSpaceTemplates' Tool to find valid IDs and Search for a Space Template by its name."
+          },
+          "name": { "type": "string", "description": "User-facing display name of the space" },
+          "description": { "type": "string", "description": "Detailed description of the space" },
+          "visibility": {
+            "type": "string",
+            "enum": ["LISTED", "UNLISTED"],
+            "description": "Visibility of the space"
+          },
+          "registration": {
+            "type": "string",
+            "enum": ["OPEN", "REQUEST_JOIN", "INVITE_ONLY"],
+            "description": "How users can join the space"
+          },
+          "usernames_to_invite": {
+            "type": "array",
+            "items": { "type": "string" },
+            "description": "List of usernames to invite"
+          }
+        },
+        "required": ["space_template_id"]
+      },
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": false,
+        "idempotentHint": false,
+        "openWorldHint": false
+      },
+      "require_approval": true
+    },
+    {
+      "name": "update_space_settings",
+      "title": "Update a space settings",
+      "description": "Update the settings of an existing Space.",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "space_id": { "type": "integer", "description": "Identifier of the Space to update" },
+          "name": { "type": "string", "description": "Updated display name" },
+          "description": { "type": "string", "description": "Updated description" },
+          "visibility": {
+            "type": "string",
+            "enum": ["LISTED", "UNLISTED"],
+            "description": "Updated visibility"
+          },
+          "registration": {
+            "type": "string",
+            "enum": ["OPEN", "REQUEST_JOIN", "INVITE_ONLY"],
+            "description": "Updated registration"
+          }
+        },
+        "required": ["space_id"]
+      },
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": true,
+        "idempotentHint": true,
+        "openWorldHint": false
+      },
+      "require_approval": true
+    },
+    {
+      "name": "get_all_spaces",
+      "title": "Search in all spaces",
+      "description": "Search in all accessible spaces for the user from Spaces Directory.",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "query": { "type": "string", "description": "Keyword search" },
+          "offset": { "type": "integer", "description": "Offset of spaces to retrieve" },
+          "limit": { "type": "integer", "description": "Limit of spaces to retrieve" }
+        }
+      },
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": false
+      }
+    },
+    {
+      "name": "get_my_spaces",
+      "title": "Search in my spaces",
+      "description": "Retrieve the list of spaces where the current user is a member.",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "query": { "type": "string", "description": "Keyword search" },
+          "offset": { "type": "integer", "description": "Offset of spaces to retrieve" },
+          "limit": { "type": "integer", "description": "Limit of spaces to retrieve" }
+        }
+      },
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": false
+      }
+    },
+    {
+      "name": "get_managed_spaces",
+      "title": "Search in spaces I manage",
+      "description": "Retrieve the list of spaces where the current user is a manager.",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "query": { "type": "string", "description": "Keyword search" },
+          "offset": { "type": "integer", "description": "Offset of spaces to retrieve" },
+          "limit": { "type": "integer", "description": "Limit of spaces to retrieve" }
+        }
+      },
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": false
+      }
+    },
+    {
+      "name": "get_space_by_id",
+      "title": "Get a space",
+      "description": "Retrieve full details of a Space by its unique identifier.",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "space_id": { "type": "integer", "description": "Identifier of the Space" }
+        },
+        "required": ["space_id"]
+      },
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": false
+      }
+    },
+    {
+      "name": "list_users_of_space_by_role",
+      "title": "List space members",
+      "description": "Retrieve the list of users in a Space by role.",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "space_id": { "type": "integer" },
+          "space_role": {
+            "type": "string",
+            "enum": ["MEMBER", "MANAGER", "REDACTOR", "PUBLISHER", "INVITED", "PENDING"]
+          },
+          "offset": { "type": "integer" },
+          "limit": { "type": "integer" }
+        },
+        "required": ["space_id", "space_role"]
+      },
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": false
+      }
+    },
+    {
+      "name": "invite_users_to_space",
+      "title": "Invite user to space",
+      "description": "Invite one or more users to join a Space as members.",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "space_id": { "type": "integer" },
+          "usernames_to_invite": {
+            "type": "array",
+            "items": { "type": "string" }
+          }
+        },
+        "required": ["space_id", "usernames_to_invite"]
+      },
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": false
+      },
+      "require_approval": true
+    },
+    {
+      "name": "remove_users_from_space",
+      "title": "Remove user from space",
+      "description": "Remove one or more users from a Space.",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "space_id": { "type": "integer" },
+          "usernames_to_remove": {
+            "type": "array",
+            "items": { "type": "string" }
+          }
+        },
+        "required": ["space_id", "usernames_to_remove"]
+      },
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": true,
+        "idempotentHint": false,
+        "openWorldHint": false
+      },
+      "require_approval": true
+    },
+    {
+      "name": "set_user_role_in_space",
+      "title": "Promote user in space",
+      "description": "Assign or promote a role for a confirmed member of a Space.",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "space_id": { "type": "integer" },
+          "username": { "type": "string" },
+          "space_role": {
+            "type": "string",
+            "enum": ["MANAGER", "REDACTOR", "PUBLISHER"]
+          }
+        },
+        "required": ["space_id", "username", "space_role"]
+      },
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": false
+      },
+      "require_approval": true
+    },
+    {
+      "name": "remove_user_role_in_space",
+      "title": "Remove user role from space",
+      "description": "Remove a specific role from a user in a Space.",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "space_id": { "type": "integer" },
+          "username": { "type": "string" },
+          "space_role": {
+            "type": "string",
+            "enum": ["MANAGER", "REDACTOR", "PUBLISHER"]
+          }
+        },
+        "required": ["space_id", "username", "space_role"]
+      },
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": true,
+        "idempotentHint": true,
+        "openWorldHint": false
+      },
+      "require_approval": true
+    },
+    {
+      "name": "get_my_user_information",
+      "title": "Get curent user info",
+      "description": "Provides the identity and profile information of the currently connected user.",
+      "input_schema": { "type": "object", "properties": {} },
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": false
+      }
+    },
+    {
+      "name": "get_user_by_username",
+      "title": "Get a user info",
+      "description": "Provides identity and profile information of a user by username.",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "username": { "type": "string", "description": "The username to use in search query" }
+        },
+        "required": ["username"]
+      },
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": false
+      }
+    },
+    {
+      "name": "search_users",
+      "title": "Search for users",
+      "description": "Search for users across the platform by an optional keyword.",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "query": { "type": "string" },
+          "offset": { "type": "integer" },
+          "limit": { "type": "integer" }
+        },
+        "required": ["query"]
+      },
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": false
+      }
+    },
+    {
+      "name": "get_users_count",
+      "title": "Count users",
+      "description": "Retrieves the users count.",
+      "input_schema": { "type": "object", "properties": {} },
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": false
+      }
+    },
+    {
+      "name": "search_activities",
+      "title": "Search for activities",
+      "description": "Search activities (Also Known As 'posts'), with optional filters for query text, space and favorites.",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "query": { "type": "string" },
+          "space_id": { "type": "integer" },
+          "is_favorite": { "type": "boolean" },
+          "offset": { "type": "integer" },
+          "limit": { "type": "integer" }
+        },
+        "required": ["query"]
+      },
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": false
+      }
+    },
+    {
+      "name": "get_activities",
+      "title": "Get space activities",
+      "description": "Retrieve a paginated list of activities (Also Known As 'posts') in a space (or all activities if space_id is null).",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "space_id": { "type": "integer" },
+          "offset": { "type": "integer" },
+          "limit": { "type": "integer" }
+        }
+      },
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": false
+      }
+    },
+    {
+      "name": "get_activities_since_days",
+      "title": "Get activities of last days",
+      "description": "Retrieve a paginated list of activities (Also Known As 'posts') in a space (or all activities if space_id is null). This will return the posted activities since the number of designated 'days'.",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "space_id": { "type": "integer" },
+          "days": { "type": "integer" }
+        }
+      },
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": false
+      }
+    },
+    {
+      "name": "get_activity",
+      "title": "Get an activity",
+      "description": "Get a single activity (Also Known As 'post') by its ID.",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "activity_id": { "type": "integer" }
+        },
+        "required": ["activity_id"]
+      },
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": false
+      }
+    },
+    {
+      "name": "get_activity_comment",
+      "title": "Get an activity comment",
+      "description": "Get a specific comment on an activity.",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "activity_comment_id": { "type": "integer" }
+        },
+        "required": ["activity_comment_id"]
+      },
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": false
+      }
+    },
+    {
+      "name": "create_activity",
+      "title": "Post an activity",
+      "description": "Create a new activity (Also Known As 'post') in a space activity stream (or personal activity stream if space_id is null).",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "space_id": { "type": "integer" },
+          "html_content": { "type": "string" }
+        },
+        "required": ["html_content"]
+      },
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": false,
+        "idempotentHint": false,
+        "openWorldHint": false
+      },
+      "require_approval": true
+    },
+    {
+      "name": "update_activity",
+      "title": "Update an activity",
+      "description": "Update an existing activity (Also Known As 'post') by its ID.",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "activity_id": { "type": "integer" },
+          "html_content": { "type": "string" }
+        },
+        "required": ["activity_id", "html_content"]
+      },
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": true,
+        "idempotentHint": true,
+        "openWorldHint": false
+      },
+      "require_approval": true
+    },
+    {
+      "name": "delete_activity",
+      "title": "Delete an activity",
+      "description": "Delete an activity (Also Known As 'post') by its ID.",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "activity_id": { "type": "integer" }
+        },
+        "required": ["activity_id"]
+      },
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": true,
+        "idempotentHint": true,
+        "openWorldHint": false
+      },
+      "require_approval": true
+    },
+    {
+      "name": "pin_activity",
+      "title": "Pin an activity in stream",
+      "description": "Pin an activity (Also Known As 'post') by its ID in the stream UI.",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "activity_id": { "type": "integer" }
+        },
+        "required": ["activity_id"]
+      },
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": false
+      },
+      "require_approval": true
+    },
+    {
+      "name": "unpin_activity",
+      "title": "Unpin an activity from stream",
+      "description": "Unpin an activity (Also Known As 'post') by its ID.",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "activity_id": { "type": "integer" }
+        },
+        "required": ["activity_id"]
+      },
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": true,
+        "idempotentHint": true,
+        "openWorldHint": false
+      },
+      "require_approval": true
+    },
+    {
+      "name": "get_activity_comments",
+      "title": "Get activity comments",
+      "description": "Retrieve a paginated list of comments for an activity (Also Known As 'post').",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "activity_id": { "type": "integer" },
+          "offset": { "type": "integer" },
+          "limit": { "type": "integer" }
+        },
+        "required": ["activity_id"]
+      },
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": false
+      }
+    },
+    {
+      "name": "create_activity_comment",
+      "title": "Post an activity comment",
+      "description": "Add a new activity's comment to an activity.",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "activity_id": { "type": "integer" },
+          "comment": { "type": "string" }
+        },
+        "required": ["activity_id", "comment"]
+      },
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": false,
+        "idempotentHint": false,
+        "openWorldHint": false
+      },
+      "require_approval": true
+    },
+    {
+      "name": "update_comment",
+      "title": "Update an activity comment",
+      "description": "Update an existing activity's comment by its ID.",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "activity_comment_id": { "type": "integer" },
+          "comment": { "type": "string" }
+        },
+        "required": ["activity_comment_id", "comment"]
+      },
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": true,
+        "idempotentHint": true,
+        "openWorldHint": false
+      },
+      "require_approval": true
+    },
+    {
+      "name": "share_activity_to_space",
+      "title": "Share an activity to a space",
+      "description": "Share an activity (Also Known As 'post') to another space.",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "activity_id": { "type": "integer" },
+          "space_id": { "type": "integer" }
+        },
+        "required": ["activity_id", "space_id"]
+      },
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": false,
+        "idempotentHint": false,
+        "openWorldHint": false
+      },
+      "require_approval": true
+    },
+    {
+      "name": "get_activity_likers",
+      "title": "Get activity likers",
+      "description": "Get a paginated list of users who liked an activity (Also Known As 'post').",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "activity_id": { "type": "integer" },
+          "offset": { "type": "integer" },
+          "limit": { "type": "integer" }
+        },
+        "required": ["activity_id"]
+      },
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": false
+      }
+    },
+    {
+      "name": "like_the_activity",
+      "title": "Like an activity",
+      "description": "Like an activity (Also Known As 'post') by its ID.",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "activity_id": { "type": "integer" }
+        },
+        "required": ["activity_id"]
+      },
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": false
+      },
+      "require_approval": true
+    },
+    {
+      "name": "unlike_the_activity",
+      "title": "Un-like an activity",
+      "description": "Remove your like from an activity (Also Known As 'post') by its ID.",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "activity_id": { "type": "integer" }
+        },
+        "required": ["activity_id"]
+      },
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": true,
+        "idempotentHint": true,
+        "openWorldHint": false
+      },
+      "require_approval": true
+    },
+    {
+      "name": "get_category_tree",
+      "title": "Get the contents categorization tree",
+      "description": "get the available categories tree (including sub categories) which can be associated any type of content identified by its technical identifier. The returned category will describe either current user can manage contents association to the category (add/remove contents to the category) through the attribute `can_add_content`.",
+      "input_schema": {
+        "type": "object",
+        "properties": {}
+      },
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": false
+      }
+    },
+    {
+      "name": "get_categories_of_content",
+      "title": "Get categories of a content",
+      "description": "get the associated categories to a designated content. The returned category will describe either current user can manage contents association to the category (add/remove contents to the category) through the attribute `can_add_content`.",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "content_type": {
+            "type": "string",
+            "description": "Content Type: can be extracted from expressions like `/{content_type}:{content_id}`. Use the tool `get_content_types` to list them all if you don't know the exact content type name."
+          },
+          "content_id": {
+            "type": "string",
+            "description": "Content Id: can be extracted from expressions like `/{content_type}:{content_id}`"
+          }
+        },
+        "required": ["content_type", "content_id"]
+      },
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": false
+      }
+    },
+    {
+      "name": "add_content_to_category",
+      "title": "Associate  a category to a content",
+      "description": "Add a content into a category. The current user must have the permission (see `can_add_content` attribute in the category) to be able to make the operation on his/her behalf.",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "category_id": { "type": "integer" },
+          "content_type": {
+            "type": "string",
+            "description": "Content Type: can be extracted from expressions like `/{content_type}:{content_id}`. Use the tool `get_content_types` to list them all if you don't know the exact content type name."
+          },
+          "content_id": {
+            "type": "string",
+            "description": "Content Id: can be extracted from expressions like `/{content_type}:{content_id}`"
+          }
+        },
+        "required": ["category_id", "content_type", "content_id"]
+      },
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": false
+      },
+      "require_approval": true
+    },
+    {
+      "name": "remove_content_from_category",
+      "title": "Remove a category to a content",
+      "description": "Removes a content from an associated category. The current user must have the permission (see `can_add_content` attribute in the category) to be able to make the operation on his/her behalf.",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "category_id": { "type": "integer" },
+          "content_type": {
+            "type": "string",
+            "description": "Content Type: can be extracted from expressions like `/{content_type}:{content_id}`. Use the tool `get_content_types` to list them all if you don't know the exact content type name."
+          },
+          "content_id": {
+            "type": "string",
+            "description": "Content Id: can be extracted from expressions like `/{content_type}:{content_id}`"
+          }
+        },
+        "required": ["category_id", "content_type", "content_id"]
+      },
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": true,
+        "idempotentHint": true,
+        "openWorldHint": false
+      },
+      "require_approval": true
+    }
+  ]
+}

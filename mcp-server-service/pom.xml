@@ -31,59 +31,38 @@
   <artifactId>mcp-server-service</artifactId>
   <packaging>jar</packaging>
   <name>Meeds:: MCP Server - Service</name>
+  <properties>
+    <exo.test.coverage.ratio>0.28</exo.test.coverage.ratio>
+  </properties>
   <dependencies>
     <!-- Social API dependencies -->
     <dependency>
       <groupId>io.meeds.social</groupId>
       <artifactId>social-component-web</artifactId>
+      <scope>provided</scope>
+    </dependency>
+
+    <!-- Spring additional dependencies -->
+    <dependency>
+      <groupId>org.springframework.ai</groupId>
+      <artifactId>spring-ai-starter-mcp-server</artifactId>
+    </dependency>
+    <dependency>
+      <groupId>org.springframework.ai</groupId>
+      <artifactId>spring-ai-starter-mcp-server-webmvc</artifactId>
     </dependency>
 
     <!-- For OAuth Resource Server -->
     <dependency>
       <groupId>io.meeds.auth-server</groupId>
       <artifactId>auth-server-service</artifactId>
+      <scope>provided</scope>
     </dependency>
 
-    <!-- Spring AI Autoconfigure Jars -->
+    <!-- commonmark: Markdown to HTML Library -->
     <dependency>
-      <groupId>org.springframework.ai</groupId>
-      <artifactId>spring-ai-autoconfigure-mcp-server-common</artifactId>
-      <exclusions>
-        <exclusion>
-          <groupId>*</groupId>
-          <artifactId>*</artifactId>
-        </exclusion>
-      </exclusions>
-    </dependency>
-    <dependency>
-      <groupId>org.springframework.ai</groupId>
-      <artifactId>spring-ai-autoconfigure-mcp-server-webmvc</artifactId>
-      <exclusions>
-        <exclusion>
-          <groupId>*</groupId>
-          <artifactId>*</artifactId>
-        </exclusion>
-      </exclusions>
-    </dependency>
-    <dependency>
-      <groupId>org.springframework.ai</groupId>
-      <artifactId>spring-ai-autoconfigure-model-tool</artifactId>
-      <exclusions>
-        <exclusion>
-          <groupId>*</groupId>
-          <artifactId>*</artifactId>
-        </exclusion>
-      </exclusions>
-    </dependency>
-    <dependency>
-      <groupId>org.springframework.ai</groupId>
-      <artifactId>spring-ai-autoconfigure-retry</artifactId>
-      <exclusions>
-        <exclusion>
-          <groupId>*</groupId>
-          <artifactId>*</artifactId>
-        </exclusion>
-      </exclusions>
+      <groupId>org.commonmark</groupId>
+      <artifactId>commonmark</artifactId>
     </dependency>
   </dependencies>
   <build>
