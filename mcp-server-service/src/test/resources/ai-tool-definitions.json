@@ -1,0 +1,61 @@
+{
+  "tools": [
+    {
+      "name": "test_read_tool",
+      "title": "Test Read Tool",
+      "description": "Read-only MCP test tool",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "message": {
+            "type": "string"
+          }
+        },
+        "required": ["message"]
+      },
+      "require_approval": false,
+      "disabled": false,
+      "annotations": {
+        "readOnlyHint": true
+      }
+    },
+    {
+      "name": "test_write_tool",
+      "title": "Test Write Tool",
+      "description": "Write MCP test tool",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "message": {
+            "type": "string"
+          }
+        },
+        "required": ["message"]
+      },
+      "require_approval": false,
+      "disabled": false,
+      "annotations": {
+        "readOnlyHint": false
+      }
+    },
+    {
+      "name": "test_approval_tool",
+      "title": "Test Approval Tool",
+      "description": "Approval MCP test tool",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "message": {
+            "type": "string"
+          }
+        },
+        "required": ["message"]
+      },
+      "require_approval": true,
+      "disabled": false,
+      "annotations": {
+        "readOnlyHint": false
+      }
+    }
+  ]
+}
