@@ -42,6 +42,7 @@ import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
 
 import org.apache.commons.lang3.StringUtils;
+import org.cometd.bayeux.MarkedReference;
 import org.cometd.bayeux.server.ServerChannel;
 import org.cometd.bayeux.server.ServerMessage.Mutable;
 import org.cometd.bayeux.server.ServerSession;
@@ -81,23 +82,30 @@ public class McpToolApprovalService {
   @Autowired
   private ListenerService                      listenerService;
 
-  @Value("${meeads.mcp.tool.userApproval.timeout:120000}")
+  @Value("${meeds.mcp.tool.userApproval.timeout:120000}")
   private long                                 timeout;
 
-  @Value("${meeads.mcp.tool.userApproval.timeoutCheckInterval:5000}")
+  @Value("${meeds.mcp.tool.userApproval.timeoutCheckInterval:5000}")
   private long                                 timeoutCheckInterval;
 
-  private Map<String, UserToolApprovalRequest> userRequests   = new ConcurrentHashMap<>();
-
   private Map<String, UserToolApprovalAnswer>  userAnswers    = new ConcurrentHashMap<>();
+
+  private Map<String, UserToolApprovalRequest> userRequests   = new ConcurrentHashMap<>();
 
   private ScheduledExecutorService             executorService;
 
   @PostConstruct
   public void init() {
-    ServerChannel serverChannel = continuationBayeux.createChannelIfAbsent(COMETD_CHANNEL).getReference();
-    serverChannel.addListener(new WebSocketServerListener());
+    MarkedReference<ServerChannel> channelIfAbsent = continuationBayeux.createChannelIfAbsent(COMETD_CHANNEL);
+    if (channelIfAbsent != null) {
+      ServerChannel serverChannel = channelIfAbsent.getReference();
+      serverChannel.addListener(new WebSocketServerListener());
+    }
 
+    if (executorService != null) {
+      // For tests by example
+      executorService.shutdownNow();
+    }
     executorService = Executors.newScheduledThreadPool(1);
     executorService.scheduleAtFixedRate(() -> {
       Collection<UserToolApprovalRequest> requests = userRequests.values();

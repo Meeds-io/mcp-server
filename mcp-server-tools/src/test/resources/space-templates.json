@@ -1,0 +1,26 @@
+{
+   "descriptors":[
+      {
+         "id":"community",
+         "names":{
+            "en":"Community"
+         },
+         "descriptions":{
+            "en":"Community Space Template"
+         },
+         "bannerPath":"jar:/images/defaultSpaceBanner.webp",
+         "icon": "fa-people-carry",
+         "enabled": true,
+         "system": true,
+         "layout": "community",
+         "spaceFields": ["name", "properties", "invitation"],
+         "permissions": ["*:/platform/users"],
+         "spaceLayoutPermissions": ["*:/platform/administrators"],
+         "spaceDeletePermissions": ["spaceAdmin"],
+         "spacePublicSitePermissions": ["spaceAdmin"],
+         "spaceDefaultVisibility": "private",
+         "spaceDefaultRegistration": "validation",
+         "spaceAllowContentCreation": false
+      }
+   ]
+}

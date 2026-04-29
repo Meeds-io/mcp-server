@@ -57,6 +57,7 @@ import io.meeds.mcp.server.model.SimpleToolDefinition;
 import io.meeds.mcp.server.model.ToolDefinitionMethods;
 import io.meeds.mcp.server.util.McpToolUtils;
 
+import lombok.Setter;
 import lombok.SneakyThrows;
 import lombok.Synchronized;
 import lombok.extern.slf4j.Slf4j;
@@ -99,12 +100,14 @@ public class McpServerToolService {
   private ListenerService                   listenerService;
 
   @Value("${meeds.mcp.tools.forceReimport:false}")
+  @Setter
   private boolean                           forceReimport;
 
   private Boolean                           mcpEnabled;
 
   private List<ToolListener>                toolListeners                 = new ArrayList<>();
 
+  @Setter
   private Map<String, SimpleToolDefinition> toolDefinitions;
 
   public SimpleToolDefinition getToolDefinitionByMethodName(String methodName) {
