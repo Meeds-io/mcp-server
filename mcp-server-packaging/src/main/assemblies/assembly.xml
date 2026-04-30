@@ -74,6 +74,7 @@
         <exclude>*:spring-web</exclude>
         <exclude>*:spring-expression</exclude>
         <exclude>*:spring-boot-starter-*:*</exclude>
+        <exclude>org.apache.tomcat.embed:*:*</exclude>
       </excludes>
       <scope>compile</scope>
       <outputFileNameMapping>${artifact.artifactId}.jar</outputFileNameMapping>
