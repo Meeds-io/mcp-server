@@ -41,7 +41,7 @@ public class McpOAuthResourceRedirectWebFilter implements RootWebappFilterPlugin
 
   @Override
   public boolean matches(HttpServletRequest httpRequest, HttpServletResponse httpResponse) {
-    return REDIRECT_URIS.containsKey(httpRequest.getRequestURI());
+    return getRedirectUri(httpRequest.getRequestURI()) != null;
   }
 
   @Override
@@ -53,8 +53,17 @@ public class McpOAuthResourceRedirectWebFilter implements RootWebappFilterPlugin
     httpResponse.setHeader(HttpHeaders.ACCESS_CONTROL_EXPOSE_HEADERS, "*");
     httpResponse.setHeader(HttpHeaders.ACCESS_CONTROL_ALLOW_METHODS, "*");
     if (httpRequest.getMethod().equalsIgnoreCase("GET")) {
-      httpResponse.sendRedirect(REDIRECT_URIS.get(httpRequest.getRequestURI()));
+      httpResponse.sendRedirect(getRedirectUri(httpRequest.getRequestURI()));
     }
+  }
+
+  private String getRedirectUri(String requestUri) {
+    return REDIRECT_URIS.keySet()
+                        .stream()
+                        .filter(requestUri::startsWith)
+                        .map(REDIRECT_URIS::get)
+                        .findFirst()
+                        .orElse(null);
   }
 
 }
