@@ -40,16 +40,30 @@ public class UserPromptContext {
 
   private Locale                                      locale;
 
-  List<String>                                        contentTypes;
+  private List<String>                                contentTypes;
 
-  public static void set(String conversationId,
+  private List<String>                                tags;
+
+  private List<Long>                                  spaceIds;
+
+  public static void set(String conversationId, // NOSONAR
                          Long retryMessageId,
                          String retryType,
                          String agentNameId,
                          String userName,
                          Locale locale,
-                         List<String> contentTypes) {
-    CONTEXT.set(new UserPromptContext(conversationId, retryMessageId, retryType, agentNameId, userName, locale, contentTypes));
+                         List<String> contentTypes,
+                         List<String> tags,
+                         List<Long> spaceIds) {
+    CONTEXT.set(new UserPromptContext(conversationId,
+                                      retryMessageId,
+                                      retryType,
+                                      agentNameId,
+                                      userName,
+                                      locale,
+                                      contentTypes,
+                                      tags,
+                                      spaceIds));
   }
 
   public static void set(UserPromptContext userPromptContext) {
@@ -96,6 +110,16 @@ public class UserPromptContext {
   public static List<String> contentTypes() {
     UserPromptContext userPromptContext = CONTEXT.get();
     return userPromptContext == null ? null : userPromptContext.contentTypes;
+  }
+
+  public static List<String> tags() {
+    UserPromptContext userPromptContext = CONTEXT.get();
+    return userPromptContext == null ? null : userPromptContext.tags;
+  }
+
+  public static List<Long> spaceIds() {
+    UserPromptContext userPromptContext = CONTEXT.get();
+    return userPromptContext == null ? null : userPromptContext.spaceIds;
   }
 
   public static Locale locale() {
