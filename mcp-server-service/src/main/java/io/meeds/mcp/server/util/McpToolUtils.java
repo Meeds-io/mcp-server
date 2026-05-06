@@ -280,11 +280,12 @@ public class McpToolUtils {
   public static TimeZone getUserTimeZone() {
     OrganizationService orgService = ExoContainerContext.getService(OrganizationService.class);
     UserProfile userProfile = orgService.getUserProfileHandler().findUserProfileByName(getCurrentUserName());
-    String timeZone = userProfile.getAttribute(PROFILE_TIMEZONE);
-    if (StringUtils.isNotBlank(timeZone)) {
+    String timeZone = userProfile == null ? null : userProfile.getAttribute(PROFILE_TIMEZONE);
+    if (StringUtils.isBlank(timeZone)) {
+      return null;
+    } else {
       return TimeZone.getTimeZone(timeZone);
     }
-    return null;
   }
 
 }
