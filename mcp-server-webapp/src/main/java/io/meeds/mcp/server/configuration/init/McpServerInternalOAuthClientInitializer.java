@@ -41,7 +41,7 @@ import org.springframework.security.oauth2.server.authorization.settings.TokenSe
 import org.springframework.stereotype.Component;
 
 import io.meeds.common.ContainerTransactional;
-import io.meeds.mcp.server.configuration.model.McpServerOAuthClientProperties;
+import io.meeds.mcp.server.model.McpServerOAuthClientProperties;
 import io.meeds.mcp.server.service.McpInternalOAuthClientService;
 import io.meeds.oauth2.server.service.OAuthClientService;
 
