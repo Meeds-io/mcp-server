@@ -49,8 +49,6 @@ import org.springframework.security.config.annotation.web.builders.HttpSecurity;
 import org.springframework.security.core.Authentication;
 import org.springframework.security.core.GrantedAuthority;
 import org.springframework.security.core.context.SecurityContextHolder;
-import org.springframework.security.oauth2.server.resource.introspection.OpaqueTokenIntrospector;
-import org.springframework.security.web.AuthenticationEntryPoint;
 import org.springframework.security.web.SecurityFilterChain;
 import org.springframework.web.servlet.function.RouterFunction;
 import org.springframework.web.servlet.function.ServerResponse;
@@ -59,11 +57,14 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 
 import org.exoplatform.portal.config.UserACL;
 
+import io.meeds.mcp.server.model.McpServerOAuthClientProperties;
+import io.meeds.mcp.server.plugin.McpServerOauthOpaqueTokenIntrospector;
 import io.meeds.mcp.server.plugin.McpToolPlugin;
 import io.meeds.mcp.server.service.McpInternalOAuthClientService;
 import io.meeds.mcp.server.service.McpServerToolService;
 import io.meeds.mcp.server.service.McpToolApprovalService;
 import io.meeds.mcp.server.service.McpToolCallbackProviderService;
+import io.meeds.mcp.server.web.McpBearerAuthenticationEntryPoint;
 
 import io.modelcontextprotocol.json.jackson.JacksonMcpJsonMapper;
 import io.modelcontextprotocol.server.McpAsyncServer;
@@ -86,6 +87,7 @@ import reactor.core.publisher.Mono;
 @EnableConfigurationProperties({
   McpServerProperties.class,
   McpServerStreamableHttpProperties.class,
+  McpServerOAuthClientProperties.class,
 })
 @Slf4j
 public class McpServiceIntegrationTestConfiguration {
@@ -97,9 +99,9 @@ public class McpServiceIntegrationTestConfiguration {
   @Order(1)
   SecurityFilterChain mcpSecurityFilterChain(HttpSecurity http,
                                              McpInternalOAuthClientService aiOAuthService,
-                                             OpaqueTokenIntrospector opaqueTokenIntrospector,
+                                             McpServerOauthOpaqueTokenIntrospector opaqueTokenIntrospector,
                                              @Qualifier("mcpServerAuthenticationEntryPoint")
-                                             AuthenticationEntryPoint authenticationEntryPoint) throws Exception {
+                                             McpBearerAuthenticationEntryPoint authenticationEntryPoint) throws Exception {
     return http.securityMatcher("/**")
                .csrf(csrf -> csrf.disable())
                .cors(Customizer.withDefaults())

@@ -30,11 +30,11 @@ import org.springframework.context.annotation.Configuration;
 
 import org.exoplatform.portal.config.UserACL;
 
-import io.meeds.mcp.server.configuration.model.McpServerOAuthClientProperties;
+import io.meeds.mcp.server.model.McpServerOAuthClientProperties;
 import io.meeds.mcp.server.plugin.McpToolPlugin;
+import io.meeds.mcp.server.service.McpServerToolService;
 import io.meeds.mcp.server.service.McpToolApprovalService;
 import io.meeds.mcp.server.service.McpToolCallbackProviderService;
-import io.meeds.mcp.server.service.McpServerToolService;
 
 import lombok.extern.slf4j.Slf4j;
 
