@@ -18,46 +18,49 @@
  */
 package io.meeds.mcp.server.plugin;
 
+import static io.meeds.mcp.server.util.McpToolUtils.TOOL_READ_SCOPE;
+import static io.meeds.mcp.server.util.McpToolUtils.TOOL_WRITE_APPROVE_SCOPE;
+import static io.meeds.mcp.server.util.McpToolUtils.TOOL_WRITE_SCOPE;
+
 import java.util.List;
 
-import org.apache.commons.lang3.StringUtils;
+import org.apache.commons.collections4.CollectionUtils;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
-import org.springframework.security.core.Authentication;
-import org.springframework.security.oauth2.core.AuthorizationGrantType;
 import org.springframework.security.oauth2.server.authorization.token.OAuth2TokenContext;
 import org.springframework.stereotype.Component;
 
-import io.meeds.mcp.server.service.McpInternalOAuthClientService;
-import io.meeds.oauth2.server.configuration.plugin.OAuthJwtAudienceProvider;
-import io.meeds.oauth2.server.service.OAuthJwtCustomizerService;
+import io.meeds.oauth2.server.configuration.plugin.OAuthAccessTokenAudienceProvider;
+import io.meeds.oauth2.server.service.OAuthAccessTokenCustomizerService;
 
 import jakarta.annotation.PostConstruct;
 
 @Component
-public class McpServerOAuthInternalJwtAudienceProvider implements OAuthJwtAudienceProvider {
+public class McpServerOAuthAccessTokenAudienceProvider implements OAuthAccessTokenAudienceProvider {
+
+  private static final String[]             ALLOWED_SCOPES = {
+    TOOL_READ_SCOPE,
+    TOOL_WRITE_SCOPE,
+    TOOL_WRITE_APPROVE_SCOPE
+  };
 
   @Autowired
-  private OAuthJwtCustomizerService     oAuthJwtCustomizerService;
-
-  @Autowired
-  private McpInternalOAuthClientService aiOAuthService;
+  private OAuthAccessTokenCustomizerService oAuthAccessTokenCustomizerService;
 
   @Value("${meeds.oauth.mcp-server-url}")
-  private String                        mcpBaseUrl;
+  private String                            mcpBaseUrl;
 
   @PostConstruct
   public void init() {
-    oAuthJwtCustomizerService.addProvider(this);
+    oAuthAccessTokenCustomizerService.addProvider(this);
   }
 
   public List<String> provideAudiences(OAuth2TokenContext context) {
-    Authentication principal = context.getPrincipal();
-    if (AuthorizationGrantType.CLIENT_CREDENTIALS.getValue().equals(context.getAuthorizationGrantType().getValue())
-        && StringUtils.equals(principal.getName(), aiOAuthService.getClientRegistrationId())) {
+    if (CollectionUtils.containsAny(context.getAuthorizedScopes(), ALLOWED_SCOPES)) {
       return List.of(mcpBaseUrl);
+    } else {
+      return null; // NOSONAR
     }
-    return null; // NOSONAR
   }
 
 }

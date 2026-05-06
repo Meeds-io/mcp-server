@@ -18,6 +18,9 @@
  */
 package io.meeds.mcp.server.security;
 
+import static io.meeds.mcp.server.util.McpToolUtils.TOOL_READ_SCOPE;
+import static io.meeds.mcp.server.util.McpToolUtils.TOOL_WRITE_APPROVE_SCOPE;
+import static io.meeds.mcp.server.util.McpToolUtils.TOOL_WRITE_SCOPE;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.junit.Assert.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -64,7 +67,6 @@ import org.springframework.security.oauth2.server.authorization.client.Registere
 import org.springframework.security.oauth2.server.authorization.settings.ClientSettings;
 import org.springframework.security.oauth2.server.authorization.settings.OAuth2TokenFormat;
 import org.springframework.security.oauth2.server.authorization.settings.TokenSettings;
-import org.springframework.security.oauth2.server.resource.introspection.OpaqueTokenIntrospector;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.MvcResult;
@@ -73,6 +75,7 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 
 import io.meeds.mcp.server.model.UserToolExecution;
+import io.meeds.mcp.server.plugin.McpServerOauthOpaqueTokenIntrospector;
 import io.meeds.mcp.server.plugin.McpToolPlugin;
 import io.meeds.mcp.server.service.McpServerToolService;
 import io.meeds.mcp.server.service.McpToolApprovalService;
@@ -90,7 +93,7 @@ import lombok.extern.slf4j.Slf4j;
 @Slf4j
 class McpServerOAuthIntegrationTest extends McpServiceIntegrationTestSupport {
 
-  private static final String        INPUT_SCHEMA             = """
+  private static final String        INPUT_SCHEMA            = """
       {
         "type": "object",
         "properties": {
@@ -102,47 +105,41 @@ class McpServerOAuthIntegrationTest extends McpServiceIntegrationTestSupport {
       }
       """;
 
-  private static final String        MESSAGE                  = "hello";
+  private static final String        MESSAGE                 = "hello";
 
-  private static final String        WRITE_MESSAGE            = "write:hello";
+  private static final String        WRITE_MESSAGE           = "write:hello";
 
-  private static final String        USERNAME                 = "root";
+  private static final String        USERNAME                = "root";
 
-  private static final String        SUB_PARAM                = "sub";
+  private static final String        SUB_PARAM               = "sub";
 
-  private static final String        ACTIVE_PARAM             = "active";
+  private static final String        ACTIVE_PARAM            = "active";
 
-  private static final String        ACCEPT_HEADER_VALUE      = "application/json, text/event-stream";
+  private static final String        ACCEPT_HEADER_VALUE     = "application/json, text/event-stream";
 
-  private static final String        TEST_READ_TOOL_NAME      = "test_read_tool";
+  private static final String        TEST_READ_TOOL_NAME     = "test_read_tool";
 
-  private static final String        TEST_APPROVAL_TOOL_NAME  = "test_approval_tool";
+  private static final String        TEST_APPROVAL_TOOL_NAME = "test_approval_tool";
 
-  private static final String        TEST_WRITE_TOOL_NAME     = "test_write_tool";
+  private static final String        TEST_WRITE_TOOL_NAME    = "test_write_tool";
 
-  private static final String        IS_ERROR_FALSE_MESSAGE   = "\"isError\":false";
+  private static final String        IS_ERROR_FALSE_MESSAGE  = "\"isError\":false";
 
-  private static final String        MCP_SESSION_ID_HEADER    = "Mcp-Session-Id";
+  private static final String        MCP_SESSION_ID_HEADER   = "Mcp-Session-Id";
 
-  private static final String        TOKEN_ENDPOINT           = "/oauth2/token";
+  private static final String        TOKEN_ENDPOINT          = "/oauth2/token";
 
-  private static final String        MCP_ENDPOINT             = "/mcp";
+  private static final String        MCP_ENDPOINT            = "/mcp";
 
-  private static final String        CLIENT_TEST_SECRET       = "test_secret";
+  private static final String        CLIENT_TEST_SECRET      = "test_secret";
 
-  private static final String        GRANT_TYPE_PARAM         = "grant_type";
+  private static final String        GRANT_TYPE_PARAM        = "grant_type";
 
-  private static final String        SCOPE_PARAM              = "scope";
+  private static final String        SCOPE_PARAM             = "scope";
 
-  private static final String        ACCESS_TOKEN_PATH        = "access_token";
+  private static final String        ACCESS_TOKEN_PATH       = "access_token";
 
-  private static final String        TOOL_READ_SCOPE          = "mcp.tools.read";
-
-  private static final String        TOOL_WRITE_SCOPE         = "mcp.tools.write";
-
-  private static final String        TOOL_WRITE_APPROVE_SCOPE = "mcp.tools.writeWithApproval";
-
-  private static final String        INITIALIZE_REQUEST       = """
+  private static final String        INITIALIZE_REQUEST      = """
       {
         "jsonrpc": "2.0",
         "id": "init",
@@ -160,7 +157,7 @@ class McpServerOAuthIntegrationTest extends McpServiceIntegrationTestSupport {
       }
       """;
 
-  private final ObjectMapper         objectMapper             = new ObjectMapper();
+  private final ObjectMapper         objectMapper            = new ObjectMapper();
 
   @Autowired
   private MockMvc                    mvc;
@@ -178,7 +175,7 @@ class McpServerOAuthIntegrationTest extends McpServiceIntegrationTestSupport {
   private McpToolApprovalService     mcpToolApprovalService;
 
   @MockitoBean
-  private OpaqueTokenIntrospector    opaqueTokenIntrospector;
+  private McpServerOauthOpaqueTokenIntrospector opaqueTokenIntrospector;
 
   private String                     currentScopes;
 
