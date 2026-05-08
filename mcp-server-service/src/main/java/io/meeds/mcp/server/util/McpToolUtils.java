@@ -85,8 +85,6 @@ public class McpToolUtils {
 
   public static final String        AI_AGENT_TOOL_CONVERSATION_ID_PARAM           = "conversationId";
 
-  public static final String        RETRY_MESSAGE_ID_PARAM                        = "retryMessageId";
-
   public static final String        AI_AGENT_TOOL_INPUT_PARAM                     = "toolInput";
 
   public static final String        AI_AGENT_TOOL_OUTPUT_PARAM                    = "toolOutput";
