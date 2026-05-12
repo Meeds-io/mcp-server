@@ -37,8 +37,6 @@ import io.meeds.mcp.server.plugin.McpServerOauthOpaqueTokenIntrospector;
 import io.meeds.mcp.server.web.McpBearerAuthenticationEntryPoint;
 import io.meeds.oauth2.server.web.OAuthCorsConfigurationSource;
 
-import io.modelcontextprotocol.spec.HttpHeaders;
-
 @Configuration
 @EnableMethodSecurity
 public class McpServerSecurityConfiguration {
@@ -58,9 +56,9 @@ public class McpServerSecurityConfiguration {
   };
 
   private static final String[] ALLOWED_HEADERS = {
-    HttpHeaders.PROTOCOL_VERSION,
-    HttpHeaders.MCP_SESSION_ID,
-    HttpHeaders.LAST_EVENT_ID
+    io.modelcontextprotocol.spec.HttpHeaders.PROTOCOL_VERSION,
+    io.modelcontextprotocol.spec.HttpHeaders.MCP_SESSION_ID,
+    io.modelcontextprotocol.spec.HttpHeaders.LAST_EVENT_ID
   };
 
   private static final String[] ALLOWED_SCOPES  = {
@@ -70,9 +68,10 @@ public class McpServerSecurityConfiguration {
   };
 
   private static final String[] EXPOSED_HEADERS = {
-    HttpHeaders.PROTOCOL_VERSION,
-    HttpHeaders.MCP_SESSION_ID,
-    HttpHeaders.LAST_EVENT_ID
+    io.modelcontextprotocol.spec.HttpHeaders.PROTOCOL_VERSION,
+    io.modelcontextprotocol.spec.HttpHeaders.MCP_SESSION_ID,
+    io.modelcontextprotocol.spec.HttpHeaders.LAST_EVENT_ID,
+    org.springframework.http.HttpHeaders.WWW_AUTHENTICATE
   };
 
   @Bean
