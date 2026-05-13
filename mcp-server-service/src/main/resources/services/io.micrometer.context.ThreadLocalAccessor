@@ -1,3 +1,2 @@
 io.meeds.mcp.server.context.ExoContainerContextThreadLocalAccessor
 io.meeds.mcp.server.context.ConversationStateThreadLocalAccessor
-io.meeds.mcp.server.context.UserPromptContextThreadLocalAccessor

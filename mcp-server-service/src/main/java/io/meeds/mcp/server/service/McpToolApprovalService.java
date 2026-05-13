@@ -30,12 +30,10 @@ import static io.meeds.mcp.server.util.McpToolUtils.AI_AGENT_TOOL_OUTPUT_PARAM;
 import static io.meeds.mcp.server.util.McpToolUtils.AI_AGENT_TOOL_START_TIME_PARAM;
 import static io.meeds.mcp.server.util.McpToolUtils.AI_AGENT_TOOL_TYPE_PARAM;
 import static io.meeds.mcp.server.util.McpToolUtils.AI_AGENT_TOOL_USERNAME_PARAM;
-import static io.meeds.mcp.server.util.McpToolUtils.RETRY_MESSAGE_ID_PARAM;
 
 import java.util.Collection;
 import java.util.HashMap;
 import java.util.Map;
-import java.util.Objects;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
@@ -55,7 +53,6 @@ import org.exoplatform.services.listener.ListenerService;
 import org.exoplatform.ws.frameworks.cometd.ContinuationService;
 
 import io.meeds.mcp.server.constant.UserToolRequestType;
-import io.meeds.mcp.server.model.UserPromptContext;
 import io.meeds.mcp.server.model.UserToolApprovalAnswer;
 import io.meeds.mcp.server.model.UserToolApprovalRequest;
 import io.meeds.mcp.server.model.UserToolExecution;
@@ -160,7 +157,6 @@ public class McpToolApprovalService {
     Map<String, String> parameters = new HashMap<>();
     parameters.put(AI_AGENT_TOOL_ID_PARAM, toolExecution.getId());
     parameters.put(AI_AGENT_TOOL_CONVERSATION_ID_PARAM, StringUtils.defaultIfBlank(toolExecution.getConversationId(), ""));
-    parameters.put(RETRY_MESSAGE_ID_PARAM, Objects.toString(UserPromptContext.retryMessageId(), ""));
     parameters.put(AI_AGENT_TOOL_START_TIME_PARAM, String.valueOf(toolExecution.getStartTime()));
     parameters.put(AI_AGENT_TOOL_DURATION_PARAM, String.valueOf(System.currentTimeMillis() - toolExecution.getStartTime()));
     parameters.put(AI_AGENT_TOOL_TYPE_PARAM, toolExecution.getToolExecutionType().name());
@@ -190,8 +186,6 @@ public class McpToolApprovalService {
                                             StringUtils.defaultIfBlank(toolName, ""),
                                             AI_AGENT_TOOL_INPUT_PARAM,
                                             StringUtils.defaultIfBlank(toolInput, ""),
-                                            RETRY_MESSAGE_ID_PARAM,
-                                            Objects.toString(UserPromptContext.retryMessageId(), ""),
                                             AI_AGENT_TOOL_USERNAME_PARAM,
                                             username);
     continuationService.sendMessage(username,
