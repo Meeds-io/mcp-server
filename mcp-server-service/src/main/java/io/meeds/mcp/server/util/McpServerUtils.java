@@ -23,8 +23,8 @@ import static org.springframework.ai.mcp.McpToolUtils.TOOL_CONTEXT_MCP_EXCHANGE_
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
-import java.util.Objects;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.function.BiFunction;
 import java.util.stream.Collectors;
 
 import org.apache.commons.collections4.CollectionUtils;
@@ -32,20 +32,14 @@ import org.springframework.ai.chat.model.ToolContext;
 import org.springframework.ai.model.ModelOptionsUtils;
 import org.springframework.ai.tool.ToolCallback;
 import org.springframework.ai.tool.ToolCallbackProvider;
-import org.springframework.ai.tool.definition.ToolDefinition;
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.util.MimeType;
-
-import io.meeds.mcp.server.model.SimpleToolDefinition;
 
 import io.modelcontextprotocol.server.McpServerFeatures;
 import io.modelcontextprotocol.server.McpSyncServerExchange;
 import io.modelcontextprotocol.spec.McpSchema;
 import io.modelcontextprotocol.spec.McpSchema.CallToolRequest;
 import io.modelcontextprotocol.spec.McpSchema.Role;
-import io.modelcontextprotocol.spec.McpSchema.Tool;
-import io.modelcontextprotocol.spec.McpSchema.Tool.Builder;
-import io.modelcontextprotocol.spec.McpSchema.ToolAnnotations;
 import lombok.extern.slf4j.Slf4j;
 import reactor.core.publisher.Mono;
 import reactor.core.scheduler.Schedulers;
@@ -130,13 +124,13 @@ public class McpServerUtils {
 
   public static McpServerFeatures.SyncToolSpecification toSyncToolSpecification(ToolCallback toolCallback,
                                                                                 MimeType mimeType) {
-
-    ToolSpecification sharedSpec = toToolSpecification(toolCallback, mimeType);
-    return new McpServerFeatures.SyncToolSpecification(sharedSpec.getTool(),
-                                                       (exchange, map) -> sharedSpec.callTool(exchange,
-                                                                                              new CallToolRequest(sharedSpec.getToolName(),
-                                                                                                                  map)),
-                                                       sharedSpec::callTool);
+    var sharedSpec = toSharedSyncToolSpecification(toolCallback, mimeType);
+    return McpServerFeatures.SyncToolSpecification.builder()
+                                                  .tool(sharedSpec.tool())
+                                                  .callHandler((exchange, request) -> sharedSpec.sharedHandler()
+                                                                                                .apply(exchange,
+                                                                                                       request))
+                                                  .build();
   }
 
   public static MimeType getMimeType(String toolName) {
@@ -147,76 +141,43 @@ public class McpServerUtils {
     }
   }
 
-  private static ToolSpecification toToolSpecification(ToolCallback toolCallback, MimeType mimeType) {
-    return new ToolSpecification(toolCallback, mimeType);
-  }
+  private static SharedSyncToolSpecification toSharedSyncToolSpecification(ToolCallback toolCallback,
+                                                                           MimeType mimeType) {
 
-  public static class ToolSpecification {
+    var tool = McpSchema.Tool.builder()
+                             .name(toolCallback.getToolDefinition().name())
+                             .description(toolCallback.getToolDefinition().description())
+                             .inputSchema(ModelOptionsUtils.jsonToObject(toolCallback.getToolDefinition().inputSchema(),
+                                                                         McpSchema.JsonSchema.class))
+                             .build();
 
-    private final ToolCallback toolCallback;
-
-    private final MimeType     mimeType;
-
-    private Tool               tool;
-
-    public ToolSpecification(ToolCallback toolCallback, MimeType mimeType) {
-      this.toolCallback = toolCallback;
-      this.mimeType = mimeType;
-    }
-
-    public Tool getTool() {
-      if (tool == null) {
-        ToolDefinition toolDefinition = toolCallback.getToolDefinition();
-        Builder toolBuilder = McpSchema.Tool.builder()
-                                            .name(toolDefinition.name())
-                                            .description(toolDefinition.description())
-                                            .inputSchema(ModelOptionsUtils.jsonToObject(toolDefinition.inputSchema(),
-                                                                                        McpSchema.JsonSchema.class));
-        if (toolDefinition instanceof SimpleToolDefinition simpleToolDefinition) {
-          toolBuilder.title(simpleToolDefinition.getTitle());
-          ToolAnnotations annotations = simpleToolDefinition.getAnnotations();
-          if (annotations != null) {
-            toolBuilder.annotations(new ToolAnnotations(Objects.toString(annotations.title(),
-                                                                         simpleToolDefinition.getTitle()),
-                                                        annotations.readOnlyHint(),
-                                                        annotations.destructiveHint(),
-                                                        annotations.idempotentHint(),
-                                                        annotations.openWorldHint(),
-                                                        annotations.returnDirect()));
-          }
-        } else {
-          log.warn("Too Definition '{}' seems not having associated annotations", toolDefinition.name());
-        }
-        tool = toolBuilder.build();
-      }
-      return tool;
-    }
-
-    public String getToolName() {
-      return getTool().name();
-    }
-
-    public McpSchema.CallToolResult callTool(Object exchangeOrContext, CallToolRequest request) {
+    return new SharedSyncToolSpecification(tool, (exchangeOrContext, request) -> {
       try {
         String callResult = toolCallback.call(ModelOptionsUtils.toJsonString(request.arguments()),
                                               new ToolContext(Map.of(TOOL_CONTEXT_MCP_EXCHANGE_KEY, exchangeOrContext)));
         if (mimeType != null && mimeType.toString().startsWith("image")) {
           McpSchema.Annotations annotations = new McpSchema.Annotations(List.of(Role.ASSISTANT), null);
-          return new McpSchema.CallToolResult.Builder().content(List.of(new McpSchema.ImageContent(annotations,
-                                                                                                   callResult,
-                                                                                                   mimeType.toString())))
-                                                       .isError(false)
-                                                       .build();
+          return McpSchema.CallToolResult.builder()
+                                         .content(List.of(new McpSchema.ImageContent(annotations,
+                                                                                     callResult,
+                                                                                     mimeType.toString())))
+                                         .isError(false)
+                                         .build();
         }
-        return new McpSchema.CallToolResult.Builder().content(List.of(new McpSchema.TextContent(callResult)))
-                                                     .isError(false)
-                                                     .build();
+        return McpSchema.CallToolResult.builder()
+                                       .content(List.of(new McpSchema.TextContent(callResult)))
+                                       .isError(false)
+                                       .build();
       } catch (Exception e) {
-        return new McpSchema.CallToolResult.Builder().content(List.of(new McpSchema.TextContent(e.getMessage())))
-                                                     .isError(true)
-                                                     .build();
+        return McpSchema.CallToolResult.builder()
+                                       .content(List.of(new McpSchema.TextContent(e.getMessage())))
+                                       .isError(true)
+                                       .build();
       }
-    }
+    });
   }
 
+  private record SharedSyncToolSpecification(McpSchema.Tool tool,
+                                             BiFunction<Object, CallToolRequest, McpSchema.CallToolResult> sharedHandler) {
+  }
 }

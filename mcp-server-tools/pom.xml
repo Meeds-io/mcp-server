@@ -37,6 +37,13 @@
     <exo.test.coverage.ratio>0.66</exo.test.coverage.ratio>
   </properties>
   <dependencies>
+    <!-- Social API dependencies -->
+    <dependency>
+      <groupId>io.meeds.social</groupId>
+      <artifactId>social-component-core</artifactId>
+      <scope>provided</scope>
+    </dependency>
+
     <dependency>
       <groupId>${project.groupId}</groupId>
       <artifactId>mcp-server-service</artifactId>
