@@ -41,10 +41,13 @@ import lombok.NoArgsConstructor;
 @AllArgsConstructor
 public class SimpleToolDefinition implements ToolDefinition {
 
+  @JsonProperty("name")
   private String          name;
 
+  @JsonProperty("title")
   private String          title;
 
+  @JsonProperty("description")
   private String          description;
 
   @JsonProperty("input_schema")
@@ -62,11 +65,13 @@ public class SimpleToolDefinition implements ToolDefinition {
   private ToolAnnotations annotations;
 
   public SimpleToolDefinition(SimpleToolDefinition simpleToolDefinition) {
-    this.name = simpleToolDefinition.name;
-    this.description = simpleToolDefinition.description;
-    this.inputSchema = simpleToolDefinition.inputSchema;
-    this.requireApproval = simpleToolDefinition.requireApproval;
-    this.disabled = simpleToolDefinition.disabled;
+    this(simpleToolDefinition.name,
+         simpleToolDefinition.title,
+         simpleToolDefinition.description,
+         simpleToolDefinition.inputSchema,
+         simpleToolDefinition.requireApproval,
+         simpleToolDefinition.disabled,
+         simpleToolDefinition.annotations);
   }
 
   @Override

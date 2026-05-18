@@ -24,6 +24,7 @@ import java.util.List;
 
 import org.apache.commons.collections4.CollectionUtils;
 import org.apache.commons.lang3.StringUtils;
+import org.apache.commons.lang3.Strings;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.security.core.GrantedAuthority;
@@ -123,10 +124,10 @@ public class McpServerOauthOpaqueTokenIntrospector implements OpaqueTokenIntrosp
   private void validateAudience(OAuth2AuthenticatedPrincipal principal) {
     Object audience = principal.getAttribute("aud");
     boolean valid = audience != null && switch (audience) {
-    case String aud -> StringUtils.equals(aud, serverAudience);
+    case String aud -> Strings.CS.equals(aud, serverAudience);
     case Collection<?> audiences -> audiences.stream()
                                              .map(String::valueOf)
-                                             .anyMatch(aud -> StringUtils.equals(aud, serverAudience));
+                                             .anyMatch(aud -> Strings.CS.equals(aud, serverAudience));
     default -> false;
     };
     if (!valid) {
@@ -139,7 +140,7 @@ public class McpServerOauthOpaqueTokenIntrospector implements OpaqueTokenIntrosp
 
   private void validateIssuer(OAuth2AuthenticatedPrincipal principal) {
     String issuer = principal.getAttribute("iss");
-    if (StringUtils.isBlank(issuer) || !StringUtils.equals(issuer, issuerUri)) {
+    if (StringUtils.isBlank(issuer) || !Strings.CS.equals(issuer, issuerUri)) {
       log.warn("Token issuer '{}' is not valid. Expected : '{}'", issuer, issuerUri);
       throw new OAuth2AuthenticationException(new OAuth2Error(OAuth2ErrorCodes.INVALID_TOKEN,
                                                               "Token issuer is not valid",

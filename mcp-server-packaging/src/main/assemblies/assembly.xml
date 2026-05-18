@@ -59,11 +59,13 @@
         <exclude>*:jakarta.annotation-api</exclude>
         <exclude>*:jackson-datatype-jsr310</exclude>
         <exclude>*:jackson-datatype-jdk8</exclude>
+        <exclude>*:jackson-dataformat-yaml</exclude>
         <exclude>*:jackson-module-parameter-names</exclude>
         <exclude>*:reactor-core</exclude>
         <exclude>*:reactive-streams</exclude>
         <exclude>*:slf4j-api</exclude>
         <exclude>*:snakeyaml</exclude>
+        <exclude>*:snakeyaml-engine</exclude>
         <exclude>*:spring-webmvc</exclude>
         <exclude>*:spring-aop</exclude>
         <exclude>*:spring-beans</exclude>

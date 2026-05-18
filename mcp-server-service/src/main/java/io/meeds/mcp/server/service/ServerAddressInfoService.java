@@ -27,6 +27,7 @@ import javax.management.ObjectName;
 
 import org.apache.commons.collections4.CollectionUtils;
 import org.apache.commons.lang3.StringUtils;
+import org.apache.commons.lang3.Strings;
 import org.springframework.stereotype.Service;
 
 import org.exoplatform.container.monitor.jvm.J2EEServerInfo;
@@ -103,7 +104,7 @@ public class ServerAddressInfoService {
   private void initAddress(ObjectName objectName) {
     InetAddress inetAddress = getAttribute(objectName, "address");
     if (inetAddress == null
-        || StringUtils.equals(inetAddress.getHostAddress(), "0.0.0.0")) {
+        || Strings.CS.equals(inetAddress.getHostAddress(), "0.0.0.0")) {
       this.address = "127.0.0.1";
     } else {
       this.address = inetAddress.getHostAddress();

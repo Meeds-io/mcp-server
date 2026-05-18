@@ -18,13 +18,13 @@
  */
 package io.meeds.mcp.server.service;
 
+import static io.meeds.mcp.server.util.McpServerUtils.getMimeType;
+import static io.meeds.mcp.server.util.McpServerUtils.toAsyncToolSpecification;
+import static io.meeds.mcp.server.util.McpServerUtils.toSyncToolSpecification;
 import static io.meeds.mcp.server.util.McpToolUtils.getCurrentUserName;
 import static io.meeds.mcp.server.util.McpToolUtils.getMethodToolFieldValue;
 import static io.meeds.mcp.server.util.McpToolUtils.toCamelCase;
 import static io.meeds.mcp.server.util.McpToolUtils.toSnakeCase;
-import static io.meeds.mcp.server.util.McpServerUtils.getMimeType;
-import static io.meeds.mcp.server.util.McpServerUtils.toAsyncToolSpecification;
-import static io.meeds.mcp.server.util.McpServerUtils.toSyncToolSpecification;
 
 import java.lang.reflect.Method;
 import java.lang.reflect.Modifier;
@@ -46,18 +46,17 @@ import org.springframework.ai.tool.execution.ToolExecutionException;
 import org.springframework.ai.tool.metadata.ToolMetadata;
 import org.springframework.ai.tool.method.MethodToolCallback;
 import org.springframework.ai.tool.support.ToolUtils;
-import org.springframework.ai.util.json.JsonParser;
+import org.springframework.ai.util.JsonHelper;
 import org.springframework.aop.support.AopUtils;
 import org.springframework.beans.factory.NoSuchBeanDefinitionException;
 import org.springframework.context.ApplicationContext;
+import org.springframework.core.ParameterizedTypeReference;
 import org.springframework.security.core.Authentication;
 import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.util.MimeType;
 import org.springframework.util.ReflectionUtils;
 import org.springframework.web.context.request.RequestContextHolder;
 import org.springframework.web.context.request.ServletRequestAttributes;
-
-import com.fasterxml.jackson.core.type.TypeReference;
 
 import org.exoplatform.commons.exception.ObjectNotFoundException;
 import org.exoplatform.portal.config.UserACL;
@@ -85,15 +84,17 @@ import lombok.extern.slf4j.Slf4j;
 @Slf4j
 public class McpToolCallbackProviderService implements ToolCallbackProvider {
 
-  private ApplicationContext     applicationContext;
+  private static final JsonHelper jsonHelper = new JsonHelper();
 
-  private McpServerToolService   mcpServerToolService;
+  private ApplicationContext      applicationContext;
 
-  private McpToolApprovalService mcpToolApprovalService;
+  private McpServerToolService    mcpServerToolService;
 
-  private UserACL                userAcl;
+  private McpToolApprovalService  mcpToolApprovalService;
 
-  private List<McpToolPlugin>    toolObjects;
+  private UserACL                 userAcl;
+
+  private List<McpToolPlugin>     toolObjects;
 
   @Override
   public ToolCallback[] getToolCallbacks() {
@@ -278,7 +279,7 @@ public class McpToolCallbackProviderService implements ToolCallbackProvider {
         // Call the Tool
         Map<String, Object> toolArguments = extractToolArguments(toolInput);
         toolArguments = transformSnakeToCamelCaseArguments(toolArguments);
-        toolInput = JsonParser.toJson(toolArguments);
+        toolInput = jsonHelper.toJson(toolArguments);
         String toolOutput = toolCallback.call(toolInput, toolContext);
         mcpToolApprovalService.traceToolExecution(executionBuilder.toolExecutionType(UserToolRequestType.TOOL_EXECUTION_FINISHED)
                                                                   .toolOutput(toolOutput)
@@ -342,7 +343,7 @@ public class McpToolCallbackProviderService implements ToolCallbackProvider {
     }
 
     private Map<String, Object> extractToolArguments(String toolInput) {
-      return JsonParser.fromJson(toolInput, new TypeReference<>() {
+      return jsonHelper.fromJson(toolInput, new ParameterizedTypeReference<>() {
       });
     }
 
@@ -353,7 +354,6 @@ public class McpToolCallbackProviderService implements ToolCallbackProvider {
                                                     Entry::getValue,
                                                     ObjectUtils::firstNonNull));
     }
-
   }
 
 }

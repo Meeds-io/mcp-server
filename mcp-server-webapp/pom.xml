@@ -104,6 +104,7 @@
         <artifactId>maven-war-plugin</artifactId>
         <configuration>
           <outputFileNameMapping>@{artifactId}@.@{extension}@</outputFileNameMapping>
+          <packagingExcludes>WEB-INF/lib/netty-*.jar</packagingExcludes>
         </configuration>
       </plugin>
     </plugins>

@@ -57,6 +57,7 @@ import io.meeds.mcp.server.model.SimpleToolDefinition;
 import io.meeds.mcp.server.model.ToolDefinitionMethods;
 import io.meeds.mcp.server.util.McpToolUtils;
 
+import io.modelcontextprotocol.spec.McpSchema.ToolAnnotations;
 import lombok.Setter;
 import lombok.SneakyThrows;
 import lombok.Synchronized;
@@ -182,6 +183,21 @@ public class McpServerToolService {
     existingToolDefinition.setInputSchema(inputSchema);
     existingToolDefinition.setRequireApproval(requireApproval);
     existingToolDefinition.setDisabled(disabled);
+    if (existingToolDefinition.getAnnotations() == null) {
+      existingToolDefinition.setAnnotations(new ToolAnnotations(title,
+                                                                null,
+                                                                null,
+                                                                null,
+                                                                null,
+                                                                null));
+    } else {
+      existingToolDefinition.setAnnotations(new ToolAnnotations(title,
+                                                                existingToolDefinition.getAnnotations().readOnlyHint(),
+                                                                existingToolDefinition.getAnnotations().destructiveHint(),
+                                                                existingToolDefinition.getAnnotations().idempotentHint(),
+                                                                existingToolDefinition.getAnnotations().openWorldHint(),
+                                                                existingToolDefinition.getAnnotations().returnDirect()));
+    }
     this.saveToolsContent(McpToolUtils.toJsonStringBase64(new ToolDefinitionMethods(new ArrayList<>(toolDefinitions.values()))));
     toolListeners.forEach(l -> l.handleToolUpdate(toolName));
     listenerService.broadcast(EVENT_TOOL_UPDATED, toolName, existingToolDefinition);
