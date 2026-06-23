@@ -189,6 +189,8 @@ public class SpaceMcpTool implements McpToolPlugin {
     Space space = spaceService.getSpaceById(spaceId);
     if (space == null
         || (Space.HIDDEN.equals(space.getVisibility())
+            && Space.CLOSED.equals(space.getRegistration())
+            && !spaceService.isInvitedUser(space, currentUsername)
             && !spaceService.canViewSpace(space, currentUsername))) {
       return null;
     } else {
@@ -202,9 +204,8 @@ public class SpaceMcpTool implements McpToolPlugin {
                                                 Integer limit) {
     String currentUsername = getCurrentUserName();
     Space space = spaceService.getSpaceById(spaceId);
-    if (space != null
-        && (!Space.HIDDEN.equals(space.getVisibility())
-            || spaceService.canViewSpace(space, currentUsername))) {
+    if (space != null && !(Space.HIDDEN.equals(space.getVisibility()) && Space.CLOSED.equals(space.getRegistration())
+        && !spaceService.isInvitedUser(space, currentUsername)) || spaceService.canViewSpace(space, currentUsername)) {
       String[] usernames = switch (spaceRole) {
       case MANAGER:
         yield space.getManagers();
