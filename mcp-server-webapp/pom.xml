@@ -28,7 +28,7 @@
   <parent>
     <groupId>io.meeds.mcp-server</groupId>
     <artifactId>mcp-server</artifactId>
-    <version>7.3.x-SNAPSHOT</version>
+    <version>7.3.x-experience-SNAPSHOT</version>
   </parent>
   <artifactId>mcp-server-webapp</artifactId>
   <packaging>war</packaging>
