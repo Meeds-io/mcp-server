@@ -42,6 +42,8 @@ import org.springframework.stereotype.Service;
 
 import org.exoplatform.commons.ObjectAlreadyExistsException;
 import org.exoplatform.commons.exception.ObjectNotFoundException;
+import org.exoplatform.commons.file.model.FileItem;
+import org.exoplatform.commons.file.services.FileService;
 import org.exoplatform.portal.config.UserACL;
 import org.exoplatform.portal.config.UserPortalConfigService;
 import org.exoplatform.social.attachment.AttachmentService;
@@ -124,6 +126,9 @@ public class ActivityMcpTool implements McpToolPlugin {
 
   @Autowired
   private UploadService           uploadService;
+
+  @Autowired
+  private FileService             fileService;
 
   @SneakyThrows
   public List<ActivityModel> getActivitiesSinceDays(Long spaceId, Long days) throws IllegalAccessException, // NOSONAR
@@ -291,18 +296,23 @@ public class ActivityMcpTool implements McpToolPlugin {
                                                String htmlContent,
                                                String imageUrl,
                                                String imageBase64,
+                                               String attachmentObjectType,
+                                               String attachmentObjectId,
                                                String altText) throws IllegalAccessException, ObjectNotFoundException {
-    if (StringUtils.isBlank(imageUrl) && StringUtils.isBlank(imageBase64)) {
-      throw new IllegalArgumentException("Provide an image via image_url or image_base64. To post without an image, use create_activity.");
+    if (StringUtils.isBlank(imageUrl) && StringUtils.isBlank(imageBase64) && StringUtils.isBlank(attachmentObjectId)) {
+      throw new IllegalArgumentException("Provide an image via image_url, image_base64 or attachment_object_id. To post without an image, use create_activity.");
     }
+    String uploadId = resolveImageUploadId(imageUrl, imageBase64, attachmentObjectType, attachmentObjectId);
     ActivityModel model = createActivity(spaceId, htmlContent);
-    attachImageToObject(ACTIVITY_OBJECT_TYPE, String.valueOf(model.id()), imageUrl, imageBase64, altText);
+    attachUploadToObject(ACTIVITY_OBJECT_TYPE, String.valueOf(model.id()), uploadId, altText);
     return toActivityModel(String.valueOf(model.id()));
   }
 
   public ActivityModel attachImageToActivity(long activityId,
                                             String imageUrl,
                                             String imageBase64,
+                                            String attachmentObjectType,
+                                            String attachmentObjectId,
                                             String altText) throws IllegalAccessException, ObjectNotFoundException {
     org.exoplatform.services.security.Identity userIdentity = getCurrentUserAclIdentity();
     ExoSocialActivity activity = activityManager.getActivity(String.valueOf(activityId));
@@ -312,21 +322,57 @@ public class ActivityMcpTool implements McpToolPlugin {
     if (!activityManager.isActivityEditable(activity, userIdentity)) {
       throw new IllegalAccessException("Activity with id '%s' can't be edited by current user".formatted(activityId));
     }
-    attachImageToObject(ACTIVITY_OBJECT_TYPE, String.valueOf(activityId), imageUrl, imageBase64, altText);
+    String uploadId = resolveImageUploadId(imageUrl, imageBase64, attachmentObjectType, attachmentObjectId);
+    attachUploadToObject(ACTIVITY_OBJECT_TYPE, String.valueOf(activityId), uploadId, altText);
     return toActivityModel(String.valueOf(activityId));
   }
 
-  private void attachImageToObject(String objectType,
-                                  String objectId,
-                                  String imageUrl,
-                                  String imageBase64,
-                                  String altText) {
+  /**
+   * Resolves the image from exactly one source — a public URL, base64 bytes, or
+   * an existing platform attachment (by object type + id) — into an uploadId.
+   * The attachment source is read <b>as the current user</b>, so its ACL is
+   * enforced (no reading files the user cannot access).
+   */
+  private String resolveImageUploadId(String imageUrl,
+                                      String imageBase64,
+                                      String attachmentObjectType,
+                                      String attachmentObjectId) throws IllegalAccessException, ObjectNotFoundException {
+    if (StringUtils.isNotBlank(attachmentObjectId)) {
+      if (StringUtils.isNotBlank(imageUrl) || StringUtils.isNotBlank(imageBase64)) {
+        throw new IllegalArgumentException("Provide only one image source: attachment_object_id, image_url or image_base64.");
+      }
+      if (StringUtils.isBlank(attachmentObjectType)) {
+        throw new IllegalArgumentException("attachment_object_type is required together with attachment_object_id.");
+      }
+      List<String> fileIds = attachmentService.getAttachmentFileIds(attachmentObjectType,
+                                                                    attachmentObjectId,
+                                                                    getCurrentUserAclIdentity());
+      if (CollectionUtils.isEmpty(fileIds)) {
+        throw new ObjectNotFoundException("No file attachment found for %s/%s.".formatted(attachmentObjectType,
+                                                                                          attachmentObjectId));
+      }
+      byte[] bytes;
+      String mimeType;
+      String fileName;
+      try {
+        FileItem file = fileService.getFile(Long.parseLong(fileIds.get(0)));
+        bytes = file == null ? null : file.getAsByte();
+        mimeType = file != null && file.getFileInfo() != null ? file.getFileInfo().getMimetype() : null;
+        fileName = file != null && file.getFileInfo() != null ? file.getFileInfo().getName() : "image";
+      } catch (Exception e) {
+        throw new IllegalStateException("Could not read the referenced attachment file: " + e.getMessage());
+      }
+      if (bytes == null || bytes.length == 0) {
+        throw new ObjectNotFoundException("The referenced attachment file is empty or could not be read.");
+      }
+      return UploadToolUtils.materialize(uploadService, bytes, fileName, mimeType);
+    }
+    return UploadToolUtils.materializeFromUrlOrBase64(uploadService, imageUrl, imageBase64, UploadToolUtils.DEFAULT_MAX_BYTES);
+  }
+
+  private void attachUploadToObject(String objectType, String objectId, String uploadId, String altText) {
     org.exoplatform.services.security.Identity userIdentity = getCurrentUserAclIdentity();
     long userIdentityId = Long.parseLong(identityManager.getOrCreateUserIdentity(userIdentity.getUserId()).getId());
-    String uploadId = UploadToolUtils.materializeFromUrlOrBase64(uploadService,
-                                                                 imageUrl,
-                                                                 imageBase64,
-                                                                 UploadToolUtils.DEFAULT_MAX_BYTES);
     try {
       UploadedAttachmentDetail detail = new UploadedAttachmentDetail(uploadService.getUploadResource(uploadId));
       if (StringUtils.isNotBlank(altText)) {

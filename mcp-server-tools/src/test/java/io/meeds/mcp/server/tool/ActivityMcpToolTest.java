@@ -30,6 +30,8 @@ import java.util.UUID;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 
+import org.exoplatform.commons.exception.ObjectNotFoundException;
+
 import io.meeds.mcp.server.tool.constant.Registration;
 import io.meeds.mcp.server.tool.constant.Visibility;
 import io.meeds.mcp.server.tool.model.ActivityCommentModel;
@@ -96,7 +98,7 @@ class ActivityMcpToolTest extends IntegrationTestBase {
   @Test
   void createActivityWithImageRequiresAnImage() {
     assertThrows(IllegalArgumentException.class,
-                 () -> activityMcpTool.createActivityWithImage(null, "No image here", null, null, null));
+                 () -> activityMcpTool.createActivityWithImage(null, "No image here", null, null, null, null, null));
   }
 
   @Test
@@ -105,6 +107,8 @@ class ActivityMcpToolTest extends IntegrationTestBase {
                                                                      "Look at this screenshot",
                                                                      null,
                                                                      PNG_1PX,
+                                                                     null,
+                                                                     null,
                                                                      "a tiny dot");
     assertNotNull(activity);
     assertTrue(activity.id() > 0);
@@ -114,7 +118,7 @@ class ActivityMcpToolTest extends IntegrationTestBase {
   void attachImageToExistingActivity() throws Exception {
     ActivityModel activity = activityMcpTool.createActivity(null, "Activity that will get an image");
 
-    ActivityModel updated = activityMcpTool.attachImageToActivity(activity.id(), null, PNG_1PX, "dot");
+    ActivityModel updated = activityMcpTool.attachImageToActivity(activity.id(), null, PNG_1PX, null, null, "dot");
 
     assertNotNull(updated);
     assertEquals(activity.id(), updated.id());
@@ -124,7 +128,32 @@ class ActivityMcpToolTest extends IntegrationTestBase {
   void attachImageWithBothSourcesFails() throws Exception {
     ActivityModel activity = activityMcpTool.createActivity(null, "Activity for a conflicting attach");
     assertThrows(IllegalArgumentException.class,
-                 () -> activityMcpTool.attachImageToActivity(activity.id(), "https://8.8.8.8/x.png", PNG_1PX, null));
+                 () -> activityMcpTool.attachImageToActivity(activity.id(), "https://8.8.8.8/x.png", PNG_1PX, null, null, null));
+  }
+
+  @Test
+  void attachImageWithAttachmentIdButNoTypeFails() throws Exception {
+    ActivityModel activity = activityMcpTool.createActivity(null, "Activity for an incomplete ref");
+    assertThrows(IllegalArgumentException.class,
+                 () -> activityMcpTool.attachImageToActivity(activity.id(), null, null, null, "12345", null));
+  }
+
+  @Test
+  void attachImageFromAttachmentRefResolvesAsTheUser() throws Exception {
+    // reference an attachment on an activity the current user can read but which
+    // carries no image: the ACL-checked lookup succeeds, finds nothing, and the
+    // tool reports it clearly (proves the attachment source path is exercised as
+    // the user; production references an attachment committed in an earlier request)
+    ActivityModel source = activityMcpTool.createActivity(null, "Activity with no attachment");
+    ActivityModel target = activityMcpTool.createActivity(null, "Target reusing an attachment");
+
+    assertThrows(ObjectNotFoundException.class,
+                 () -> activityMcpTool.attachImageToActivity(target.id(),
+                                                             null,
+                                                             null,
+                                                             "activity",
+                                                             String.valueOf(source.id()),
+                                                             "ref"));
   }
 
   @Test

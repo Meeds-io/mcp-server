@@ -715,6 +715,14 @@
             "type": "string",
             "description": "Base64-encoded image bytes (png, jpeg, gif or webp), optionally as a data: URI. Use for a locally-produced image such as a screenshot; prefer image_url when the image is reachable by URL. Provide either image_url or image_base64 (not both)."
           },
+          "attachment_object_type": {
+            "type": "string",
+            "description": "Internal: object type of an existing platform attachment to use as the image (set automatically by the client from the user's attached image — do not fill this yourself). Read as the current user, so its ACL is enforced."
+          },
+          "attachment_object_id": {
+            "type": "string",
+            "description": "Internal: object id of an existing platform attachment to use as the image (set automatically by the client — do not fill this yourself). Provide exactly one image source: attachment_object_id, image_url or image_base64."
+          },
           "alt_text": {
             "type": "string",
             "description": "Optional accessibility description of the image."
@@ -749,6 +757,14 @@
           "image_base64": {
             "type": "string",
             "description": "Base64-encoded image bytes (png, jpeg, gif or webp), optionally as a data: URI. Use for a locally-produced image such as a screenshot; prefer image_url when the image is reachable by URL. Provide either image_url or image_base64 (not both)."
+          },
+          "attachment_object_type": {
+            "type": "string",
+            "description": "Internal: object type of an existing platform attachment to use as the image (set automatically by the client from the user's attached image — do not fill this yourself). Read as the current user, so its ACL is enforced."
+          },
+          "attachment_object_id": {
+            "type": "string",
+            "description": "Internal: object id of an existing platform attachment to use as the image (set automatically by the client — do not fill this yourself). Provide exactly one image source: attachment_object_id, image_url or image_base64."
           },
           "alt_text": {
             "type": "string",

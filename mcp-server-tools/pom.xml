@@ -75,6 +75,12 @@
       <artifactId>portal.component.common</artifactId>
       <scope>provided</scope>
     </dependency>
+    <!-- Portal file storage (FileService) -->
+    <dependency>
+      <groupId>io.meeds.portal</groupId>
+      <artifactId>portal.component.file-storage</artifactId>
+      <scope>provided</scope>
+    </dependency>
 
     <!-- Test -->
     <dependency>
