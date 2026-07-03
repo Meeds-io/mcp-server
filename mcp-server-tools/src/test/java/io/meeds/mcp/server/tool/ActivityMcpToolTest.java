@@ -89,6 +89,44 @@ class ActivityMcpToolTest extends IntegrationTestBase {
                  () -> activityMcpTool.createActivity(null, " "));
   }
 
+  // 1x1 transparent PNG
+  private static final String PNG_1PX =
+      "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==";
+
+  @Test
+  void createActivityWithImageRequiresAnImage() {
+    assertThrows(IllegalArgumentException.class,
+                 () -> activityMcpTool.createActivityWithImage(null, "No image here", null, null, null));
+  }
+
+  @Test
+  void createActivityWithImageFromBase64() throws Exception {
+    ActivityModel activity = activityMcpTool.createActivityWithImage(null,
+                                                                     "Look at this screenshot",
+                                                                     null,
+                                                                     PNG_1PX,
+                                                                     "a tiny dot");
+    assertNotNull(activity);
+    assertTrue(activity.id() > 0);
+  }
+
+  @Test
+  void attachImageToExistingActivity() throws Exception {
+    ActivityModel activity = activityMcpTool.createActivity(null, "Activity that will get an image");
+
+    ActivityModel updated = activityMcpTool.attachImageToActivity(activity.id(), null, PNG_1PX, "dot");
+
+    assertNotNull(updated);
+    assertEquals(activity.id(), updated.id());
+  }
+
+  @Test
+  void attachImageWithBothSourcesFails() throws Exception {
+    ActivityModel activity = activityMcpTool.createActivity(null, "Activity for a conflicting attach");
+    assertThrows(IllegalArgumentException.class,
+                 () -> activityMcpTool.attachImageToActivity(activity.id(), "https://8.8.8.8/x.png", PNG_1PX, null));
+  }
+
   @Test
   void getActivityWhenNotFound() {
     assertThrows(Exception.class, () -> activityMcpTool.getActivity(-1L));

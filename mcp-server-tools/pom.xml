@@ -69,6 +69,12 @@
       <artifactId>social-component-core</artifactId>
       <scope>provided</scope>
     </dependency>
+    <!-- Portal (UploadService) -->
+    <dependency>
+      <groupId>io.meeds.portal</groupId>
+      <artifactId>portal.component.common</artifactId>
+      <scope>provided</scope>
+    </dependency>
 
     <!-- Test -->
     <dependency>

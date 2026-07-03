@@ -32,7 +32,9 @@
             "description": "Space Template Technical Identifier"
           }
         },
-        "required": ["template_id"]
+        "required": [
+          "template_id"
+        ]
       },
       "annotations": {
         "readOnlyHint": true,
@@ -52,21 +54,36 @@
             "type": "integer",
             "description": "Template ID of the space (required). Use 'listSpaceTemplates' Tool to find valid IDs and Search for a Space Template by its name."
           },
-          "name": { "type": "string", "description": "User-facing display name of the space" },
-          "description": { "type": "string", "description": "Detailed description of the space" },
+          "name": {
+            "type": "string",
+            "description": "User-facing display name of the space"
+          },
+          "description": {
+            "type": "string",
+            "description": "Detailed description of the space"
+          },
           "visibility": {
             "type": "string",
-            "enum": ["LISTED", "UNLISTED"],
+            "enum": [
+              "LISTED",
+              "UNLISTED"
+            ],
             "description": "Visibility of the space"
           },
           "registration": {
             "type": "string",
-            "enum": ["OPEN", "REQUEST_JOIN", "INVITE_ONLY"],
+            "enum": [
+              "OPEN",
+              "REQUEST_JOIN",
+              "INVITE_ONLY"
+            ],
             "description": "How users can join the space"
           },
           "usernames_to_invite": {
             "type": "array",
-            "items": { "type": "string" },
+            "items": {
+              "type": "string"
+            },
             "description": "List of usernames to invite"
           },
           "parent_space_id": {
@@ -74,7 +91,9 @@
             "description": "Identifier of the parent space, REQUIRED to create a sub-space (7.2 hierarchy). Set this whenever the user asks for a 'sub-space of X' / a space 'under X' — resolve X's id first via get_my_spaces or get_all_spaces. Omit only for a genuine top-level space."
           }
         },
-        "required": ["space_template_id"]
+        "required": [
+          "space_template_id"
+        ]
       },
       "annotations": {
         "readOnlyHint": false,
@@ -91,21 +110,39 @@
       "input_schema": {
         "type": "object",
         "properties": {
-          "space_id": { "type": "integer", "description": "Identifier of the Space to update" },
-          "name": { "type": "string", "description": "Updated display name" },
-          "description": { "type": "string", "description": "Updated description" },
+          "space_id": {
+            "type": "integer",
+            "description": "Identifier of the Space to update"
+          },
+          "name": {
+            "type": "string",
+            "description": "Updated display name"
+          },
+          "description": {
+            "type": "string",
+            "description": "Updated description"
+          },
           "visibility": {
             "type": "string",
-            "enum": ["LISTED", "UNLISTED"],
+            "enum": [
+              "LISTED",
+              "UNLISTED"
+            ],
             "description": "Updated visibility"
           },
           "registration": {
             "type": "string",
-            "enum": ["OPEN", "REQUEST_JOIN", "INVITE_ONLY"],
+            "enum": [
+              "OPEN",
+              "REQUEST_JOIN",
+              "INVITE_ONLY"
+            ],
             "description": "Updated registration"
           }
         },
-        "required": ["space_id"]
+        "required": [
+          "space_id"
+        ]
       },
       "annotations": {
         "readOnlyHint": false,
@@ -122,9 +159,18 @@
       "input_schema": {
         "type": "object",
         "properties": {
-          "query": { "type": "string", "description": "Keyword search" },
-          "offset": { "type": "integer", "description": "Offset of spaces to retrieve" },
-          "limit": { "type": "integer", "description": "Limit of spaces to retrieve" }
+          "query": {
+            "type": "string",
+            "description": "Keyword search"
+          },
+          "offset": {
+            "type": "integer",
+            "description": "Offset of spaces to retrieve"
+          },
+          "limit": {
+            "type": "integer",
+            "description": "Limit of spaces to retrieve"
+          }
         }
       },
       "annotations": {
@@ -141,9 +187,18 @@
       "input_schema": {
         "type": "object",
         "properties": {
-          "query": { "type": "string", "description": "Keyword search" },
-          "offset": { "type": "integer", "description": "Offset of spaces to retrieve" },
-          "limit": { "type": "integer", "description": "Limit of spaces to retrieve" }
+          "query": {
+            "type": "string",
+            "description": "Keyword search"
+          },
+          "offset": {
+            "type": "integer",
+            "description": "Offset of spaces to retrieve"
+          },
+          "limit": {
+            "type": "integer",
+            "description": "Limit of spaces to retrieve"
+          }
         }
       },
       "annotations": {
@@ -160,9 +215,18 @@
       "input_schema": {
         "type": "object",
         "properties": {
-          "query": { "type": "string", "description": "Keyword search" },
-          "offset": { "type": "integer", "description": "Offset of spaces to retrieve" },
-          "limit": { "type": "integer", "description": "Limit of spaces to retrieve" }
+          "query": {
+            "type": "string",
+            "description": "Keyword search"
+          },
+          "offset": {
+            "type": "integer",
+            "description": "Offset of spaces to retrieve"
+          },
+          "limit": {
+            "type": "integer",
+            "description": "Limit of spaces to retrieve"
+          }
         }
       },
       "annotations": {
@@ -179,9 +243,14 @@
       "input_schema": {
         "type": "object",
         "properties": {
-          "space_id": { "type": "integer", "description": "Identifier of the Space" }
+          "space_id": {
+            "type": "integer",
+            "description": "Identifier of the Space"
+          }
         },
-        "required": ["space_id"]
+        "required": [
+          "space_id"
+        ]
       },
       "annotations": {
         "readOnlyHint": true,
@@ -197,15 +266,31 @@
       "input_schema": {
         "type": "object",
         "properties": {
-          "space_id": { "type": "integer" },
+          "space_id": {
+            "type": "integer"
+          },
           "space_role": {
             "type": "string",
-            "enum": ["MEMBER", "MANAGER", "REDACTOR", "PUBLISHER", "INVITED", "PENDING"]
+            "enum": [
+              "MEMBER",
+              "MANAGER",
+              "REDACTOR",
+              "PUBLISHER",
+              "INVITED",
+              "PENDING"
+            ]
           },
-          "offset": { "type": "integer" },
-          "limit": { "type": "integer" }
+          "offset": {
+            "type": "integer"
+          },
+          "limit": {
+            "type": "integer"
+          }
         },
-        "required": ["space_id", "space_role"]
+        "required": [
+          "space_id",
+          "space_role"
+        ]
       },
       "annotations": {
         "readOnlyHint": true,
@@ -221,13 +306,20 @@
       "input_schema": {
         "type": "object",
         "properties": {
-          "space_id": { "type": "integer" },
+          "space_id": {
+            "type": "integer"
+          },
           "usernames_to_invite": {
             "type": "array",
-            "items": { "type": "string" }
+            "items": {
+              "type": "string"
+            }
           }
         },
-        "required": ["space_id", "usernames_to_invite"]
+        "required": [
+          "space_id",
+          "usernames_to_invite"
+        ]
       },
       "annotations": {
         "readOnlyHint": false,
@@ -244,13 +336,20 @@
       "input_schema": {
         "type": "object",
         "properties": {
-          "space_id": { "type": "integer" },
+          "space_id": {
+            "type": "integer"
+          },
           "usernames_to_remove": {
             "type": "array",
-            "items": { "type": "string" }
+            "items": {
+              "type": "string"
+            }
           }
         },
-        "required": ["space_id", "usernames_to_remove"]
+        "required": [
+          "space_id",
+          "usernames_to_remove"
+        ]
       },
       "annotations": {
         "readOnlyHint": false,
@@ -267,14 +366,26 @@
       "input_schema": {
         "type": "object",
         "properties": {
-          "space_id": { "type": "integer" },
-          "username": { "type": "string" },
+          "space_id": {
+            "type": "integer"
+          },
+          "username": {
+            "type": "string"
+          },
           "space_role": {
             "type": "string",
-            "enum": ["MANAGER", "REDACTOR", "PUBLISHER"]
+            "enum": [
+              "MANAGER",
+              "REDACTOR",
+              "PUBLISHER"
+            ]
           }
         },
-        "required": ["space_id", "username", "space_role"]
+        "required": [
+          "space_id",
+          "username",
+          "space_role"
+        ]
       },
       "annotations": {
         "readOnlyHint": false,
@@ -291,14 +402,26 @@
       "input_schema": {
         "type": "object",
         "properties": {
-          "space_id": { "type": "integer" },
-          "username": { "type": "string" },
+          "space_id": {
+            "type": "integer"
+          },
+          "username": {
+            "type": "string"
+          },
           "space_role": {
             "type": "string",
-            "enum": ["MANAGER", "REDACTOR", "PUBLISHER"]
+            "enum": [
+              "MANAGER",
+              "REDACTOR",
+              "PUBLISHER"
+            ]
           }
         },
-        "required": ["space_id", "username", "space_role"]
+        "required": [
+          "space_id",
+          "username",
+          "space_role"
+        ]
       },
       "annotations": {
         "readOnlyHint": false,
@@ -312,7 +435,10 @@
       "name": "get_my_user_information",
       "title": "Get curent user info",
       "description": "Provides the identity and profile information of the currently connected user.",
-      "input_schema": { "type": "object", "properties": {} },
+      "input_schema": {
+        "type": "object",
+        "properties": {}
+      },
       "annotations": {
         "readOnlyHint": true,
         "destructiveHint": false,
@@ -327,9 +453,14 @@
       "input_schema": {
         "type": "object",
         "properties": {
-          "username": { "type": "string", "description": "The username to use in search query" }
+          "username": {
+            "type": "string",
+            "description": "The username to use in search query"
+          }
         },
-        "required": ["username"]
+        "required": [
+          "username"
+        ]
       },
       "annotations": {
         "readOnlyHint": true,
@@ -345,11 +476,19 @@
       "input_schema": {
         "type": "object",
         "properties": {
-          "query": { "type": "string" },
-          "offset": { "type": "integer" },
-          "limit": { "type": "integer" }
+          "query": {
+            "type": "string"
+          },
+          "offset": {
+            "type": "integer"
+          },
+          "limit": {
+            "type": "integer"
+          }
         },
-        "required": ["query"]
+        "required": [
+          "query"
+        ]
       },
       "annotations": {
         "readOnlyHint": true,
@@ -362,7 +501,10 @@
       "name": "get_users_count",
       "title": "Count users",
       "description": "Retrieves the users count.",
-      "input_schema": { "type": "object", "properties": {} },
+      "input_schema": {
+        "type": "object",
+        "properties": {}
+      },
       "annotations": {
         "readOnlyHint": true,
         "destructiveHint": false,
@@ -377,13 +519,25 @@
       "input_schema": {
         "type": "object",
         "properties": {
-          "query": { "type": "string" },
-          "space_id": { "type": "integer" },
-          "is_favorite": { "type": "boolean" },
-          "offset": { "type": "integer" },
-          "limit": { "type": "integer" }
+          "query": {
+            "type": "string"
+          },
+          "space_id": {
+            "type": "integer"
+          },
+          "is_favorite": {
+            "type": "boolean"
+          },
+          "offset": {
+            "type": "integer"
+          },
+          "limit": {
+            "type": "integer"
+          }
         },
-        "required": ["query"]
+        "required": [
+          "query"
+        ]
       },
       "annotations": {
         "readOnlyHint": true,
@@ -399,9 +553,15 @@
       "input_schema": {
         "type": "object",
         "properties": {
-          "space_id": { "type": "integer" },
-          "offset": { "type": "integer" },
-          "limit": { "type": "integer" }
+          "space_id": {
+            "type": "integer"
+          },
+          "offset": {
+            "type": "integer"
+          },
+          "limit": {
+            "type": "integer"
+          }
         }
       },
       "annotations": {
@@ -418,8 +578,12 @@
       "input_schema": {
         "type": "object",
         "properties": {
-          "space_id": { "type": "integer" },
-          "days": { "type": "integer" }
+          "space_id": {
+            "type": "integer"
+          },
+          "days": {
+            "type": "integer"
+          }
         }
       },
       "annotations": {
@@ -456,9 +620,13 @@
       "input_schema": {
         "type": "object",
         "properties": {
-          "activity_id": { "type": "integer" }
+          "activity_id": {
+            "type": "integer"
+          }
         },
-        "required": ["activity_id"]
+        "required": [
+          "activity_id"
+        ]
       },
       "annotations": {
         "readOnlyHint": true,
@@ -474,9 +642,13 @@
       "input_schema": {
         "type": "object",
         "properties": {
-          "activity_comment_id": { "type": "integer" }
+          "activity_comment_id": {
+            "type": "integer"
+          }
         },
-        "required": ["activity_comment_id"]
+        "required": [
+          "activity_comment_id"
+        ]
       },
       "annotations": {
         "readOnlyHint": true,
@@ -492,10 +664,89 @@
       "input_schema": {
         "type": "object",
         "properties": {
-          "space_id": { "type": "integer" },
-          "html_content": { "type": "string" }
+          "space_id": {
+            "type": "integer"
+          },
+          "html_content": {
+            "type": "string"
+          }
         },
-        "required": ["html_content"]
+        "required": [
+          "html_content"
+        ]
+      },
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": false,
+        "idempotentHint": false,
+        "openWorldHint": false
+      },
+      "require_approval": true
+    },
+    {
+      "name": "create_activity_with_image",
+      "title": "Post an activity with an image",
+      "description": "Create an activity (post) in a space (or the personal stream if space_id is null) and attach an image to it. The image comes from either a public image URL or base64-encoded bytes (e.g. a screenshot). Use create_activity when no image is needed.",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "space_id": {
+            "type": "integer"
+          },
+          "html_content": {
+            "type": "string"
+          },
+          "image_url": {
+            "type": "string",
+            "description": "Direct http(s) URL of an image to attach. Provide either image_url or image_base64 (not both)."
+          },
+          "image_base64": {
+            "type": "string",
+            "description": "Base64-encoded image bytes (png, jpeg, gif or webp), optionally as a data: URI. Use for a locally-produced image such as a screenshot; prefer image_url when the image is reachable by URL. Provide either image_url or image_base64 (not both)."
+          },
+          "alt_text": {
+            "type": "string",
+            "description": "Optional accessibility description of the image."
+          }
+        },
+        "required": [
+          "html_content"
+        ]
+      },
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": false,
+        "idempotentHint": false,
+        "openWorldHint": false
+      },
+      "require_approval": true
+    },
+    {
+      "name": "attach_image_to_activity",
+      "title": "Attach an image to an activity",
+      "description": "Attach an image to an existing activity (post) that the current user is allowed to edit. The image comes from either a public image URL or base64-encoded bytes (e.g. a screenshot).",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "activity_id": {
+            "type": "integer"
+          },
+          "image_url": {
+            "type": "string",
+            "description": "Direct http(s) URL of an image to attach. Provide either image_url or image_base64 (not both)."
+          },
+          "image_base64": {
+            "type": "string",
+            "description": "Base64-encoded image bytes (png, jpeg, gif or webp), optionally as a data: URI. Use for a locally-produced image such as a screenshot; prefer image_url when the image is reachable by URL. Provide either image_url or image_base64 (not both)."
+          },
+          "alt_text": {
+            "type": "string",
+            "description": "Optional accessibility description of the image."
+          }
+        },
+        "required": [
+          "activity_id"
+        ]
       },
       "annotations": {
         "readOnlyHint": false,
@@ -512,10 +763,17 @@
       "input_schema": {
         "type": "object",
         "properties": {
-          "activity_id": { "type": "integer" },
-          "html_content": { "type": "string" }
+          "activity_id": {
+            "type": "integer"
+          },
+          "html_content": {
+            "type": "string"
+          }
         },
-        "required": ["activity_id", "html_content"]
+        "required": [
+          "activity_id",
+          "html_content"
+        ]
       },
       "annotations": {
         "readOnlyHint": false,
@@ -532,9 +790,13 @@
       "input_schema": {
         "type": "object",
         "properties": {
-          "activity_id": { "type": "integer" }
+          "activity_id": {
+            "type": "integer"
+          }
         },
-        "required": ["activity_id"]
+        "required": [
+          "activity_id"
+        ]
       },
       "annotations": {
         "readOnlyHint": false,
@@ -551,9 +813,13 @@
       "input_schema": {
         "type": "object",
         "properties": {
-          "activity_id": { "type": "integer" }
+          "activity_id": {
+            "type": "integer"
+          }
         },
-        "required": ["activity_id"]
+        "required": [
+          "activity_id"
+        ]
       },
       "annotations": {
         "readOnlyHint": false,
@@ -570,9 +836,13 @@
       "input_schema": {
         "type": "object",
         "properties": {
-          "activity_id": { "type": "integer" }
+          "activity_id": {
+            "type": "integer"
+          }
         },
-        "required": ["activity_id"]
+        "required": [
+          "activity_id"
+        ]
       },
       "annotations": {
         "readOnlyHint": false,
@@ -589,11 +859,19 @@
       "input_schema": {
         "type": "object",
         "properties": {
-          "activity_id": { "type": "integer" },
-          "offset": { "type": "integer" },
-          "limit": { "type": "integer" }
+          "activity_id": {
+            "type": "integer"
+          },
+          "offset": {
+            "type": "integer"
+          },
+          "limit": {
+            "type": "integer"
+          }
         },
-        "required": ["activity_id"]
+        "required": [
+          "activity_id"
+        ]
       },
       "annotations": {
         "readOnlyHint": true,
@@ -609,10 +887,17 @@
       "input_schema": {
         "type": "object",
         "properties": {
-          "activity_id": { "type": "integer" },
-          "comment": { "type": "string" }
+          "activity_id": {
+            "type": "integer"
+          },
+          "comment": {
+            "type": "string"
+          }
         },
-        "required": ["activity_id", "comment"]
+        "required": [
+          "activity_id",
+          "comment"
+        ]
       },
       "annotations": {
         "readOnlyHint": false,
@@ -629,10 +914,17 @@
       "input_schema": {
         "type": "object",
         "properties": {
-          "activity_comment_id": { "type": "integer" },
-          "comment": { "type": "string" }
+          "activity_comment_id": {
+            "type": "integer"
+          },
+          "comment": {
+            "type": "string"
+          }
         },
-        "required": ["activity_comment_id", "comment"]
+        "required": [
+          "activity_comment_id",
+          "comment"
+        ]
       },
       "annotations": {
         "readOnlyHint": false,
@@ -649,10 +941,17 @@
       "input_schema": {
         "type": "object",
         "properties": {
-          "activity_id": { "type": "integer" },
-          "space_id": { "type": "integer" }
+          "activity_id": {
+            "type": "integer"
+          },
+          "space_id": {
+            "type": "integer"
+          }
         },
-        "required": ["activity_id", "space_id"]
+        "required": [
+          "activity_id",
+          "space_id"
+        ]
       },
       "annotations": {
         "readOnlyHint": false,
@@ -669,11 +968,19 @@
       "input_schema": {
         "type": "object",
         "properties": {
-          "activity_id": { "type": "integer" },
-          "offset": { "type": "integer" },
-          "limit": { "type": "integer" }
+          "activity_id": {
+            "type": "integer"
+          },
+          "offset": {
+            "type": "integer"
+          },
+          "limit": {
+            "type": "integer"
+          }
         },
-        "required": ["activity_id"]
+        "required": [
+          "activity_id"
+        ]
       },
       "annotations": {
         "readOnlyHint": true,
@@ -689,9 +996,13 @@
       "input_schema": {
         "type": "object",
         "properties": {
-          "activity_id": { "type": "integer" }
+          "activity_id": {
+            "type": "integer"
+          }
         },
-        "required": ["activity_id"]
+        "required": [
+          "activity_id"
+        ]
       },
       "annotations": {
         "readOnlyHint": false,
@@ -708,9 +1019,13 @@
       "input_schema": {
         "type": "object",
         "properties": {
-          "activity_id": { "type": "integer" }
+          "activity_id": {
+            "type": "integer"
+          }
         },
-        "required": ["activity_id"]
+        "required": [
+          "activity_id"
+        ]
       },
       "annotations": {
         "readOnlyHint": false,
@@ -751,7 +1066,10 @@
             "description": "Content Id: can be extracted from expressions like `/{content_type}:{content_id}`"
           }
         },
-        "required": ["content_type", "content_id"]
+        "required": [
+          "content_type",
+          "content_id"
+        ]
       },
       "annotations": {
         "readOnlyHint": true,
@@ -767,7 +1085,9 @@
       "input_schema": {
         "type": "object",
         "properties": {
-          "category_id": { "type": "integer" },
+          "category_id": {
+            "type": "integer"
+          },
           "content_type": {
             "type": "string",
             "description": "Content Type: can be extracted from expressions like `/{content_type}:{content_id}`. Use the tool `get_content_types` to list them all if you don't know the exact content type name."
@@ -777,7 +1097,11 @@
             "description": "Content Id: can be extracted from expressions like `/{content_type}:{content_id}`"
           }
         },
-        "required": ["category_id", "content_type", "content_id"]
+        "required": [
+          "category_id",
+          "content_type",
+          "content_id"
+        ]
       },
       "annotations": {
         "readOnlyHint": false,
@@ -794,7 +1118,9 @@
       "input_schema": {
         "type": "object",
         "properties": {
-          "category_id": { "type": "integer" },
+          "category_id": {
+            "type": "integer"
+          },
           "content_type": {
             "type": "string",
             "description": "Content Type: can be extracted from expressions like `/{content_type}:{content_id}`. Use the tool `get_content_types` to list them all if you don't know the exact content type name."
@@ -804,7 +1130,11 @@
             "description": "Content Id: can be extracted from expressions like `/{content_type}:{content_id}`"
           }
         },
-        "required": ["category_id", "content_type", "content_id"]
+        "required": [
+          "category_id",
+          "content_type",
+          "content_id"
+        ]
       },
       "annotations": {
         "readOnlyHint": false,

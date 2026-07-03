@@ -21,6 +21,7 @@ package io.meeds.mcp.server.tool;
 import static io.meeds.mcp.server.tool.util.McpToolPluginUtils.getInteger;
 import static io.meeds.mcp.server.util.McpToolUtils.markdownToHtml;
 
+import java.io.IOException;
 import java.time.LocalDate;
 import java.time.ZoneId;
 import java.util.ArrayList;
@@ -39,9 +40,12 @@ import org.apache.commons.lang3.StringUtils;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 
+import org.exoplatform.commons.ObjectAlreadyExistsException;
 import org.exoplatform.commons.exception.ObjectNotFoundException;
 import org.exoplatform.portal.config.UserACL;
 import org.exoplatform.portal.config.UserPortalConfigService;
+import org.exoplatform.social.attachment.AttachmentService;
+import org.exoplatform.social.attachment.model.UploadedAttachmentDetail;
 import org.exoplatform.social.core.activity.ActivityFilter;
 import org.exoplatform.social.core.activity.ActivityStreamType;
 import org.exoplatform.social.core.activity.filter.ActivitySearchFilter;
@@ -62,9 +66,12 @@ import io.meeds.mcp.server.tool.model.ActivityCommentModel;
 import io.meeds.mcp.server.tool.model.ActivityModel;
 import io.meeds.mcp.server.tool.model.UserModel;
 import io.meeds.mcp.server.tool.util.ActivityToolUtils;
+import io.meeds.mcp.server.tool.util.UploadToolUtils;
 import io.meeds.mcp.server.tool.util.UserToolUtils;
 import io.meeds.portal.permlink.service.PermanentLinkService;
 import io.meeds.social.translation.service.TranslationService;
+
+import org.exoplatform.upload.UploadService;
 
 import lombok.SneakyThrows;
 
@@ -79,6 +86,8 @@ public class ActivityMcpTool implements McpToolPlugin {
                                                      "Activity with id '%s' doesn't exists. Use Tool search_activities to find activities by content";
 
   private static final String     USER_ACCESS_SPACE_DENIED = "User %s can't access Space with id '%s'";
+
+  private static final String     ACTIVITY_OBJECT_TYPE     = "activity";
 
   @Autowired
   private ActivityManager         activityManager;
@@ -109,6 +118,12 @@ public class ActivityMcpTool implements McpToolPlugin {
 
   @Autowired
   private I18NActivityProcessor   i18NActivityProcessor;
+
+  @Autowired
+  private AttachmentService       attachmentService;
+
+  @Autowired
+  private UploadService           uploadService;
 
   @SneakyThrows
   public List<ActivityModel> getActivitiesSinceDays(Long spaceId, Long days) throws IllegalAccessException, // NOSONAR
@@ -270,6 +285,59 @@ public class ActivityMcpTool implements McpToolPlugin {
       activityManager.saveActivityNoReturn(authenticatedUserIdentity, activity);
     }
     return toActivityModel(activity.getId());
+  }
+
+  public ActivityModel createActivityWithImage(Long spaceId,
+                                               String htmlContent,
+                                               String imageUrl,
+                                               String imageBase64,
+                                               String altText) throws IllegalAccessException, ObjectNotFoundException {
+    if (StringUtils.isBlank(imageUrl) && StringUtils.isBlank(imageBase64)) {
+      throw new IllegalArgumentException("Provide an image via image_url or image_base64. To post without an image, use create_activity.");
+    }
+    ActivityModel model = createActivity(spaceId, htmlContent);
+    attachImageToObject(ACTIVITY_OBJECT_TYPE, String.valueOf(model.id()), imageUrl, imageBase64, altText);
+    return toActivityModel(String.valueOf(model.id()));
+  }
+
+  public ActivityModel attachImageToActivity(long activityId,
+                                            String imageUrl,
+                                            String imageBase64,
+                                            String altText) throws IllegalAccessException, ObjectNotFoundException {
+    org.exoplatform.services.security.Identity userIdentity = getCurrentUserAclIdentity();
+    ExoSocialActivity activity = activityManager.getActivity(String.valueOf(activityId));
+    if (activity == null) {
+      throw new ObjectNotFoundException(ACTIVITY_NOT_FOUND.formatted(activityId));
+    }
+    if (!activityManager.isActivityEditable(activity, userIdentity)) {
+      throw new IllegalAccessException("Activity with id '%s' can't be edited by current user".formatted(activityId));
+    }
+    attachImageToObject(ACTIVITY_OBJECT_TYPE, String.valueOf(activityId), imageUrl, imageBase64, altText);
+    return toActivityModel(String.valueOf(activityId));
+  }
+
+  private void attachImageToObject(String objectType,
+                                  String objectId,
+                                  String imageUrl,
+                                  String imageBase64,
+                                  String altText) {
+    org.exoplatform.services.security.Identity userIdentity = getCurrentUserAclIdentity();
+    long userIdentityId = Long.parseLong(identityManager.getOrCreateUserIdentity(userIdentity.getUserId()).getId());
+    String uploadId = UploadToolUtils.materializeFromUrlOrBase64(uploadService,
+                                                                 imageUrl,
+                                                                 imageBase64,
+                                                                 UploadToolUtils.DEFAULT_MAX_BYTES);
+    try {
+      UploadedAttachmentDetail detail = new UploadedAttachmentDetail(uploadService.getUploadResource(uploadId));
+      if (StringUtils.isNotBlank(altText)) {
+        detail.setAltText(altText);
+      }
+      attachmentService.saveAttachment(detail, objectType, objectId, null, userIdentityId);
+    } catch (IOException | ObjectAlreadyExistsException | ObjectNotFoundException e) {
+      throw new IllegalStateException("Could not attach the image: " + e.getMessage());
+    } finally {
+      UploadToolUtils.release(uploadService, uploadId);
+    }
   }
 
   public ActivityModel updateActivity(long activityId, String htmlContent) throws IllegalAccessException,
