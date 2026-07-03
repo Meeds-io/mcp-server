@@ -695,6 +695,79 @@
       "require_approval": true
     },
     {
+      "name": "create_activity_with_image",
+      "title": "Post an activity with an image",
+      "description": "Create an activity (post) in a space (or the personal stream if space_id is null) and attach an image to it. The image comes from either a public image URL or base64-encoded bytes (e.g. a screenshot). Use create_activity when no image is needed.",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "space_id": {
+            "type": "integer"
+          },
+          "html_content": {
+            "type": "string"
+          },
+          "image_url": {
+            "type": "string",
+            "description": "Direct http(s) URL of an image to attach. Provide either image_url or image_base64 (not both)."
+          },
+          "image_base64": {
+            "type": "string",
+            "description": "Base64-encoded image bytes (png, jpeg, gif or webp), optionally as a data: URI. Use for a locally-produced image such as a screenshot; prefer image_url when the image is reachable by URL. Provide either image_url or image_base64 (not both)."
+          },
+          "alt_text": {
+            "type": "string",
+            "description": "Optional accessibility description of the image."
+          }
+        },
+        "required": [
+          "html_content"
+        ]
+      },
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": false,
+        "idempotentHint": false,
+        "openWorldHint": false
+      },
+      "require_approval": true
+    },
+    {
+      "name": "attach_image_to_activity",
+      "title": "Attach an image to an activity",
+      "description": "Attach an image to an existing activity (post) that the current user is allowed to edit. The image comes from either a public image URL or base64-encoded bytes (e.g. a screenshot).",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "activity_id": {
+            "type": "integer"
+          },
+          "image_url": {
+            "type": "string",
+            "description": "Direct http(s) URL of an image to attach. Provide either image_url or image_base64 (not both)."
+          },
+          "image_base64": {
+            "type": "string",
+            "description": "Base64-encoded image bytes (png, jpeg, gif or webp), optionally as a data: URI. Use for a locally-produced image such as a screenshot; prefer image_url when the image is reachable by URL. Provide either image_url or image_base64 (not both)."
+          },
+          "alt_text": {
+            "type": "string",
+            "description": "Optional accessibility description of the image."
+          }
+        },
+        "required": [
+          "activity_id"
+        ]
+      },
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": false,
+        "idempotentHint": false,
+        "openWorldHint": false
+      },
+      "require_approval": true
+    },
+    {
       "name": "update_activity",
       "title": "Update an activity",
       "description": "Update an existing activity (Also Known As 'post') by its ID.",
