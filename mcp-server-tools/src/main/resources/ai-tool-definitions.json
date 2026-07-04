@@ -924,6 +924,96 @@
       "require_approval": true
     },
     {
+      "name": "create_activity_comment_with_image",
+      "title": "Comment on an activity with an image",
+      "description": "Add a comment to an activity and attach an image to that comment. The image comes from a public image URL, base64-encoded bytes, or the current conversation's attached image. Use create_activity_comment when no image is needed.",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "activity_id": {
+            "type": "integer"
+          },
+          "comment": {
+            "type": "string"
+          },
+          "image_url": {
+            "type": "string",
+            "description": "Direct http(s) URL of an image to attach. Provide exactly one of image_url, image_base64 or attachment_object_id."
+          },
+          "image_base64": {
+            "type": "string",
+            "description": "Base64-encoded image bytes (png, jpeg, gif or webp), optionally as a data: URI. Use for a locally-produced image such as a screenshot."
+          },
+          "attachment_object_type": {
+            "type": "string",
+            "description": "Internal: object type of an existing platform attachment to use as the image (set automatically by the client from the user's attached image — do not fill this yourself)."
+          },
+          "attachment_object_id": {
+            "type": "string",
+            "description": "Internal: object id of an existing platform attachment to use as the image (set automatically by the client — do not fill this yourself)."
+          },
+          "alt_text": {
+            "type": "string",
+            "description": "Optional accessibility description of the image."
+          }
+        },
+        "required": [
+          "activity_id",
+          "comment"
+        ]
+      },
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": false,
+        "idempotentHint": false,
+        "openWorldHint": false
+      },
+      "require_approval": true
+    },
+    {
+      "name": "attach_image_to_comment",
+      "title": "Attach an image to a comment",
+      "description": "Attach an image to an existing activity comment that the current user is allowed to edit. The image comes from a public image URL, base64-encoded bytes, or the current conversation's attached image.",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "comment_id": {
+            "type": "integer"
+          },
+          "image_url": {
+            "type": "string",
+            "description": "Direct http(s) URL of an image to attach. Provide exactly one of image_url, image_base64 or attachment_object_id."
+          },
+          "image_base64": {
+            "type": "string",
+            "description": "Base64-encoded image bytes (png, jpeg, gif or webp), optionally as a data: URI. Use for a locally-produced image such as a screenshot."
+          },
+          "attachment_object_type": {
+            "type": "string",
+            "description": "Internal: object type of an existing platform attachment to use as the image (set automatically by the client from the user's attached image — do not fill this yourself)."
+          },
+          "attachment_object_id": {
+            "type": "string",
+            "description": "Internal: object id of an existing platform attachment to use as the image (set automatically by the client — do not fill this yourself)."
+          },
+          "alt_text": {
+            "type": "string",
+            "description": "Optional accessibility description of the image."
+          }
+        },
+        "required": [
+          "comment_id"
+        ]
+      },
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": false,
+        "idempotentHint": false,
+        "openWorldHint": false
+      },
+      "require_approval": true
+    },
+    {
       "name": "update_comment",
       "title": "Update an activity comment",
       "description": "Update an existing activity's comment by its ID.",

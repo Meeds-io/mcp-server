@@ -263,6 +263,46 @@ class ActivityMcpToolTest extends IntegrationTestBase {
     assertNotNull(shared);
   }
 
+  @Test
+  void createActivityCommentWithImageRequiresAnImage() throws Exception {
+    ActivityModel activity = activityMcpTool.createActivity(null, "Activity to comment on");
+    assertThrows(IllegalArgumentException.class,
+                 () -> activityMcpTool.createActivityCommentWithImage(activity.id(), "no image", null, null, null, null, null));
+  }
+
+  @Test
+  void createActivityCommentWithImageFromBase64() throws Exception {
+    ActivityModel activity = activityMcpTool.createActivity(null, "Activity to comment on with an image");
+
+    ActivityCommentModel comment = activityMcpTool.createActivityCommentWithImage(activity.id(),
+                                                                                  "look at this",
+                                                                                  null,
+                                                                                  PNG_1PX,
+                                                                                  null,
+                                                                                  null,
+                                                                                  "a dot");
+    assertNotNull(comment);
+    assertTrue(comment.id() > 0);
+  }
+
+  @Test
+  void attachImageToExistingComment() throws Exception {
+    ActivityModel activity = activityMcpTool.createActivity(null, "Activity with a comment to decorate");
+    ActivityCommentModel comment = activityMcpTool.createActivityComment(activity.id(), "plain comment");
+
+    ActivityCommentModel updated = activityMcpTool.attachImageToComment(comment.id(), null, PNG_1PX, null, null, "dot");
+
+    assertNotNull(updated);
+    assertEquals(comment.id(), updated.id());
+  }
+
+  @Test
+  void attachImageToCommentFailsForNonComment() throws Exception {
+    ActivityModel activity = activityMcpTool.createActivity(null, "This is an activity, not a comment");
+    assertThrows(ObjectNotFoundException.class,
+                 () -> activityMcpTool.attachImageToComment(activity.id(), null, PNG_1PX, null, null, null));
+  }
+
   private SpaceModel createTestSpace() throws Exception { // NOSONAR
     List<SpaceTemplateModel> templates = spaceTemplateMcpTool.listSpaceTemplates(null);
     assertFalse(templates.isEmpty(), "At least one space template is required");
