@@ -91,6 +91,9 @@ public class ActivityMcpTool implements McpToolPlugin {
 
   private static final String     ACTIVITY_OBJECT_TYPE     = "activity";
 
+  // a comment's id / metadata object id is the numeric id prefixed with "comment"
+  private static final String     COMMENT_ID_PREFIX        = "comment";
+
   @Autowired
   private ActivityManager         activityManager;
 
@@ -490,9 +493,11 @@ public class ActivityMcpTool implements McpToolPlugin {
     }
     String uploadId = resolveImageUploadId(imageUrl, imageBase64, attachmentObjectType, attachmentObjectId);
     ActivityCommentModel model = createActivityComment(activityId, comment);
-    // a comment is itself an activity, so its attachment uses object type "activity" with the comment id
-    attachUploadToObject(ACTIVITY_OBJECT_TYPE, String.valueOf(model.id()), uploadId, altText);
-    return toActivityCommentModel(String.valueOf(model.id()));
+    // a comment is itself an activity; its attachment uses object type "activity" with the
+    // comment's *prefixed* id ("comment<id>"), which is the metadata object id the comment renders from
+    String commentActivityId = COMMENT_ID_PREFIX + model.id();
+    attachUploadToObject(ACTIVITY_OBJECT_TYPE, commentActivityId, uploadId, altText);
+    return toActivityCommentModel(commentActivityId);
   }
 
   public ActivityCommentModel attachImageToComment(long commentId,
@@ -502,7 +507,9 @@ public class ActivityMcpTool implements McpToolPlugin {
                                                    String attachmentObjectId,
                                                    String altText) throws IllegalAccessException, ObjectNotFoundException {
     org.exoplatform.services.security.Identity userIdentity = getCurrentUserAclIdentity();
-    ExoSocialActivity comment = activityManager.getActivity(String.valueOf(commentId));
+    // comments are looked up / keyed by their prefixed id ("comment<id>")
+    String commentActivityId = COMMENT_ID_PREFIX + commentId;
+    ExoSocialActivity comment = activityManager.getActivity(commentActivityId);
     if (comment == null || !comment.isComment()) {
       throw new ObjectNotFoundException("No activity comment found with id '%s'. Use get_activity_comments to list comment ids.".formatted(commentId));
     }
@@ -510,8 +517,8 @@ public class ActivityMcpTool implements McpToolPlugin {
       throw new IllegalAccessException("Comment with id '%s' can't be edited by current user".formatted(commentId));
     }
     String uploadId = resolveImageUploadId(imageUrl, imageBase64, attachmentObjectType, attachmentObjectId);
-    attachUploadToObject(ACTIVITY_OBJECT_TYPE, String.valueOf(commentId), uploadId, altText);
-    return toActivityCommentModel(String.valueOf(commentId));
+    attachUploadToObject(ACTIVITY_OBJECT_TYPE, commentActivityId, uploadId, altText);
+    return toActivityCommentModel(commentActivityId);
   }
 
   public ActivityCommentModel updateComment(long activityCommentId, String comment) throws IllegalAccessException,
