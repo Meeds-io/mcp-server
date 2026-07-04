@@ -42,6 +42,7 @@ import org.springframework.ai.chat.model.ToolContext;
 import org.springframework.ai.tool.ToolCallback;
 import org.springframework.ai.tool.ToolCallbackProvider;
 import org.springframework.ai.tool.definition.ToolDefinition;
+import org.springframework.ai.tool.execution.ToolExecutionException;
 import org.springframework.ai.tool.metadata.ToolMetadata;
 import org.springframework.ai.tool.method.MethodToolCallback;
 import org.springframework.ai.tool.support.ToolUtils;
@@ -300,20 +301,25 @@ public class McpToolCallbackProviderService implements ToolCallbackProvider {
                                                                   .build());
         throw e;
       } catch (Exception e) {
+        // Spring AI's MethodToolCallback wraps the tool method's exception in a
+        // ToolExecutionException; unwrap it so the tool's LLM-directed message
+        // (e.g. "provide exactly one image source", "The image URL returned HTTP
+        // 429.") reaches the LLM instead of the generic explanation below.
+        Throwable cause = e instanceof ToolExecutionException && e.getCause() != null ? e.getCause() : e;
         mcpToolApprovalService.traceToolExecution(executionBuilder.toolExecutionType(UserToolRequestType.TOOL_EXECUTION_ERROR)
-                                                                  .toolOutput("Error: %s".formatted(e.getMessage()))
+                                                                  .toolOutput("Error: %s".formatted(cause.getMessage()))
                                                                   .completed(true)
                                                                   .build());
         log.error("Error calling Tool '{}#{}' with input: {}",
                   toolObject.getClass().getName(),
                   toolMethod.getName(),
                   toolInput,
-                  e);
-        if (e instanceof IllegalArgumentException
-            || e instanceof IllegalStateException
-            || e instanceof ObjectNotFoundException
-            || e instanceof IllegalAccessException) {
-          throw e;
+                  cause);
+        if (cause instanceof IllegalArgumentException
+            || cause instanceof IllegalStateException
+            || cause instanceof ObjectNotFoundException
+            || cause instanceof IllegalAccessException) {
+          throw (Exception) cause;
         } else {
           throw new IllegalStateException(LLM_ERROR_EXPLANATION.formatted(toolMethod.getName(),
                                                                           toolInput),
