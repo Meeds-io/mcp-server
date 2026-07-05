@@ -1395,6 +1395,104 @@
         "openWorldHint": false
       },
       "require_approval": true
+    },
+    {
+      "name": "get_activity_attachments",
+      "title": "List an activity's attachments",
+      "description": "List the attachments (images) on an activity (post): each attachment's file id, name, mime type, size and alt text. Read as the current user, so the activity's ACL is enforced.",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "activity_id": {
+            "type": "integer"
+          }
+        },
+        "required": [
+          "activity_id"
+        ]
+      },
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": false
+      }
+    },
+    {
+      "name": "get_comment_attachments",
+      "title": "List a comment's attachments",
+      "description": "List the attachments (images) on an activity comment: each attachment's file id, name, mime type, size and alt text. Read as the current user, so the comment's ACL is enforced.",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "comment_id": {
+            "type": "integer"
+          }
+        },
+        "required": [
+          "comment_id"
+        ]
+      },
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": false
+      }
+    },
+    {
+      "name": "remove_image_from_activity",
+      "title": "Remove an image from an activity",
+      "description": "Remove one attachment (image) from an activity the current user can edit, by its file id (from get_activity_attachments). If the activity has exactly one attachment, file_id may be omitted.",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "activity_id": {
+            "type": "integer"
+          },
+          "file_id": {
+            "type": "string",
+            "description": "File id of the attachment to remove, from the matching get_*_attachments Tool. Optional when the object has exactly one attachment."
+          }
+        },
+        "required": [
+          "activity_id"
+        ]
+      },
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": true,
+        "idempotentHint": false,
+        "openWorldHint": false
+      },
+      "require_approval": true
+    },
+    {
+      "name": "remove_image_from_comment",
+      "title": "Remove an image from a comment",
+      "description": "Remove one attachment (image) from an activity comment the current user can edit, by its file id (from get_comment_attachments). If the comment has exactly one attachment, file_id may be omitted.",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "comment_id": {
+            "type": "integer"
+          },
+          "file_id": {
+            "type": "string",
+            "description": "File id of the attachment to remove, from the matching get_*_attachments Tool. Optional when the object has exactly one attachment."
+          }
+        },
+        "required": [
+          "comment_id"
+        ]
+      },
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": true,
+        "idempotentHint": false,
+        "openWorldHint": false
+      },
+      "require_approval": true
     }
   ]
 }

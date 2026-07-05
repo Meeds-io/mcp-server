@@ -36,6 +36,7 @@ import io.meeds.mcp.server.tool.constant.Registration;
 import io.meeds.mcp.server.tool.constant.Visibility;
 import io.meeds.mcp.server.tool.model.ActivityCommentModel;
 import io.meeds.mcp.server.tool.model.ActivityModel;
+import io.meeds.mcp.server.tool.model.AttachmentModel;
 import io.meeds.mcp.server.tool.model.SpaceModel;
 import io.meeds.mcp.server.tool.model.SpaceTemplateModel;
 import io.meeds.mcp.server.tool.model.UserModel;
@@ -301,6 +302,57 @@ class ActivityMcpToolTest extends IntegrationTestBase {
     ActivityModel activity = activityMcpTool.createActivity(null, "This is an activity, not a comment");
     assertThrows(ObjectNotFoundException.class,
                  () -> activityMcpTool.attachImageToComment(activity.id(), null, PNG_1PX, null, null, null));
+  }
+
+  // Note on coverage: this integration harness rolls back attachment metadata on
+  // an async UC_SOC_METADATA_01 violation, so a saved attachment isn't readable
+  // back in-test (the same reason the *WithImage tests above only assert the
+  // activity/comment, never the stored image). The list/remove happy path — a
+  // populated listing and an actual delete — is verified live with EVA. The
+  // tests below cover the tools' reachable branches without needing a persisted
+  // attachment: empty listings and every guard/error path.
+
+  @Test
+  void getActivityAttachmentsIsEmptyWhenNoImage() throws Exception {
+    ActivityModel activity = activityMcpTool.createActivity(null, "no image here");
+
+    List<AttachmentModel> attachments = activityMcpTool.getActivityAttachments(activity.id());
+
+    assertNotNull(attachments);
+    assertTrue(attachments.isEmpty());
+  }
+
+  @Test
+  void getCommentAttachmentsIsEmptyWhenNoImage() throws Exception {
+    ActivityModel activity = activityMcpTool.createActivity(null, "activity for a plain comment");
+    ActivityCommentModel comment = activityMcpTool.createActivityComment(activity.id(), "plain comment");
+
+    List<AttachmentModel> attachments = activityMcpTool.getCommentAttachments(comment.id());
+
+    assertNotNull(attachments);
+    assertTrue(attachments.isEmpty());
+  }
+
+  @Test
+  void removeImageFromActivityWithNoAttachmentFails() throws Exception {
+    ActivityModel activity = activityMcpTool.createActivity(null, "nothing to remove");
+
+    assertThrows(ObjectNotFoundException.class,
+                 () -> activityMcpTool.removeImageFromActivity(activity.id(), null));
+  }
+
+  @Test
+  void removeImageFromActivityWhenActivityNotFound() {
+    assertThrows(ObjectNotFoundException.class,
+                 () -> activityMcpTool.removeImageFromActivity(-1L, "123"));
+  }
+
+  @Test
+  void removeImageFromCommentFailsForNonComment() throws Exception {
+    ActivityModel activity = activityMcpTool.createActivity(null, "an activity, not a comment");
+
+    assertThrows(ObjectNotFoundException.class,
+                 () -> activityMcpTool.removeImageFromComment(activity.id(), null));
   }
 
   private SpaceModel createTestSpace() throws Exception { // NOSONAR
