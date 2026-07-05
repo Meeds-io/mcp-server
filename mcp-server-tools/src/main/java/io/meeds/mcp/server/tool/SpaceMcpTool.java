@@ -26,6 +26,9 @@ import static io.meeds.mcp.server.tool.util.McpToolPluginUtils.getInteger;
 import static io.meeds.mcp.server.tool.util.UserToolUtils.getUserIdentities;
 import static io.meeds.mcp.server.tool.util.UserToolUtils.toUserModel;
 
+import java.io.ByteArrayInputStream;
+import java.io.IOException;
+import java.io.InputStream;
 import java.util.Collections;
 import java.util.List;
 import java.util.Objects;
@@ -38,10 +41,14 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 
 import org.exoplatform.commons.exception.ObjectNotFoundException;
+import org.exoplatform.commons.file.services.FileService;
 import org.exoplatform.commons.utils.ListAccess;
 import org.exoplatform.portal.config.UserACL;
 import org.exoplatform.portal.config.UserPortalConfigService;
+import org.exoplatform.social.attachment.AttachmentService;
 import org.exoplatform.social.core.manager.IdentityManager;
+import org.exoplatform.social.core.model.AvatarAttachment;
+import org.exoplatform.social.core.model.BannerAttachment;
 import org.exoplatform.social.core.profileproperty.ProfilePropertyService;
 import org.exoplatform.social.core.space.SpaceException;
 import org.exoplatform.social.core.space.SpaceFilter;
@@ -55,6 +62,7 @@ import io.meeds.mcp.server.tool.constant.Visibility;
 import io.meeds.mcp.server.tool.model.SpaceMemberModel;
 import io.meeds.mcp.server.tool.model.SpaceModel;
 import io.meeds.mcp.server.tool.model.UserModel;
+import io.meeds.mcp.server.tool.util.UploadToolUtils;
 import io.meeds.social.space.constant.SpaceRegistration;
 import io.meeds.social.space.constant.SpaceVisibility;
 import io.meeds.social.space.template.model.SpaceTemplate;
@@ -90,6 +98,12 @@ public class SpaceMcpTool implements McpToolPlugin {
 
   @Autowired
   private SpaceTemplateService    spaceTemplateService;
+
+  @Autowired
+  private AttachmentService       attachmentService;
+
+  @Autowired
+  private FileService              fileService;
 
   public SpaceModel createSpace(long spaceTemplateId, // NOSONAR
                                 String name,
@@ -359,6 +373,28 @@ public class SpaceMcpTool implements McpToolPlugin {
     return toSpaceModel(spaceService, space, currentUsername);
   }
 
+  // Sets a space's avatar from an image provided as exactly one of an http(s)
+  // URL, a base64 string, or an ACL-checked reference to a readable platform
+  // attachment. Only a manager of the space may change it.
+  public SpaceModel setSpaceAvatar(long spaceId,
+                                   String imageUrl,
+                                   String imageBase64,
+                                   String attachmentObjectType,
+                                   String attachmentObjectId) throws IllegalAccessException, ObjectNotFoundException {
+    return setSpaceImage(spaceId, true, imageUrl, imageBase64, attachmentObjectType, attachmentObjectId);
+  }
+
+  // Sets a space's banner from an image provided as exactly one of an http(s)
+  // URL, a base64 string, or an ACL-checked reference to a readable platform
+  // attachment. Only a manager of the space may change it.
+  public SpaceModel setSpaceBanner(long spaceId,
+                                   String imageUrl,
+                                   String imageBase64,
+                                   String attachmentObjectType,
+                                   String attachmentObjectId) throws IllegalAccessException, ObjectNotFoundException {
+    return setSpaceImage(spaceId, false, imageUrl, imageBase64, attachmentObjectType, attachmentObjectId);
+  }
+
   public SpaceModel requestToJoinSpace(long spaceId) throws ObjectNotFoundException {
     String currentUsername = getCurrentUserName();
     Space space = requireSpace(spaceId);
@@ -500,6 +536,71 @@ public class SpaceMcpTool implements McpToolPlugin {
   public void deleteSpace(long spaceId) throws ObjectNotFoundException, SpaceException {
     Space space = manageableSpace(spaceId);
     spaceService.deleteSpace(space);
+  }
+
+  // Sets a space's avatar from an image provided as exactly one of an http(s)
+  // URL, a base64 string, or an ACL-checked reference to a readable platform
+  // attachment. Only a manager of the space may change it.
+  public SpaceModel setSpaceAvatar(long spaceId,
+                                   String imageUrl,
+                                   String imageBase64,
+                                   String attachmentObjectType,
+                                   String attachmentObjectId) throws IllegalAccessException, ObjectNotFoundException {
+    return setSpaceImage(spaceId, true, imageUrl, imageBase64, attachmentObjectType, attachmentObjectId);
+  }
+
+  // Sets a space's banner from an image provided as exactly one of an http(s)
+  // URL, a base64 string, or an ACL-checked reference to a readable platform
+  // attachment. Only a manager of the space may change it.
+  public SpaceModel setSpaceBanner(long spaceId,
+                                   String imageUrl,
+                                   String imageBase64,
+                                   String attachmentObjectType,
+                                   String attachmentObjectId) throws IllegalAccessException, ObjectNotFoundException {
+    return setSpaceImage(spaceId, false, imageUrl, imageBase64, attachmentObjectType, attachmentObjectId);
+  }
+
+  private SpaceModel setSpaceImage(long spaceId,
+                                   boolean avatar,
+                                   String imageUrl,
+                                   String imageBase64,
+                                   String attachmentObjectType,
+                                   String attachmentObjectId) throws IllegalAccessException, ObjectNotFoundException {
+    String username = getCurrentUserName();
+    Space space = spaceService.getSpaceById(spaceId);
+    if (space == null) {
+      throw new ObjectNotFoundException(MSG_SPACE_DOESN_T_EXIST.formatted(spaceId));
+    } else if (!spaceService.canManageSpace(space, username)) {
+      throw new IllegalAccessException(MSG_SPACE_USER_NOT_ADMIN.formatted(spaceId));
+    }
+    UploadToolUtils.FetchedImage image = UploadToolUtils.resolveImage(attachmentService,
+                                                                      fileService,
+                                                                      getCurrentUserAclIdentity(),
+                                                                      imageUrl,
+                                                                      imageBase64,
+                                                                      attachmentObjectType,
+                                                                      attachmentObjectId,
+                                                                      UploadToolUtils.DEFAULT_MAX_BYTES);
+    try (InputStream inputStream = new ByteArrayInputStream(image.bytes())) {
+      if (avatar) {
+        space.setAvatarAttachment(new AvatarAttachment(null,
+                                                       image.fileName(),
+                                                       image.mimeType(),
+                                                       inputStream,
+                                                       System.currentTimeMillis()));
+        space = spaceService.updateSpaceAvatar(space, username);
+      } else {
+        space.setBannerAttachment(new BannerAttachment(null,
+                                                       image.fileName(),
+                                                       image.mimeType(),
+                                                       inputStream,
+                                                       System.currentTimeMillis()));
+        space = spaceService.updateSpaceBanner(space, username);
+      }
+    } catch (IOException e) {
+      throw new IllegalStateException("Could not update the space image: " + e.getMessage());
+    }
+    return toSpaceModel(spaceService, space, username);
   }
 
   private Space requireSpace(long spaceId) throws ObjectNotFoundException {

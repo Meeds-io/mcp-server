@@ -42,7 +42,6 @@ import org.springframework.stereotype.Service;
 
 import org.exoplatform.commons.ObjectAlreadyExistsException;
 import org.exoplatform.commons.exception.ObjectNotFoundException;
-import org.exoplatform.commons.file.model.FileItem;
 import org.exoplatform.commons.file.services.FileService;
 import org.exoplatform.portal.config.UserACL;
 import org.exoplatform.portal.config.UserPortalConfigService;
@@ -340,37 +339,15 @@ public class ActivityMcpTool implements McpToolPlugin {
                                       String imageBase64,
                                       String attachmentObjectType,
                                       String attachmentObjectId) throws IllegalAccessException, ObjectNotFoundException {
-    if (StringUtils.isNotBlank(attachmentObjectId)) {
-      if (StringUtils.isNotBlank(imageUrl) || StringUtils.isNotBlank(imageBase64)) {
-        throw new IllegalArgumentException("Provide only one image source: attachment_object_id, image_url or image_base64.");
-      }
-      if (StringUtils.isBlank(attachmentObjectType)) {
-        throw new IllegalArgumentException("attachment_object_type is required together with attachment_object_id.");
-      }
-      List<String> fileIds = attachmentService.getAttachmentFileIds(attachmentObjectType,
-                                                                    attachmentObjectId,
-                                                                    getCurrentUserAclIdentity());
-      if (CollectionUtils.isEmpty(fileIds)) {
-        throw new ObjectNotFoundException("No file attachment found for %s/%s.".formatted(attachmentObjectType,
-                                                                                          attachmentObjectId));
-      }
-      byte[] bytes;
-      String mimeType;
-      String fileName;
-      try {
-        FileItem file = fileService.getFile(Long.parseLong(fileIds.get(0)));
-        bytes = file == null ? null : file.getAsByte();
-        mimeType = file != null && file.getFileInfo() != null ? file.getFileInfo().getMimetype() : null;
-        fileName = file != null && file.getFileInfo() != null ? file.getFileInfo().getName() : "image";
-      } catch (Exception e) {
-        throw new IllegalStateException("Could not read the referenced attachment file: " + e.getMessage());
-      }
-      if (bytes == null || bytes.length == 0) {
-        throw new ObjectNotFoundException("The referenced attachment file is empty or could not be read.");
-      }
-      return UploadToolUtils.materialize(uploadService, bytes, fileName, mimeType);
-    }
-    return UploadToolUtils.materializeFromUrlOrBase64(uploadService, imageUrl, imageBase64, UploadToolUtils.DEFAULT_MAX_BYTES);
+    UploadToolUtils.FetchedImage image = UploadToolUtils.resolveImage(attachmentService,
+                                                                      fileService,
+                                                                      getCurrentUserAclIdentity(),
+                                                                      imageUrl,
+                                                                      imageBase64,
+                                                                      attachmentObjectType,
+                                                                      attachmentObjectId,
+                                                                      UploadToolUtils.DEFAULT_MAX_BYTES);
+    return UploadToolUtils.materialize(uploadService, image.bytes(), image.fileName(), image.mimeType());
   }
 
   private void attachUploadToObject(String objectType, String objectId, String uploadId, String altText) {
