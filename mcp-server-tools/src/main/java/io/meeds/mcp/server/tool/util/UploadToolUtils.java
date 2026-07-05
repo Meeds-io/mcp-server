@@ -32,12 +32,19 @@ import java.net.http.HttpResponse;
 import java.nio.file.Files;
 import java.time.Duration;
 import java.util.Base64;
+import java.util.List;
 import java.util.UUID;
 
+import org.apache.commons.collections4.CollectionUtils;
 import org.apache.commons.lang3.StringUtils;
 
+import org.exoplatform.commons.exception.ObjectNotFoundException;
+import org.exoplatform.commons.file.model.FileItem;
+import org.exoplatform.commons.file.services.FileService;
 import org.exoplatform.services.log.ExoLogger;
 import org.exoplatform.services.log.Log;
+import org.exoplatform.services.security.Identity;
+import org.exoplatform.social.attachment.AttachmentService;
 import org.exoplatform.upload.UploadResource;
 import org.exoplatform.upload.UploadService;
 
@@ -84,10 +91,71 @@ public final class UploadToolUtils {
     if (hasUrl == hasBase64) {
       throw new IllegalArgumentException("Provide exactly one of image_url or image_base64.");
     }
-    if (hasUrl) {
-      FetchedImage image = fetchImage(imageUrl, maxBytes);
-      return materialize(uploadService, image.bytes(), image.fileName(), image.mimeType());
+    FetchedImage image = hasUrl ? fetchImage(imageUrl, maxBytes) : decodeBase64Image(imageBase64, maxBytes);
+    return materialize(uploadService, image.bytes(), image.fileName(), image.mimeType());
+  }
+
+  /**
+   * Resolves an image from exactly one of three mutually exclusive sources — an
+   * http(s) URL, a base64 string, or an ACL-checked reference to a file already
+   * attached to a platform object (<code>attachment_object_type</code> +
+   * <code>attachment_object_id</code>) — into its raw bytes. Consumers that need
+   * an <code>uploadId</code> pass the result to {@link #materialize}; consumers
+   * that need raw bytes (avatars/banners) use it directly.
+   *
+   * <p>The attachment reference is read <b>as the given user</b> via
+   * {@link AttachmentService#getAttachmentFileIds(String, String, Identity)}, so
+   * platform ACLs are enforced (an unreadable object throws
+   * {@link IllegalAccessException} — no IDOR).
+   *
+   * @return the resolved image bytes, mime type and file name
+   */
+  public static FetchedImage resolveImage(AttachmentService attachmentService,
+                                          FileService fileService,
+                                          Identity aclIdentity,
+                                          String imageUrl,
+                                          String imageBase64,
+                                          String attachmentObjectType,
+                                          String attachmentObjectId,
+                                          long maxBytes) throws IllegalAccessException, ObjectNotFoundException {
+    if (StringUtils.isNotBlank(attachmentObjectId)) {
+      if (StringUtils.isNotBlank(imageUrl) || StringUtils.isNotBlank(imageBase64)) {
+        throw new IllegalArgumentException("Provide only one image source: attachment_object_id, image_url or image_base64.");
+      }
+      if (StringUtils.isBlank(attachmentObjectType)) {
+        throw new IllegalArgumentException("attachment_object_type is required together with attachment_object_id.");
+      }
+      List<String> fileIds = attachmentService.getAttachmentFileIds(attachmentObjectType, attachmentObjectId, aclIdentity);
+      if (CollectionUtils.isEmpty(fileIds)) {
+        throw new ObjectNotFoundException("No file attachment found for %s/%s.".formatted(attachmentObjectType,
+                                                                                         attachmentObjectId));
+      }
+      byte[] bytes;
+      String mimeType;
+      String fileName;
+      try {
+        FileItem file = fileService.getFile(Long.parseLong(fileIds.get(0)));
+        bytes = file == null ? null : file.getAsByte();
+        mimeType = file != null && file.getFileInfo() != null ? file.getFileInfo().getMimetype() : null;
+        fileName = file != null && file.getFileInfo() != null ? file.getFileInfo().getName() : "image";
+      } catch (Exception e) {
+        throw new IllegalStateException("Could not read the referenced attachment file: " + e.getMessage());
+      }
+      if (bytes == null || bytes.length == 0) {
+        throw new ObjectNotFoundException("The referenced attachment file is empty or could not be read.");
+      }
+      return new FetchedImage(bytes, mimeType, StringUtils.isBlank(fileName) ? "image" : fileName);
     }
+    boolean hasUrl = StringUtils.isNotBlank(imageUrl);
+    boolean hasBase64 = StringUtils.isNotBlank(imageBase64);
+    if (hasUrl == hasBase64) {
+      throw new IllegalArgumentException("Provide exactly one of image_url or image_base64.");
+    }
+    return hasUrl ? fetchImage(imageUrl, maxBytes) : decodeBase64Image(imageBase64, maxBytes);
+  }
+
+  /** Decodes a base64 image into its bytes, enforcing the size cap and a supported mime. */
+  private static FetchedImage decodeBase64Image(String imageBase64, long maxBytes) {
     byte[] bytes = decodeBase64(imageBase64);
     if (bytes.length > maxBytes) {
       throw new IllegalArgumentException("Image exceeds the maximum allowed size (" + (maxBytes / (1024 * 1024)) + " MB).");
@@ -96,7 +164,7 @@ public final class UploadToolUtils {
     if (mimeType == null) {
       throw new IllegalArgumentException("image_base64 does not decode to a supported image (png, jpeg, gif or webp).");
     }
-    return materialize(uploadService, bytes, "image" + extensionForMime(mimeType), mimeType);
+    return new FetchedImage(bytes, mimeType, "image" + extensionForMime(mimeType));
   }
 
   /**

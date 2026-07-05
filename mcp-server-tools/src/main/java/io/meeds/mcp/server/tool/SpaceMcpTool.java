@@ -26,6 +26,9 @@ import static io.meeds.mcp.server.tool.util.McpToolPluginUtils.getInteger;
 import static io.meeds.mcp.server.tool.util.UserToolUtils.getUserIdentities;
 import static io.meeds.mcp.server.tool.util.UserToolUtils.toUserModel;
 
+import java.io.ByteArrayInputStream;
+import java.io.IOException;
+import java.io.InputStream;
 import java.util.Collections;
 import java.util.List;
 import java.util.Objects;
@@ -38,10 +41,14 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 
 import org.exoplatform.commons.exception.ObjectNotFoundException;
+import org.exoplatform.commons.file.services.FileService;
 import org.exoplatform.commons.utils.ListAccess;
 import org.exoplatform.portal.config.UserACL;
 import org.exoplatform.portal.config.UserPortalConfigService;
+import org.exoplatform.social.attachment.AttachmentService;
 import org.exoplatform.social.core.manager.IdentityManager;
+import org.exoplatform.social.core.model.AvatarAttachment;
+import org.exoplatform.social.core.model.BannerAttachment;
 import org.exoplatform.social.core.profileproperty.ProfilePropertyService;
 import org.exoplatform.social.core.space.SpaceException;
 import org.exoplatform.social.core.space.SpaceFilter;
@@ -55,6 +62,7 @@ import io.meeds.mcp.server.tool.constant.Visibility;
 import io.meeds.mcp.server.tool.model.SpaceMemberModel;
 import io.meeds.mcp.server.tool.model.SpaceModel;
 import io.meeds.mcp.server.tool.model.UserModel;
+import io.meeds.mcp.server.tool.util.UploadToolUtils;
 import io.meeds.social.space.constant.SpaceRegistration;
 import io.meeds.social.space.constant.SpaceVisibility;
 import io.meeds.social.space.template.model.SpaceTemplate;
@@ -89,9 +97,12 @@ public class SpaceMcpTool implements McpToolPlugin {
   private UserPortalConfigService portalConfigService;
 
   @Autowired
-  private SpaceTemplateService    spaceTemplateService;
+  private AttachmentService       attachmentService;
 
-  public SpaceModel createSpace(long spaceTemplateId, // NOSONAR
+  @Autowired
+  private FileService             fileService;
+
+  public SpaceModel createSpace(long spaceTemplateId,
                                 String name,
                                 String description,
                                 Visibility visibility,
@@ -346,236 +357,69 @@ public class SpaceMcpTool implements McpToolPlugin {
     }
   }
 
-  // ---------------------------------------------------------------------------
-  // Self-service membership (acting as the current user)
-  // ---------------------------------------------------------------------------
-
-  public SpaceModel joinSpace(long spaceId) throws ObjectNotFoundException {
-    String currentUsername = getCurrentUserName();
-    Space space = requireSpace(spaceId);
-    if (spaceService.isMember(space, currentUsername)) {
-      throw new IllegalStateException("You are already a member of space '%s'.".formatted(space.getDisplayName()));
-    }
-    if (!Space.OPEN.equals(space.getRegistration())) {
-      throw new IllegalStateException("Space '%s' can't be joined directly. If it requires validation use request_to_join_space, otherwise you need an invitation.".formatted(space.getDisplayName()));
-    }
-    spaceService.addMember(space, currentUsername);
-    return toSpaceModel(spaceService, space, currentUsername);
+  // Sets a space's avatar from an image provided as exactly one of an http(s)
+  // URL, a base64 string, or an ACL-checked reference to a readable platform
+  // attachment. Only a manager of the space may change it.
+  public SpaceModel setSpaceAvatar(long spaceId,
+                                   String imageUrl,
+                                   String imageBase64,
+                                   String attachmentObjectType,
+                                   String attachmentObjectId) throws IllegalAccessException, ObjectNotFoundException {
+    return setSpaceImage(spaceId, true, imageUrl, imageBase64, attachmentObjectType, attachmentObjectId);
   }
 
-  public SpaceModel requestToJoinSpace(long spaceId) throws ObjectNotFoundException {
-    String currentUsername = getCurrentUserName();
-    Space space = requireSpace(spaceId);
-    if (spaceService.isMember(space, currentUsername)) {
-      throw new IllegalStateException("You are already a member of space '%s'.".formatted(space.getDisplayName()));
-    } else if (spaceService.isPendingUser(space, currentUsername)) {
-      throw new IllegalStateException("You already have a pending join request for space '%s'.".formatted(space.getDisplayName()));
-    }
-    if (Space.OPEN.equals(space.getRegistration())) {
-      spaceService.addMember(space, currentUsername);
-    } else if (Space.VALIDATION.equals(space.getRegistration())) {
-      spaceService.addPendingUser(space, currentUsername);
-    } else {
-      throw new IllegalStateException("Space '%s' is invitation-only; you can't request to join it.".formatted(space.getDisplayName()));
-    }
-    return toSpaceModel(spaceService, space, currentUsername);
+  // Sets a space's banner from an image provided as exactly one of an http(s)
+  // URL, a base64 string, or an ACL-checked reference to a readable platform
+  // attachment. Only a manager of the space may change it.
+  public SpaceModel setSpaceBanner(long spaceId,
+                                   String imageUrl,
+                                   String imageBase64,
+                                   String attachmentObjectType,
+                                   String attachmentObjectId) throws IllegalAccessException, ObjectNotFoundException {
+    return setSpaceImage(spaceId, false, imageUrl, imageBase64, attachmentObjectType, attachmentObjectId);
   }
 
-  public SpaceModel cancelJoinRequest(long spaceId) throws ObjectNotFoundException {
-    String currentUsername = getCurrentUserName();
-    Space space = requireSpace(spaceId);
-    if (!spaceService.isPendingUser(space, currentUsername)) {
-      throw new IllegalStateException("You have no pending join request for space '%s'.".formatted(space.getDisplayName()));
-    }
-    spaceService.removePendingUser(space, currentUsername);
-    return toSpaceModel(spaceService, space, currentUsername);
-  }
-
-  public SpaceModel leaveSpace(long spaceId) throws ObjectNotFoundException {
-    String currentUsername = getCurrentUserName();
-    Space space = requireSpace(spaceId);
-    if (!spaceService.isMember(space, currentUsername)) {
-      throw new IllegalStateException("You are not a member of space '%s'.".formatted(space.getDisplayName()));
-    }
-    if (spaceService.isManager(space, currentUsername) && space.getManagers().length <= 1) {
-      throw new IllegalStateException("You are the only manager of space '%s'. Promote another member to manager before leaving.".formatted(space.getDisplayName()));
-    }
-    spaceService.removeMember(space, currentUsername);
-    return toSpaceModel(spaceService, space, currentUsername);
-  }
-
-  public SpaceModel acceptSpaceInvitation(long spaceId) throws ObjectNotFoundException {
-    String currentUsername = getCurrentUserName();
-    Space space = requireSpace(spaceId);
-    if (!spaceService.isInvitedUser(space, currentUsername)) {
-      throw new IllegalStateException("You have no invitation to space '%s'.".formatted(space.getDisplayName()));
-    }
-    spaceService.addMember(space, currentUsername);
-    return toSpaceModel(spaceService, space, currentUsername);
-  }
-
-  public SpaceModel declineSpaceInvitation(long spaceId) throws ObjectNotFoundException {
-    String currentUsername = getCurrentUserName();
-    Space space = requireSpace(spaceId);
-    if (!spaceService.isInvitedUser(space, currentUsername)) {
-      throw new IllegalStateException("You have no invitation to space '%s'.".formatted(space.getDisplayName()));
-    }
-    spaceService.removeInvitedUser(space, currentUsername);
-    return toSpaceModel(spaceService, space, currentUsername);
-  }
-
-  // ---------------------------------------------------------------------------
-  // Manager-side join requests + enriched reads
-  // ---------------------------------------------------------------------------
-
-  public List<UserModel> listSpaceJoinRequests(long spaceId,
-                                               Integer offset,
-                                               Integer limit) throws ObjectNotFoundException {
-    String currentUsername = getCurrentUserName();
-    Space space = requireSpace(spaceId);
-    if (!spaceService.canManageSpace(space, currentUsername)) {
-      throw new IllegalStateException(MSG_SPACE_USER_NOT_ADMIN.formatted(spaceId));
-    }
-    String[] pendingUsers = space.getPendingUsers();
-    if (ArrayUtils.isEmpty(pendingUsers)) {
-      return Collections.emptyList();
-    }
-    return Stream.of(pendingUsers)
-                 .skip(getInteger(offset, DEFAULT_OFFSET))
-                 .limit(getInteger(limit, DEFAULT_LIMIT))
-                 .map(u -> user(u, currentUsername))
-                 .filter(Objects::nonNull)
-                 .toList();
-  }
-
-  public void acceptSpaceJoinRequest(long spaceId, String username) throws ObjectNotFoundException {
-    Space space = manageableSpace(spaceId);
-    String target = normalize(username);
-    if (!spaceService.isPendingUser(space, target)) {
-      throw new IllegalStateException("User '%s' has no pending join request for space '%s'.".formatted(username, space.getDisplayName()));
-    }
-    spaceService.addMember(space, target);
-  }
-
-  public void declineSpaceJoinRequest(long spaceId, String username) throws ObjectNotFoundException {
-    Space space = manageableSpace(spaceId);
-    String target = normalize(username);
-    if (!spaceService.isPendingUser(space, target)) {
-      throw new IllegalStateException("User '%s' has no pending join request for space '%s'.".formatted(username, space.getDisplayName()));
-    }
-    spaceService.removePendingUser(space, target);
-  }
-
-  public List<SpaceMemberModel> getSpaceMembers(long spaceId,
-                                                Integer offset,
-                                                Integer limit) throws ObjectNotFoundException, IllegalAccessException {
-    String currentUsername = getCurrentUserName();
-    Space space = requireSpace(spaceId);
-    if (Space.HIDDEN.equals(space.getVisibility()) && !spaceService.canViewSpace(space, currentUsername)) {
-      throw new IllegalAccessException("You can't view members of space '%s'.".formatted(spaceId));
-    }
-    String[] members = space.getMembers();
-    if (ArrayUtils.isEmpty(members)) {
-      return Collections.emptyList();
-    }
-    return Stream.of(members)
-                 .skip(getInteger(offset, DEFAULT_OFFSET))
-                 .limit(getInteger(limit, DEFAULT_LIMIT))
-                 .map(u -> new SpaceMemberModel(user(u, currentUsername), getUserRoles(spaceService, space, u)))
-                 .filter(m -> m.user() != null)
-                 .toList();
-  }
-
-  // ---------------------------------------------------------------------------
-  // Sub-spaces (7.2 hierarchy) + lifecycle
-  // ---------------------------------------------------------------------------
-
-  @SneakyThrows
-  public List<SpaceModel> listSubSpaces(long parentSpaceId,
-                                        Integer offset,
-                                        Integer limit) throws ObjectNotFoundException, IllegalAccessException {
-    String currentUsername = getCurrentUserName();
-    Space parentSpace = requireSpace(parentSpaceId);
-    if (Space.HIDDEN.equals(parentSpace.getVisibility()) && !spaceService.canViewSpace(parentSpace, currentUsername)) {
-      throw new IllegalAccessException("You can't view space '%s'.".formatted(parentSpaceId));
-    }
-    SpaceFilter filter = new SpaceFilter((String) null);
-    filter.setParentSpaceId(parentSpaceId);
-    ListAccess<Space> spacesListAccess = spaceService.getAccessibleSpacesByFilter(currentUsername, filter);
-    Space[] spaces = spacesListAccess.load(getInteger(offset, DEFAULT_OFFSET), getInteger(limit, DEFAULT_LIMIT));
-    return spaces == null ? Collections.emptyList()
-                          : Stream.of(spaces)
-                                  .map(s -> toSpaceModel(spaceService, s, currentUsername))
-                                  .toList();
-  }
-
-  public void deleteSpace(long spaceId) throws ObjectNotFoundException, SpaceException {
-    Space space = manageableSpace(spaceId);
-    spaceService.deleteSpace(space);
-  }
-
-  // ---------------------------------------------------------------------------
-  // Helpers
-  // ---------------------------------------------------------------------------
-
-  private Space requireSpace(long spaceId) throws ObjectNotFoundException {
+  private SpaceModel setSpaceImage(long spaceId,
+                                   boolean avatar,
+                                   String imageUrl,
+                                   String imageBase64,
+                                   String attachmentObjectType,
+                                   String attachmentObjectId) throws IllegalAccessException, ObjectNotFoundException {
+    String username = getCurrentUserName();
     Space space = spaceService.getSpaceById(spaceId);
     if (space == null) {
-      throw new ObjectNotFoundException("Space with id '%s' doesn't exist. Use get_all_spaces (with 'query') to find a space by name.".formatted(spaceId));
+      throw new ObjectNotFoundException(MSG_SPACE_DOESN_T_EXIST.formatted(spaceId));
+    } else if (!spaceService.canManageSpace(space, username)) {
+      throw new IllegalAccessException(MSG_SPACE_USER_NOT_ADMIN.formatted(spaceId));
     }
-    return space;
-  }
-
-  /**
-   * Verifies a sub-space with the given child template can actually be created
-   * under the parent space, since the platform silently allows creation when the
-   * parent template declares no sub-space templates.
-   */
-  private void checkSubspaceAllowed(Space parentSpace, long childTemplateId) {
-    SpaceTemplate parentTemplate = spaceTemplateService.getSpaceTemplate(parentSpace.getTemplateId());
-    List<String> allowedSubspaceTemplates = parentTemplate == null ? null : parentTemplate.getAllowedSubspaceTemplates();
-    if (allowedSubspaceTemplates == null || allowedSubspaceTemplates.isEmpty()) {
-      throw new IllegalStateException("Space '%s' doesn't allow sub-spaces: its template (id %s) declares no allowed sub-space templates.".formatted(parentSpace.getDisplayName(),
-                                                                                                                                                    parentSpace.getTemplateId()));
+    UploadToolUtils.FetchedImage image = UploadToolUtils.resolveImage(attachmentService,
+                                                                      fileService,
+                                                                      getCurrentUserAclIdentity(),
+                                                                      imageUrl,
+                                                                      imageBase64,
+                                                                      attachmentObjectType,
+                                                                      attachmentObjectId,
+                                                                      UploadToolUtils.DEFAULT_MAX_BYTES);
+    try (InputStream inputStream = new ByteArrayInputStream(image.bytes())) {
+      if (avatar) {
+        space.setAvatarAttachment(new AvatarAttachment(null,
+                                                       image.fileName(),
+                                                       image.mimeType(),
+                                                       inputStream,
+                                                       System.currentTimeMillis()));
+        space = spaceService.updateSpaceAvatar(space, username);
+      } else {
+        space.setBannerAttachment(new BannerAttachment(null,
+                                                       image.fileName(),
+                                                       image.mimeType(),
+                                                       inputStream,
+                                                       System.currentTimeMillis()));
+        space = spaceService.updateSpaceBanner(space, username);
+      }
+    } catch (IOException e) {
+      throw new IllegalStateException("Could not update the space image: " + e.getMessage());
     }
-    // rules are formatted as "<childTemplateId>:<maxLimit>"
-    boolean childAllowed = allowedSubspaceTemplates.stream()
-                                                   .filter(Objects::nonNull)
-                                                   .anyMatch(rule -> rule.startsWith(childTemplateId + ":"));
-    if (!childAllowed) {
-      List<String> allowedTemplateIds = allowedSubspaceTemplates.stream()
-                                                                .filter(Objects::nonNull)
-                                                                .map(rule -> rule.split(":")[0])
-                                                                .toList();
-      throw new IllegalArgumentException("Template '%s' can't be used to create a sub-space under '%s'. Allowed sub-space template ids: %s. Use list_space_templates to pick a valid one.".formatted(childTemplateId,
-                                                                                                                                                                                                    parentSpace.getDisplayName(),
-                                                                                                                                                                                                    allowedTemplateIds));
-    }
-  }
-
-  private Space manageableSpace(long spaceId) throws ObjectNotFoundException {
-    String currentUsername = getCurrentUserName();
-    Space space = requireSpace(spaceId);
-    if (!spaceService.canManageSpace(space, currentUsername)) {
-      throw new IllegalStateException(MSG_SPACE_USER_NOT_ADMIN.formatted(spaceId));
-    }
-    return space;
-  }
-
-  private String normalize(String username) {
-    return username != null && username.startsWith("@") ? username.substring(1) : username;
-  }
-
-  private UserModel user(String username, String viewer) {
-    return toUserModel(identityManager,
-                       profilePropertyService,
-                       userAcl,
-                       translationService,
-                       portalConfigService,
-                       normalize(username),
-                       viewer,
-                       getLocale(null),
-                       false);
+    return toSpaceModel(spaceService, space, username);
   }
 
 }

@@ -88,91 +88,35 @@ class UserMcpToolTest extends IntegrationTestBase {
     assertTrue(userMcpTool.getUsersCount() > 0);
   }
 
-  // --- connections ---------------------------------------------------------
+  // 1x1 transparent PNG
+  private static final String PNG_1PX =
+      "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==";
 
   @Test
-  void listConnectionsAndRequestsAreEmptyForFreshUser() {
-    assertNotNull(userMcpTool.listConnectionRequests(0, 10));
-    assertNotNull(userMcpTool.listSentConnectionRequests(0, 10));
-    assertNotNull(userMcpTool.listMyConnections(null, 0, 10));
-    assertNotNull(userMcpTool.listConnectionSuggestions(10));
+  void setMyAvatarFromBase64() throws Exception {
+    UserModel user = userMcpTool.setMyAvatar(null, PNG_1PX, null, null);
+
+    assertNotNull(user);
+    assertNotNull(user.getUsername());
   }
 
   @Test
-  void sendConnectionRequestThenStatusIsPending() {
-    identityManager.getOrCreateUserIdentity("demo");
+  void setMyBannerFromBase64() throws Exception {
+    UserModel user = userMcpTool.setMyBanner(null, PNG_1PX, null, null);
 
-    userMcpTool.sendConnectionRequest("demo");
-
-    assertEquals("PENDING", userMcpTool.getConnectionStatus("demo"));
+    assertNotNull(user);
+    assertNotNull(user.getUsername());
   }
 
   @Test
-  void sendConnectionRequestToSelfIsRejected() {
-    assertThrows(IllegalArgumentException.class, () -> userMcpTool.sendConnectionRequest(USERNAME));
+  void setMyAvatarRequiresASource() {
+    assertThrows(IllegalArgumentException.class, () -> userMcpTool.setMyAvatar(null, null, null, null));
   }
 
   @Test
-  void acceptIncomingConnectionRequest() {
-    Identity mary = identityManager.getOrCreateUserIdentity("mary");
-    Identity john = identityManager.getOrCreateUserIdentity(USERNAME);
-    // mary invites john
-    relationshipManager.inviteToConnect(mary, john);
-
-    List<UserModel> requests = userMcpTool.listConnectionRequests(0, 10);
-    assertTrue(requests.stream().anyMatch(u -> "mary".equals(u.getUsername())));
-
-    userMcpTool.acceptConnectionRequest("mary");
-
-    assertEquals("CONFIRMED", userMcpTool.getConnectionStatus("mary"));
-  }
-
-  @Test
-  void acceptWithoutPendingRequestFails() {
-    identityManager.getOrCreateUserIdentity("james");
-    assertThrows(IllegalStateException.class, () -> userMcpTool.acceptConnectionRequest("james"));
-  }
-
-  // --- profile -------------------------------------------------------------
-
-  @Test
-  void updateMyProfileWithoutFieldsFails() {
+  void setMyAvatarRejectsBothSources() {
     assertThrows(IllegalArgumentException.class,
-                 () -> userMcpTool.updateMyProfile(null, null, null, null, null, null, null));
-  }
-
-  @Test
-  void updateMyProfileSetsFields() {
-    UserModel updated = userMcpTool.updateMyProfile("Hello, I test MCP tools", "Platform Engineer", "Meeds",
-                                                    null, null, null, null);
-
-    assertNotNull(updated);
-    assertEquals("Platform Engineer", updated.getPosition());
-    assertEquals("Meeds", updated.getCompany());
-  }
-
-  // --- online status -------------------------------------------------------
-
-  @Test
-  void getUserOnlineStatusReflectsService() {
-    when(userStateService.isOnline(USERNAME)).thenReturn(true);
-    when(userStateService.getUserState(USERNAME)).thenReturn(new UserStateModel(USERNAME, 1000000000000L, "available"));
-
-    OnlineStatusModel status = userMcpTool.getUserOnlineStatus(USERNAME);
-
-    assertNotNull(status);
-    assertTrue(status.online());
-    assertEquals("available", status.status());
-  }
-
-  @Test
-  void listOnlineUsersMapsService() {
-    when(userStateService.online()).thenReturn(List.of(new UserStateModel("mary", 1000000000000L, "available")));
-
-    List<OnlineStatusModel> online = userMcpTool.listOnlineUsers(0, 10);
-
-    assertNotNull(online);
-    assertTrue(online.stream().anyMatch(o -> "mary".equals(o.username())));
+                 () -> userMcpTool.setMyAvatar("https://8.8.8.8/x.png", PNG_1PX, null, null));
   }
 
 }
