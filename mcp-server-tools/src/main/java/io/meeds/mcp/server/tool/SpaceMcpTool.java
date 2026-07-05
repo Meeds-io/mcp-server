@@ -538,28 +538,6 @@ public class SpaceMcpTool implements McpToolPlugin {
     spaceService.deleteSpace(space);
   }
 
-  // Sets a space's avatar from an image provided as exactly one of an http(s)
-  // URL, a base64 string, or an ACL-checked reference to a readable platform
-  // attachment. Only a manager of the space may change it.
-  public SpaceModel setSpaceAvatar(long spaceId,
-                                   String imageUrl,
-                                   String imageBase64,
-                                   String attachmentObjectType,
-                                   String attachmentObjectId) throws IllegalAccessException, ObjectNotFoundException {
-    return setSpaceImage(spaceId, true, imageUrl, imageBase64, attachmentObjectType, attachmentObjectId);
-  }
-
-  // Sets a space's banner from an image provided as exactly one of an http(s)
-  // URL, a base64 string, or an ACL-checked reference to a readable platform
-  // attachment. Only a manager of the space may change it.
-  public SpaceModel setSpaceBanner(long spaceId,
-                                   String imageUrl,
-                                   String imageBase64,
-                                   String attachmentObjectType,
-                                   String attachmentObjectId) throws IllegalAccessException, ObjectNotFoundException {
-    return setSpaceImage(spaceId, false, imageUrl, imageBase64, attachmentObjectType, attachmentObjectId);
-  }
-
   private SpaceModel setSpaceImage(long spaceId,
                                    boolean avatar,
                                    String imageUrl,

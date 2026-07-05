@@ -46,6 +46,8 @@ import org.exoplatform.commons.file.services.FileService;
 import org.exoplatform.portal.config.UserACL;
 import org.exoplatform.portal.config.UserPortalConfigService;
 import org.exoplatform.social.attachment.AttachmentService;
+import org.exoplatform.social.attachment.model.ObjectAttachmentDetail;
+import org.exoplatform.social.attachment.model.ObjectAttachmentList;
 import org.exoplatform.social.attachment.model.UploadedAttachmentDetail;
 import org.exoplatform.social.core.activity.ActivityFilter;
 import org.exoplatform.social.core.activity.ActivityStreamType;
@@ -65,6 +67,7 @@ import org.exoplatform.social.core.space.spi.SpaceService;
 import io.meeds.mcp.server.plugin.McpToolPlugin;
 import io.meeds.mcp.server.tool.model.ActivityCommentModel;
 import io.meeds.mcp.server.tool.model.ActivityModel;
+import io.meeds.mcp.server.tool.model.AttachmentModel;
 import io.meeds.mcp.server.tool.model.UserModel;
 import io.meeds.mcp.server.tool.util.ActivityToolUtils;
 import io.meeds.mcp.server.tool.util.UploadToolUtils;
@@ -496,6 +499,96 @@ public class ActivityMcpTool implements McpToolPlugin {
     String uploadId = resolveImageUploadId(imageUrl, imageBase64, attachmentObjectType, attachmentObjectId);
     attachUploadToObject(ACTIVITY_OBJECT_TYPE, commentActivityId, uploadId, altText);
     return toActivityCommentModel(commentActivityId);
+  }
+
+  // Lists the attachments (images) on an activity: each one's file id, name,
+  // mime type, size and alt text. Read as the current user, so the activity's
+  // ACL is enforced. Read-only.
+  public List<AttachmentModel> getActivityAttachments(long activityId) throws IllegalAccessException, ObjectNotFoundException {
+    return listAttachments(ACTIVITY_OBJECT_TYPE, String.valueOf(activityId));
+  }
+
+  // Lists the attachments (images) on an activity comment (keyed by its prefixed
+  // id "comment<id>"): file id, name, mime type, size and alt text. Read as the
+  // current user, so the comment's ACL is enforced. Read-only.
+  public List<AttachmentModel> getCommentAttachments(long commentId) throws IllegalAccessException, ObjectNotFoundException {
+    return listAttachments(ACTIVITY_OBJECT_TYPE, COMMENT_ID_PREFIX + commentId);
+  }
+
+  private List<AttachmentModel> listAttachments(String objectType, String objectId) throws IllegalAccessException,
+                                                                                    ObjectNotFoundException {
+    ObjectAttachmentList list = attachmentService.getAttachments(objectType, objectId, getCurrentUserAclIdentity());
+    if (list == null || CollectionUtils.isEmpty(list.getAttachments())) {
+      return Collections.emptyList();
+    }
+    return list.getAttachments()
+               .stream()
+               .map(this::toAttachmentModel)
+               .toList();
+  }
+
+  private AttachmentModel toAttachmentModel(ObjectAttachmentDetail detail) {
+    return new AttachmentModel(detail.getId(), detail.getName(), detail.getMimetype(), detail.getSize(), detail.getAltText());
+  }
+
+  // Removes one attachment (image) from an activity by its file id (from
+  // get_activity_attachments). When the activity has exactly one attachment,
+  // file_id may be omitted. Only a user who can edit the activity may remove it.
+  public ActivityModel removeImageFromActivity(long activityId, String fileId) throws IllegalAccessException,
+                                                                             ObjectNotFoundException {
+    org.exoplatform.services.security.Identity userIdentity = getCurrentUserAclIdentity();
+    ExoSocialActivity activity = activityManager.getActivity(String.valueOf(activityId));
+    if (activity == null) {
+      throw new ObjectNotFoundException(ACTIVITY_NOT_FOUND.formatted(activityId));
+    }
+    if (!activityManager.isActivityEditable(activity, userIdentity)) {
+      throw new IllegalAccessException("Activity with id '%s' can't be edited by current user".formatted(activityId));
+    }
+    removeAttachment(ACTIVITY_OBJECT_TYPE, String.valueOf(activityId), fileId, userIdentity);
+    return toActivityModel(String.valueOf(activityId));
+  }
+
+  // Removes one attachment (image) from an activity comment by its file id (from
+  // get_comment_attachments). When the comment has exactly one attachment,
+  // file_id may be omitted. Only a user who can edit the comment may remove it.
+  public ActivityCommentModel removeImageFromComment(long commentId, String fileId) throws IllegalAccessException,
+                                                                                   ObjectNotFoundException {
+    org.exoplatform.services.security.Identity userIdentity = getCurrentUserAclIdentity();
+    String commentActivityId = COMMENT_ID_PREFIX + commentId;
+    ExoSocialActivity comment = activityManager.getActivity(commentActivityId);
+    if (comment == null || !comment.isComment()) {
+      throw new ObjectNotFoundException("No activity comment found with id '%s'. Use get_activity_comments to list comment ids.".formatted(commentId));
+    }
+    if (!activityManager.isActivityEditable(comment, userIdentity)) {
+      throw new IllegalAccessException("Comment with id '%s' can't be edited by current user".formatted(commentId));
+    }
+    removeAttachment(ACTIVITY_OBJECT_TYPE, commentActivityId, fileId, userIdentity);
+    return toActivityCommentModel(commentActivityId);
+  }
+
+  // Deletes a single attachment identified by fileId from an object the caller
+  // can already edit. Resolves the sole attachment when fileId is omitted, and
+  // verifies the fileId actually belongs to the object (via the ACL-checked
+  // listing) so nothing outside it can be deleted.
+  private void removeAttachment(String objectType,
+                                String objectId,
+                                String fileId,
+                                org.exoplatform.services.security.Identity userIdentity) throws IllegalAccessException,
+                                                                                        ObjectNotFoundException {
+    List<String> fileIds = attachmentService.getAttachmentFileIds(objectType, objectId, userIdentity);
+    if (CollectionUtils.isEmpty(fileIds)) {
+      throw new ObjectNotFoundException("This object has no attachment to remove.");
+    }
+    String targetFileId = StringUtils.trimToNull(fileId);
+    if (targetFileId == null) {
+      if (fileIds.size() > 1) {
+        throw new IllegalArgumentException("This object has several attachments; pass file_id to choose which to remove (use the matching get_*_attachments Tool to list their file ids).");
+      }
+      targetFileId = fileIds.get(0);
+    } else if (!fileIds.contains(targetFileId)) {
+      throw new ObjectNotFoundException("No attachment with file_id '%s' on this object. Use the matching get_*_attachments Tool to list the file ids.".formatted(targetFileId));
+    }
+    attachmentService.deleteAttachment(objectType, objectId, targetFileId);
   }
 
   public ActivityCommentModel updateComment(long activityCommentId, String comment) throws IllegalAccessException,
