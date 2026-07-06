@@ -34,7 +34,7 @@ import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
-import java.util.Objects;
+import java.util.stream.Collectors;
 import java.util.stream.Stream;
 
 import org.apache.commons.lang3.ArrayUtils;
@@ -65,6 +65,8 @@ import org.exoplatform.social.core.relationship.model.Relationship;
 import io.meeds.mcp.server.plugin.McpToolPlugin;
 import io.meeds.mcp.server.tool.model.ExperienceModel;
 import io.meeds.mcp.server.tool.model.OnlineStatusModel;
+import io.meeds.mcp.server.tool.model.ProfileFieldVisibilityModel;
+import io.meeds.mcp.server.tool.model.ProfileFieldVisibilityModel.ToggleableField;
 import io.meeds.mcp.server.tool.model.UserModel;
 import io.meeds.mcp.server.tool.util.UploadToolUtils;
 import io.meeds.social.translation.service.TranslationService;
@@ -404,35 +406,60 @@ public class UserMcpTool implements McpToolPlugin {
     return saveExperiences(username, profile, experiences);
   }
 
-  public List<String> setProfileFieldVisibility(String fieldName, Boolean hidden) {
+  public ProfileFieldVisibilityModel setProfileFieldVisibility(String fieldName, Boolean hidden) {
     if (StringUtils.isBlank(fieldName)) {
       throw new IllegalArgumentException("'field_name' is mandatory.");
     }
-    ProfilePropertySetting setting = profilePropertyService.getProfileSettingByName(fieldName);
+    List<ProfilePropertySetting> toggleable = toggleableSettings();
+    ProfilePropertySetting setting = toggleable.stream()
+                                               .filter(s -> fieldName.equals(s.getPropertyName()))
+                                               .findFirst()
+                                               .orElse(null);
     if (setting == null) {
-      throw new IllegalArgumentException("Unknown profile field '%s'. Call get_my_user_information to see available fields.".formatted(fieldName));
-    }
-    Long propertyId = setting.getId();
-    if (!profilePropertyService.isPropertySettingHiddenable(propertyId)
-        || profilePropertyService.getUnhiddenableProfileProperties().contains(fieldName)) {
-      throw new IllegalArgumentException("The '%s' field can't be hidden.".formatted(fieldName));
+      // Distinguish a field that exists but can't be hidden from a plain unknown name.
+      ProfilePropertySetting existing = profilePropertyService.getProfileSettingByName(fieldName);
+      if (existing != null) {
+        throw new IllegalArgumentException("The '%s' field can't be hidden.".formatted(fieldName));
+      }
+      String validNames = toggleable.stream().map(ProfilePropertySetting::getPropertyName).collect(Collectors.joining(", "));
+      throw new IllegalArgumentException("Unknown field '%s'. Toggleable fields are: %s. Call get_profile_field_visibility to see them.".formatted(fieldName,
+                                                                                                                                                 validNames));
     }
     long myUserIdentityId = Long.parseLong(me().getId());
     if (Boolean.TRUE.equals(hidden)) {
-      profilePropertyService.hidePropertySetting(myUserIdentityId, propertyId);
+      profilePropertyService.hidePropertySetting(myUserIdentityId, setting.getId());
     } else {
-      profilePropertyService.showPropertySetting(myUserIdentityId, propertyId);
+      profilePropertyService.showPropertySetting(myUserIdentityId, setting.getId());
     }
     return getProfileFieldVisibility();
   }
 
-  public List<String> getProfileFieldVisibility() {
+  public ProfileFieldVisibilityModel getProfileFieldVisibility() {
     long myUserIdentityId = Long.parseLong(me().getId());
-    return profilePropertyService.getHiddenProfilePropertyIds(myUserIdentityId)
+    List<Long> hiddenIds = profilePropertyService.getHiddenProfilePropertyIds(myUserIdentityId);
+    List<ToggleableField> toggleableFields = toggleableSettings().stream()
+                                                                 .map(s -> new ToggleableField(s.getPropertyName(),
+                                                                                               hiddenIds.contains(s.getId())))
+                                                                 .toList();
+    List<String> hiddenFields = toggleableFields.stream()
+                                                .filter(ToggleableField::hidden)
+                                                .map(ToggleableField::name)
+                                                .toList();
+    return new ProfileFieldVisibilityModel(hiddenFields, toggleableFields);
+  }
+
+  /**
+   * All profile property settings whose visibility the user can toggle: hiddenable
+   * ({@code isPropertySettingHiddenable} already excludes the un-hiddenable list,
+   * child properties and non-hiddenable flags) and not in the explicit
+   * un-hiddenable list.
+   */
+  private List<ProfilePropertySetting> toggleableSettings() {
+    List<String> unhiddenable = profilePropertyService.getUnhiddenableProfileProperties();
+    return profilePropertyService.getPropertySettings()
                                  .stream()
-                                 .map(profilePropertyService::getProfileSettingById)
-                                 .filter(Objects::nonNull)
-                                 .map(ProfilePropertySetting::getPropertyName)
+                                 .filter(s -> profilePropertyService.isPropertySettingHiddenable(s.getId())
+                                              && !unhiddenable.contains(s.getPropertyName()))
                                  .toList();
   }
 
