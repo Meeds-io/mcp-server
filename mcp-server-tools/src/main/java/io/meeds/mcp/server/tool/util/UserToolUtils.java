@@ -18,6 +18,7 @@
  */
 package io.meeds.mcp.server.tool.util;
 
+import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
 import java.util.Locale;
@@ -38,6 +39,7 @@ import org.exoplatform.social.core.manager.IdentityManager;
 import org.exoplatform.social.core.profileproperty.ProfilePropertyService;
 import org.exoplatform.social.core.profileproperty.model.ProfilePropertySetting;
 
+import io.meeds.mcp.server.tool.model.ExperienceModel;
 import io.meeds.mcp.server.tool.model.UserModel;
 import io.meeds.social.translation.service.TranslationService;
 
@@ -116,6 +118,9 @@ public class UserToolUtils {
                                                       "position",
                                                       userLocale));
       }
+      if (canViewProperties || isProfilePropertyVisible(profilePropertyService, Profile.EXPERIENCES)) {
+        userModel.setExperiences(buildExperiences(profile));
+      }
       if (profile.getProperty(Profile.EXTERNAL) != null
           && profile.getProperty(Profile.EXTERNAL).equals("true")) {
         userModel.setGuest(true);
@@ -140,6 +145,41 @@ public class UserToolUtils {
 
   public static String getDefaultSite(UserPortalConfigService portalConfigService, String username) {
     return DEFAULT_SITE_BY_USER.computeIfAbsent(username, k -> portalConfigService.getDefaultSite(username).getName());
+  }
+
+  /**
+   * Converts the raw {@code Profile.EXPERIENCES} property (a
+   * {@code List<Map<String, Object>>} where dates are stored as ISO-8601
+   * strings, {@code id} as the DB sequence id in String form and
+   * {@code isCurrent} as a derived Boolean) into a list of
+   * {@link ExperienceModel}.
+   */
+  @SuppressWarnings("unchecked")
+  public static List<ExperienceModel> buildExperiences(Profile profile) {
+    Object raw = profile.getProperty(Profile.EXPERIENCES);
+    if (!(raw instanceof List<?> experiences) || experiences.isEmpty()) {
+      return Collections.emptyList();
+    }
+    List<ExperienceModel> models = new ArrayList<>();
+    for (Object item : experiences) {
+      if (item instanceof Map<?, ?> experience) {
+        Map<String, Object> map = (Map<String, Object>) experience;
+        Object isCurrent = map.get(Profile.EXPERIENCES_IS_CURRENT);
+        models.add(new ExperienceModel(asString(map.get(Profile.EXPERIENCES_ID)),
+                                       asString(map.get(Profile.EXPERIENCES_COMPANY)),
+                                       asString(map.get(Profile.EXPERIENCES_POSITION)),
+                                       asString(map.get(Profile.EXPERIENCES_SKILLS)),
+                                       asString(map.get(Profile.EXPERIENCES_START_DATE)),
+                                       asString(map.get(Profile.EXPERIENCES_END_DATE)),
+                                       isCurrent instanceof Boolean b ? b : Boolean.parseBoolean(asString(isCurrent)),
+                                       asString(map.get(Profile.EXPERIENCES_DESCRIPTION))));
+      }
+    }
+    return models;
+  }
+
+  private static String asString(Object value) {
+    return value == null ? null : String.valueOf(value);
   }
 
   private static boolean isProfilePropertyVisible(ProfilePropertyService profilePropertyService, String propertyName) {
