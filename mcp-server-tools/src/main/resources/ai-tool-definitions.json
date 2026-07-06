@@ -1731,13 +1731,13 @@
     {
       "name": "set_profile_field_visibility",
       "title": "Set profile field visibility",
-      "description": "Hide or show one of the current user's own profile fields (e.g. city, company, phones). Some fields (like the full name) can't be hidden.",
+      "description": "Hide or show one of the current user's own profile fields. field_name must be one of the toggleable fields returned by get_profile_field_visibility; call it first to get valid names. Some fields (like the full name) can't be hidden.",
       "input_schema": {
         "type": "object",
         "properties": {
           "field_name": {
             "type": "string",
-            "description": "Technical name of the profile field, e.g. city, company, phones, aboutMe. See the field names returned by get_my_user_information."
+            "description": "Exact technical name of the profile field to toggle. Must be one of the toggleable_fields returned by get_profile_field_visibility."
           },
           "hidden": {
             "type": "boolean",
@@ -1760,7 +1760,7 @@
     {
       "name": "get_profile_field_visibility",
       "title": "Get hidden profile fields",
-      "description": "List the technical names of the current user's profile fields that are currently hidden from other users.",
+      "description": "List the current user's profile field visibility: returns which fields are hidden AND the list of fields you can toggle (their exact field_name values and current hidden state). Call this before set_profile_field_visibility.",
       "input_schema": {
         "type": "object",
         "properties": {}
