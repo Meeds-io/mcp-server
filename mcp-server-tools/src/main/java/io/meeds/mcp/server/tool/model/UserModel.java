@@ -18,6 +18,8 @@
  */
 package io.meeds.mcp.server.tool.model;
 
+import java.util.List;
+
 import com.fasterxml.jackson.annotation.JsonInclude;
 import com.fasterxml.jackson.annotation.JsonInclude.Include;
 import com.fasterxml.jackson.annotation.JsonProperty;
@@ -75,6 +77,9 @@ public class UserModel {
 
   @JsonProperty("is_internal")
   private boolean isInternal;
+
+  @JsonProperty("experiences")
+  private List<ExperienceModel> experiences;
 
   public String getName() {
     return displayName;
