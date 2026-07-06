@@ -39,6 +39,7 @@ import org.exoplatform.social.core.profileproperty.model.ProfilePropertySetting;
 
 import io.meeds.mcp.server.tool.model.ExperienceModel;
 import io.meeds.mcp.server.tool.model.OnlineStatusModel;
+import io.meeds.mcp.server.tool.model.ProfileFieldVisibilityModel;
 import io.meeds.mcp.server.tool.model.UserModel;
 import io.meeds.mcp.server.tool.test.IntegrationTestBase;
 
@@ -233,11 +234,20 @@ class UserMcpToolTest extends IntegrationTestBase {
     }
     Assumptions.assumeTrue(hiddenableField != null, "Unable to obtain a hiddenable profile property in test kernel");
 
-    userMcpTool.setProfileFieldVisibility(hiddenableField, Boolean.TRUE);
-    assertTrue(userMcpTool.getProfileFieldVisibility().contains(hiddenableField));
+    // get_profile_field_visibility exposes the toggleable field list
+    ProfileFieldVisibilityModel initial = userMcpTool.getProfileFieldVisibility();
+    assertNotNull(initial);
+    final String field = hiddenableField;
+    assertTrue(initial.toggleableFields().stream().anyMatch(f -> field.equals(f.name())),
+               "toggleable_fields should list the hiddenable field");
+    assertFalse(initial.hiddenFields().contains(hiddenableField));
 
-    userMcpTool.setProfileFieldVisibility(hiddenableField, Boolean.FALSE);
-    assertFalse(userMcpTool.getProfileFieldVisibility().contains(hiddenableField));
+    ProfileFieldVisibilityModel afterHide = userMcpTool.setProfileFieldVisibility(hiddenableField, Boolean.TRUE);
+    assertTrue(afterHide.hiddenFields().contains(hiddenableField));
+    assertTrue(afterHide.toggleableFields().stream().anyMatch(f -> field.equals(f.name()) && f.hidden()));
+
+    ProfileFieldVisibilityModel afterShow = userMcpTool.setProfileFieldVisibility(hiddenableField, Boolean.FALSE);
+    assertFalse(afterShow.hiddenFields().contains(hiddenableField));
   }
 
   private String firstHiddenableField() {
@@ -265,9 +275,18 @@ class UserMcpToolTest extends IntegrationTestBase {
   }
 
   @Test
-  void setVisibilityOnUnknownFieldFails() {
-    assertThrows(IllegalArgumentException.class,
-                 () -> userMcpTool.setProfileFieldVisibility("notARealField", Boolean.TRUE));
+  void setVisibilityOnUnknownFieldListsValidNames() {
+    // Ensure at least one toggleable field exists so the error can enumerate it
+    String hiddenableField = firstHiddenableField();
+    if (hiddenableField == null) {
+      hiddenableField = createHiddenableField("mcpUnknownErrorTestField");
+    }
+    Assumptions.assumeTrue(hiddenableField != null, "Unable to obtain a hiddenable profile property in test kernel");
+
+    IllegalArgumentException error = assertThrows(IllegalArgumentException.class,
+                                                  () -> userMcpTool.setProfileFieldVisibility("notARealField", Boolean.TRUE));
+    assertTrue(error.getMessage().contains("Toggleable fields are:"), "error should list the toggleable fields");
+    assertTrue(error.getMessage().contains(hiddenableField), "error should include a valid field name");
   }
 
   @Test
