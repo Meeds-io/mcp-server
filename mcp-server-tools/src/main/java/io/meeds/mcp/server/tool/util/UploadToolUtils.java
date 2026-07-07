@@ -187,14 +187,11 @@ public final class UploadToolUtils {
       Thread.currentThread().interrupt();
       throw new IllegalStateException("Interrupted while downloading the image from the URL.");
     } catch (IOException e) {
-      throw new IllegalStateException("Could not download the image from the given URL: " + e.getMessage());
+      throw new IllegalArgumentException("Could not fetch the URL: " + e.getMessage());
     }
     int status = response.statusCode();
-    if (status >= 300 && status < 400) {
-      throw new IllegalArgumentException("The image URL redirects; provide a direct image link.");
-    }
-    if (status != 200) {
-      throw new IllegalStateException("The image URL returned HTTP " + status + ".");
+    if (status < 200 || status >= 300) {
+      throw new IllegalArgumentException("The image URL returned HTTP " + status + ".");
     }
     byte[] bytes = readCapped(response.body(), maxBytes);
     String mimeType = response.headers()
@@ -238,16 +235,16 @@ public final class UploadToolUtils {
       Thread.currentThread().interrupt();
       throw new IllegalStateException("Interrupted while downloading the file from the URL.");
     } catch (IOException e) {
-      throw new IllegalStateException("Could not download the file from the given URL: " + e.getMessage());
+      throw new IllegalArgumentException("Could not fetch the URL: " + e.getMessage());
     }
     int status = response.statusCode();
-    if (status >= 300 && status < 400) {
-      throw new IllegalArgumentException("The URL redirects; provide a direct download link.");
-    }
-    if (status != 200) {
-      throw new IllegalStateException("The file URL returned HTTP " + status + ".");
+    if (status < 200 || status >= 300) {
+      throw new IllegalArgumentException("The file URL returned HTTP " + status + ".");
     }
     byte[] bytes = readCapped(response.body(), maxBytes);
+    if (bytes.length == 0) {
+      throw new IllegalArgumentException("The file URL returned an empty response body; provide a URL that points to actual file bytes.");
+    }
     String mimeType = response.headers()
                               .firstValue("Content-Type")
                               .map(value -> value.split(";")[0].trim())
@@ -338,25 +335,25 @@ public final class UploadToolUtils {
     try {
       uri = URI.create(StringUtils.trimToEmpty(urlString));
     } catch (IllegalArgumentException e) {
-      throw new IllegalArgumentException("Invalid image URL.");
+      throw new IllegalArgumentException("Invalid URL.");
     }
     String scheme = uri.getScheme();
     if (scheme == null || !(scheme.equalsIgnoreCase("http") || scheme.equalsIgnoreCase("https"))) {
-      throw new IllegalArgumentException("Only http and https image URLs are allowed.");
+      throw new IllegalArgumentException("Only http and https URLs are allowed.");
     }
     String host = uri.getHost();
     if (StringUtils.isBlank(host)) {
-      throw new IllegalArgumentException("Image URL has no host.");
+      throw new IllegalArgumentException("The URL has no host.");
     }
     InetAddress[] addresses;
     try {
       addresses = InetAddress.getAllByName(host);
     } catch (UnknownHostException e) {
-      throw new IllegalArgumentException("Image URL host cannot be resolved: " + host);
+      throw new IllegalArgumentException("Could not fetch the URL: unknown host " + host + ".");
     }
     for (InetAddress address : addresses) {
       if (isBlockedAddress(address)) {
-        throw new IllegalArgumentException("Image URL host is not allowed (it points to a private or internal address).");
+        throw new IllegalArgumentException("URL host is not allowed (it points to a private or internal address).");
       }
     }
   }
@@ -389,14 +386,14 @@ public final class UploadToolUtils {
       while ((read = input.read(buffer)) != -1) {
         total += read;
         if (total > maxBytes) {
-          throw new IllegalArgumentException("Image exceeds the maximum allowed size (" + (maxBytes / (1024 * 1024))
+          throw new IllegalArgumentException("The file exceeds the maximum allowed size (" + (maxBytes / (1024 * 1024))
               + " MB).");
         }
         output.write(buffer, 0, read);
       }
       return output.toByteArray();
     } catch (IOException e) {
-      throw new IllegalStateException("Error reading image data: " + e.getMessage());
+      throw new IllegalArgumentException("Could not fetch the URL: " + e.getMessage());
     }
   }
 
