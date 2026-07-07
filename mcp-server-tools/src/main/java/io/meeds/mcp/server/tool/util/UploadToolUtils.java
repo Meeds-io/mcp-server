@@ -209,6 +209,70 @@ public final class UploadToolUtils {
   }
 
   /**
+   * Downloads <b>any</b> file (not restricted to images) over http(s) after
+   * validating the URL against SSRF. The mime type is resolved from the
+   * <code>Content-Type</code> response header (falling back to
+   * <code>application/octet-stream</code>) and the file name is derived from the
+   * URL path (falling back to <code>defaultFileName</code>). Used by document /
+   * generic file upload tools.
+   *
+   * @param url the http(s) URL to download
+   * @param maxBytes the maximum number of bytes to read before failing
+   * @param defaultFileName a file name to use when the URL path has none
+   * @return the downloaded bytes, resolved mime type and file name
+   */
+  public static FetchedImage fetchUrl(String url, long maxBytes, String defaultFileName) {
+    assertPublicHttpUrl(url);
+    HttpClient client = HttpClient.newBuilder()
+                                  .followRedirects(HttpClient.Redirect.NEVER)
+                                  .connectTimeout(Duration.ofSeconds(CONNECT_TIMEOUT_SECONDS))
+                                  .build();
+    HttpRequest request = HttpRequest.newBuilder(URI.create(url.trim()))
+                                     .timeout(Duration.ofSeconds(READ_TIMEOUT_SECONDS))
+                                     .GET()
+                                     .build();
+    HttpResponse<InputStream> response;
+    try {
+      response = client.send(request, HttpResponse.BodyHandlers.ofInputStream());
+    } catch (InterruptedException e) {
+      Thread.currentThread().interrupt();
+      throw new IllegalStateException("Interrupted while downloading the file from the URL.");
+    } catch (IOException e) {
+      throw new IllegalStateException("Could not download the file from the given URL: " + e.getMessage());
+    }
+    int status = response.statusCode();
+    if (status >= 300 && status < 400) {
+      throw new IllegalArgumentException("The URL redirects; provide a direct download link.");
+    }
+    if (status != 200) {
+      throw new IllegalStateException("The file URL returned HTTP " + status + ".");
+    }
+    byte[] bytes = readCapped(response.body(), maxBytes);
+    String mimeType = response.headers()
+                              .firstValue("Content-Type")
+                              .map(value -> value.split(";")[0].trim())
+                              .filter(StringUtils::isNotBlank)
+                              .orElse("application/octet-stream");
+    return new FetchedImage(bytes, mimeType, fileNameFromUrl(url, defaultFileName));
+  }
+
+  /** Extracts the last path segment of a URL as a file name, or the given fallback. */
+  static String fileNameFromUrl(String url, String defaultFileName) {
+    try {
+      String path = URI.create(StringUtils.trimToEmpty(url)).getPath();
+      if (StringUtils.isNotBlank(path)) {
+        String last = path.substring(path.lastIndexOf('/') + 1);
+        if (StringUtils.isNotBlank(last)) {
+          return last;
+        }
+      }
+    } catch (RuntimeException e) {
+      // fall through to the default file name
+    }
+    return StringUtils.isBlank(defaultFileName) ? "download" : defaultFileName;
+  }
+
+  /**
    * Stages raw bytes to a temp file and registers an {@link UploadResource},
    * returning its <code>uploadId</code>.
    */
