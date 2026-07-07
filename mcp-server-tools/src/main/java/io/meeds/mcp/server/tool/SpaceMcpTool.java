@@ -551,7 +551,7 @@ public class SpaceMcpTool implements McpToolPlugin {
     } else if (!spaceService.canManageSpace(space, username)) {
       throw new IllegalAccessException(MSG_SPACE_USER_NOT_ADMIN.formatted(spaceId));
     }
-    UploadToolUtils.FetchedImage image = UploadToolUtils.resolveImage(attachmentService,
+    UploadToolUtils.FetchedContent image = UploadToolUtils.resolveImage(attachmentService,
                                                                       fileService,
                                                                       getCurrentUserAclIdentity(),
                                                                       imageUrl,

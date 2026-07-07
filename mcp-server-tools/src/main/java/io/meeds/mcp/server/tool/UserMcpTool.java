@@ -302,7 +302,7 @@ public class UserMcpTool implements McpToolPlugin {
                                     String attachmentObjectType,
                                     String attachmentObjectId) throws IllegalAccessException, ObjectNotFoundException {
     String username = getCurrentUserName();
-    UploadToolUtils.FetchedImage image = UploadToolUtils.resolveImage(attachmentService,
+    UploadToolUtils.FetchedContent image = UploadToolUtils.resolveImage(attachmentService,
                                                                       fileService,
                                                                       getCurrentUserAclIdentity(),
                                                                       imageUrl,

@@ -73,7 +73,7 @@ public final class UploadToolUtils {
   }
 
   /** A downloaded image: its bytes, resolved mime type and a file name. */
-  public record FetchedImage(byte[] bytes, String mimeType, String fileName) {
+  public record FetchedContent(byte[] bytes, String mimeType, String fileName) {
   }
 
   /**
@@ -91,7 +91,7 @@ public final class UploadToolUtils {
     if (hasUrl == hasBase64) {
       throw new IllegalArgumentException("Provide exactly one of image_url or image_base64.");
     }
-    FetchedImage image = hasUrl ? fetchImage(imageUrl, maxBytes) : decodeBase64Image(imageBase64, maxBytes);
+    FetchedContent image = hasUrl ? fetchImage(imageUrl, maxBytes) : decodeBase64Image(imageBase64, maxBytes);
     return materialize(uploadService, image.bytes(), image.fileName(), image.mimeType());
   }
 
@@ -110,7 +110,7 @@ public final class UploadToolUtils {
    *
    * @return the resolved image bytes, mime type and file name
    */
-  public static FetchedImage resolveImage(AttachmentService attachmentService,
+  public static FetchedContent resolveImage(AttachmentService attachmentService,
                                           FileService fileService,
                                           Identity aclIdentity,
                                           String imageUrl,
@@ -144,7 +144,7 @@ public final class UploadToolUtils {
       if (bytes == null || bytes.length == 0) {
         throw new ObjectNotFoundException("The referenced attachment file is empty or could not be read.");
       }
-      return new FetchedImage(bytes, mimeType, StringUtils.isBlank(fileName) ? "image" : fileName);
+      return new FetchedContent(bytes, mimeType, StringUtils.isBlank(fileName) ? "image" : fileName);
     }
     boolean hasUrl = StringUtils.isNotBlank(imageUrl);
     boolean hasBase64 = StringUtils.isNotBlank(imageBase64);
@@ -155,7 +155,7 @@ public final class UploadToolUtils {
   }
 
   /** Decodes a base64 image into its bytes, enforcing the size cap and a supported mime. */
-  private static FetchedImage decodeBase64Image(String imageBase64, long maxBytes) {
+  private static FetchedContent decodeBase64Image(String imageBase64, long maxBytes) {
     byte[] bytes = decodeBase64(imageBase64);
     if (bytes.length > maxBytes) {
       throw new IllegalArgumentException("Image exceeds the maximum allowed size (" + (maxBytes / (1024 * 1024)) + " MB).");
@@ -164,13 +164,13 @@ public final class UploadToolUtils {
     if (mimeType == null) {
       throw new IllegalArgumentException("image_base64 does not decode to a supported image (png, jpeg, gif or webp).");
     }
-    return new FetchedImage(bytes, mimeType, "image" + extensionForMime(mimeType));
+    return new FetchedContent(bytes, mimeType, "image" + extensionForMime(mimeType));
   }
 
   /**
    * Downloads an image over http(s) after validating the URL against SSRF.
    */
-  public static FetchedImage fetchImage(String url, long maxBytes) {
+  public static FetchedContent fetchImage(String url, long maxBytes) {
     assertPublicHttpUrl(url);
     HttpClient client = HttpClient.newBuilder()
                                   .followRedirects(HttpClient.Redirect.NEVER)
@@ -205,7 +205,7 @@ public final class UploadToolUtils {
     if (mimeType == null) {
       throw new IllegalArgumentException("The URL does not point to a supported image.");
     }
-    return new FetchedImage(bytes, mimeType, "image" + extensionForMime(mimeType));
+    return new FetchedContent(bytes, mimeType, "image" + extensionForMime(mimeType));
   }
 
   /**
@@ -221,7 +221,7 @@ public final class UploadToolUtils {
    * @param defaultFileName a file name to use when the URL path has none
    * @return the downloaded bytes, resolved mime type and file name
    */
-  public static FetchedImage fetchUrl(String url, long maxBytes, String defaultFileName) {
+  public static FetchedContent fetchUrl(String url, long maxBytes, String defaultFileName) {
     assertPublicHttpUrl(url);
     HttpClient client = HttpClient.newBuilder()
                                   .followRedirects(HttpClient.Redirect.NEVER)
@@ -253,7 +253,7 @@ public final class UploadToolUtils {
                               .map(value -> value.split(";")[0].trim())
                               .filter(StringUtils::isNotBlank)
                               .orElse("application/octet-stream");
-    return new FetchedImage(bytes, mimeType, fileNameFromUrl(url, defaultFileName));
+    return new FetchedContent(bytes, mimeType, fileNameFromUrl(url, defaultFileName));
   }
 
   /** Extracts the last path segment of a URL as a file name, or the given fallback. */
