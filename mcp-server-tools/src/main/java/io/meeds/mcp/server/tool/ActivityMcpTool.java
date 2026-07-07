@@ -342,7 +342,7 @@ public class ActivityMcpTool implements McpToolPlugin {
                                       String imageBase64,
                                       String attachmentObjectType,
                                       String attachmentObjectId) throws IllegalAccessException, ObjectNotFoundException {
-    UploadToolUtils.FetchedImage image = UploadToolUtils.resolveImage(attachmentService,
+    UploadToolUtils.FetchedContent image = UploadToolUtils.resolveImage(attachmentService,
                                                                       fileService,
                                                                       getCurrentUserAclIdentity(),
                                                                       imageUrl,
