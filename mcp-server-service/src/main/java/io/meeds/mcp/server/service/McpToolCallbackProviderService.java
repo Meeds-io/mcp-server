@@ -249,7 +249,7 @@ public class McpToolCallbackProviderService implements ToolCallbackProvider {
     private String call(String toolInput, ToolContext toolContext, Identity userIdentity) throws Exception {
       Authentication authentication = SecurityContextHolder.getContext().getAuthentication();
       String id = UUID.randomUUID().toString();
-      String conversationId = getConversationId();
+      String conversationId = getConversationId(toolContext);
       ConversationState.setCurrent(new ConversationState(userIdentity));
       UserToolExecutionBuilder executionBuilder = UserToolExecution.builder()
                                                                    .id(id)
@@ -330,10 +330,16 @@ public class McpToolCallbackProviderService implements ToolCallbackProvider {
       }
     }
 
-    private String getConversationId() {
+    // Resolve the conversationId in-band from the ToolContext (thread-safe),
+    // falling back to the request header for backward compatibility
+    private String getConversationId(ToolContext toolContext) {
+      if (toolContext != null && toolContext.getContext() != null) {
+        Object conversationId = toolContext.getContext().get(TOOL_CONTEXT_CONVERSATION_ID_PARAM);
+        if (conversationId instanceof String conversationIdValue && !conversationIdValue.isBlank()) {
+          return conversationIdValue;
+        }
+      }
       if (RequestContextHolder.getRequestAttributes() instanceof ServletRequestAttributes servletRequestAttributes) {
-        // Workaround until the ToolContext attributes are mapped as well
-        // (for now, only 'exchange' value)
         HttpServletRequest request = servletRequestAttributes.getRequest();
         return request.getHeader(TOOL_CONTEXT_CONVERSATION_ID_PARAM);
       } else {

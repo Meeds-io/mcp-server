@@ -21,6 +21,7 @@ package io.meeds.mcp.server.util;
 import static org.springframework.ai.mcp.McpToolUtils.TOOL_CONTEXT_MCP_EXCHANGE_KEY;
 
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
@@ -198,8 +199,15 @@ public class McpServerUtils {
 
     public McpSchema.CallToolResult callTool(Object exchangeOrContext, CallToolRequest request) {
       try {
+        // Merge the request _meta (carrying in-band values such as the
+        // conversationId) into the ToolContext passed to the tool callback
+        Map<String, Object> toolContextMap = new HashMap<>();
+        toolContextMap.put(TOOL_CONTEXT_MCP_EXCHANGE_KEY, exchangeOrContext);
+        if (request.meta() != null) {
+          toolContextMap.putAll(request.meta());
+        }
         String callResult = toolCallback.call(ModelOptionsUtils.toJsonString(request.arguments()),
-                                              new ToolContext(Map.of(TOOL_CONTEXT_MCP_EXCHANGE_KEY, exchangeOrContext)));
+                                              new ToolContext(toolContextMap));
         if (mimeType != null && mimeType.toString().startsWith("image")) {
           McpSchema.Annotations annotations = new McpSchema.Annotations(List.of(Role.ASSISTANT), null);
           return new McpSchema.CallToolResult.Builder().content(List.of(new McpSchema.ImageContent(annotations,
