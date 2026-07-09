@@ -1170,6 +1170,21 @@
       "require_approval": true
     },
     {
+      "name": "get_content_types",
+      "title": "List content types that support categories",
+      "description": "List the content types that can be categorized - the values to pass as content_type to get_categories_of_content, add_content_to_category and remove_content_from_category (e.g. document, space, activity). Note: email content is categorized through its own dedicated list_email_categories / add_email_category / remove_email_category tools, so use those for email.",
+      "input_schema": {
+        "type": "object",
+        "properties": {}
+      },
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": false
+      }
+    },
+    {
       "name": "get_category_tree",
       "title": "Get the contents categorization tree",
       "description": "get the available categories tree (including sub categories) which can be associated any type of content identified by its technical identifier. The returned category will describe either current user can manage contents association to the category (add/remove contents to the category) through the attribute `can_add_content`.",
