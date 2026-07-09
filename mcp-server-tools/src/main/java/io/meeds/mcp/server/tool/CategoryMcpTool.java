@@ -34,6 +34,7 @@ import io.meeds.mcp.server.tool.plugin.CategoryMcpToolPlugin;
 import io.meeds.social.category.model.CategoryFilter;
 import io.meeds.social.category.model.CategoryObject;
 import io.meeds.social.category.model.CategoryTree;
+import io.meeds.social.category.plugin.CategoryPlugin;
 import io.meeds.social.category.service.CategoryLinkService;
 import io.meeds.social.category.service.CategoryService;
 
@@ -52,6 +53,28 @@ public class CategoryMcpTool implements McpToolPlugin {
 
   @Autowired(required = false)
   private List<CategoryMcpToolPlugin> categoryMcpToolPlugins;
+
+  @Autowired(required = false)
+  private List<CategoryPlugin>        categoryPlugins;
+
+  /**
+   * List the content types that support categories - the values to pass as
+   * content_type to get_categories_of_content, add_content_to_category and
+   * remove_content_from_category. Dynamically reflects the registered category
+   * plugins. Note: "email" content is categorized through its own dedicated
+   * list_email_categories / add_email_category / remove_email_category tools (the
+   * agent works with the IMAP mail id, not the internal id these generic tools
+   * expect), so prefer those for email.
+   */
+  public List<String> getContentTypes() {
+    return categoryPlugins == null ? List.of()
+                                   : categoryPlugins.stream()
+                                                    .map(CategoryPlugin::getType)
+                                                    .filter(type -> type != null && !type.isBlank())
+                                                    .distinct()
+                                                    .sorted()
+                                                    .toList();
+  }
 
   public CategoryTreeModel getCategoryTree() {
     CategoryFilter filter = new CategoryFilter();
