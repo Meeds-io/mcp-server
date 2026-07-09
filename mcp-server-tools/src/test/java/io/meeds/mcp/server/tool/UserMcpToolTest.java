@@ -97,6 +97,95 @@ class UserMcpToolTest extends IntegrationTestBase {
     assertTrue(userMcpTool.getUsersCount() > 0);
   }
 
+  // --- connections ---------------------------------------------------------
+
+  @Test
+  void listConnectionsAndRequestsAreEmptyForFreshUser() {
+    assertNotNull(userMcpTool.listConnectionRequests(0, 10));
+    assertNotNull(userMcpTool.listSentConnectionRequests(0, 10));
+    assertNotNull(userMcpTool.listMyConnections(null, 0, 10));
+    assertNotNull(userMcpTool.listConnectionSuggestions(10));
+  }
+
+  @Test
+  void sendConnectionRequestThenStatusIsPending() {
+    identityManager.getOrCreateUserIdentity("demo");
+
+    userMcpTool.sendConnectionRequest("demo");
+
+    assertEquals("PENDING", userMcpTool.getConnectionStatus("demo"));
+  }
+
+  @Test
+  void sendConnectionRequestToSelfIsRejected() {
+    assertThrows(IllegalArgumentException.class, () -> userMcpTool.sendConnectionRequest(USERNAME));
+  }
+
+  @Test
+  void acceptIncomingConnectionRequest() {
+    Identity mary = identityManager.getOrCreateUserIdentity("mary");
+    Identity john = identityManager.getOrCreateUserIdentity(USERNAME);
+    // mary invites john
+    relationshipManager.inviteToConnect(mary, john);
+
+    List<UserModel> requests = userMcpTool.listConnectionRequests(0, 10);
+    assertTrue(requests.stream().anyMatch(u -> "mary".equals(u.getUsername())));
+
+    userMcpTool.acceptConnectionRequest("mary");
+
+    assertEquals("CONFIRMED", userMcpTool.getConnectionStatus("mary"));
+  }
+
+  @Test
+  void acceptWithoutPendingRequestFails() {
+    identityManager.getOrCreateUserIdentity("james");
+    assertThrows(IllegalStateException.class, () -> userMcpTool.acceptConnectionRequest("james"));
+  }
+
+  // --- profile -------------------------------------------------------------
+
+  @Test
+  void updateMyProfileWithoutFieldsFails() {
+    assertThrows(IllegalArgumentException.class,
+                 () -> userMcpTool.updateMyProfile(null, null, null, null, null, null, null));
+  }
+
+  @Test
+  void updateMyProfileSetsFields() {
+    UserModel updated = userMcpTool.updateMyProfile("Hello, I test MCP tools", "Platform Engineer", "Meeds",
+                                                    null, null, null, null);
+
+    assertNotNull(updated);
+    assertEquals("Platform Engineer", updated.getPosition());
+    assertEquals("Meeds", updated.getCompany());
+  }
+
+  // --- online status -------------------------------------------------------
+
+  @Test
+  void getUserOnlineStatusReflectsService() {
+    when(userStateService.isOnline(USERNAME)).thenReturn(true);
+    when(userStateService.getUserState(USERNAME)).thenReturn(new UserStateModel(USERNAME, 1000000000000L, "available"));
+
+    OnlineStatusModel status = userMcpTool.getUserOnlineStatus(USERNAME);
+
+    assertNotNull(status);
+    assertTrue(status.online());
+    assertEquals("available", status.status());
+  }
+
+  @Test
+  void listOnlineUsersMapsService() {
+    when(userStateService.online()).thenReturn(List.of(new UserStateModel("mary", 1000000000000L, "available")));
+
+    List<OnlineStatusModel> online = userMcpTool.listOnlineUsers(0, 10);
+
+    assertNotNull(online);
+    assertTrue(online.stream().anyMatch(o -> "mary".equals(o.username())));
+  }
+
+  // --- avatar / banner -----------------------------------------------------
+
   // 1x1 transparent PNG
   private static final String PNG_1PX =
       "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==";
