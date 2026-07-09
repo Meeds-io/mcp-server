@@ -162,6 +162,13 @@ class ActivityMcpToolTest extends IntegrationTestBase {
   }
 
   @Test
+  void getUserActivityStream() throws Exception { // NOSONAR
+    List<ActivityModel> activities = activityMcpTool.getUserActivityStream(USERNAME, 0, 10);
+
+    assertNotNull(activities);
+  }
+
+  @Test
   void getActivities() throws Exception { // NOSONAR
     activityMcpTool.createActivity(null, "Activity list item");
 
@@ -198,7 +205,8 @@ class ActivityMcpToolTest extends IntegrationTestBase {
                                     "Activity test space",
                                     Visibility.LISTED,
                                     Registration.OPEN,
-                                    List.of());
+                                    List.of(),
+                                    null);
   }
 
 }

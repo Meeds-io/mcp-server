@@ -44,7 +44,7 @@
     {
       "name": "create_space",
       "title": "Create a space",
-      "description": "Creates a new Space for the current user based on a template.",
+      "description": "Creates a new Space for the current user based on a template. IMPORTANT: to create a SUB-SPACE under an existing space, you MUST set parent_space_id to that parent space's id (first look it up with get_my_spaces or get_all_spaces). Creating a space without parent_space_id always makes a TOP-LEVEL space, even if the user asked for a sub-space. A sub-space can only be created when the parent space's template explicitly allows it.",
       "input_schema": {
         "type": "object",
         "properties": {
@@ -68,6 +68,10 @@
             "type": "array",
             "items": { "type": "string" },
             "description": "List of usernames to invite"
+          },
+          "parent_space_id": {
+            "type": "integer",
+            "description": "Identifier of the parent space, REQUIRED to create a sub-space (7.2 hierarchy). Set this whenever the user asks for a 'sub-space of X' / a space 'under X' — resolve X's id first via get_my_spaces or get_all_spaces. Omit only for a genuine top-level space."
           }
         },
         "required": ["space_template_id"]
@@ -417,6 +421,26 @@
           "space_id": { "type": "integer" },
           "days": { "type": "integer" }
         }
+      },
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": false
+      }
+    },
+    {
+      "name": "get_user_activity_stream",
+      "title": "Get a user's activity stream",
+      "description": "Retrieve the activities (Also Known As 'posts') on a given user's profile stream, filtered to what the current user is allowed to see.",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "username": { "type": "string", "description": "Username whose activity stream to retrieve" },
+          "offset": { "type": "integer", "description": "Offset of activities to retrieve" },
+          "limit": { "type": "integer", "description": "Limit of activities to retrieve" }
+        },
+        "required": ["username"]
       },
       "annotations": {
         "readOnlyHint": true,
@@ -789,6 +813,675 @@
         "openWorldHint": false
       },
       "require_approval": true
+    },
+    {
+      "name": "list_notifications",
+      "title": "List my notifications",
+      "description": "Retrieve the current user's web notifications, most recent first. Optionally return only unread ones or filter by a notification plugin type (see get_notification_settings for valid plugin ids).",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "only_unread": { "type": "boolean", "description": "When true, return only unread notifications" },
+          "plugin": { "type": "string", "description": "Optional notification plugin/type id to filter on" },
+          "offset": { "type": "integer", "description": "Offset of notifications to retrieve" },
+          "limit": { "type": "integer", "description": "Limit of notifications to retrieve" }
+        }
+      },
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": false
+      }
+    },
+    {
+      "name": "get_unread_notifications_count",
+      "title": "Count my unread notifications",
+      "description": "Get the current user's total unread web notifications badge count, plus the unread count broken down by notification plugin/type.",
+      "input_schema": { "type": "object", "properties": {} },
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": false
+      }
+    },
+    {
+      "name": "mark_notification_read",
+      "title": "Mark a notification as read",
+      "description": "Mark a single web notification of the current user as read.",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "notification_id": { "type": "string", "description": "Identifier of the notification to mark as read" }
+        },
+        "required": ["notification_id"]
+      },
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": false
+      },
+      "require_approval": true
+    },
+    {
+      "name": "mark_all_notifications_read",
+      "title": "Mark all notifications as read",
+      "description": "Mark all of the current user's web notifications as read. Optionally restrict to a single notification plugin/type id.",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "plugin": { "type": "string", "description": "Optional notification plugin/type id to restrict the operation to" }
+        }
+      },
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": true,
+        "idempotentHint": true,
+        "openWorldHint": false
+      },
+      "require_approval": true
+    },
+    {
+      "name": "hide_notification",
+      "title": "Dismiss a notification",
+      "description": "Hide/dismiss a single web notification of the current user from the notifications popover.",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "notification_id": { "type": "string", "description": "Identifier of the notification to hide" }
+        },
+        "required": ["notification_id"]
+      },
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": true,
+        "idempotentHint": true,
+        "openWorldHint": false
+      },
+      "require_approval": true
+    },
+    {
+      "name": "get_notification_settings",
+      "title": "Get my notification settings",
+      "description": "Retrieve the current user's notification settings: available channels with their enabled state, per-plugin enabled channels, and the list of muted space identifiers.",
+      "input_schema": { "type": "object", "properties": {} },
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": false
+      }
+    },
+    {
+      "name": "set_notification_channel_enabled",
+      "title": "Enable or disable a notification channel",
+      "description": "Enable or disable a whole notification channel (for example WEB_CHANNEL or MAIL_CHANNEL) for the current user. Use get_notification_settings to list valid channel ids.",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "channel_id": { "type": "string", "description": "Channel id, e.g. WEB_CHANNEL or MAIL_CHANNEL" },
+          "enabled": { "type": "boolean", "description": "Whether the channel should be enabled (true) or disabled (false)" }
+        },
+        "required": ["channel_id", "enabled"]
+      },
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": false
+      },
+      "require_approval": true
+    },
+    {
+      "name": "set_notification_plugin_enabled",
+      "title": "Enable or disable a notification type on a channel",
+      "description": "Enable or disable a specific notification plugin/type on a given channel for the current user. Use get_notification_settings to list valid plugin and channel ids.",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "plugin_id": { "type": "string", "description": "Notification plugin/type id" },
+          "channel_id": { "type": "string", "description": "Channel id, e.g. WEB_CHANNEL or MAIL_CHANNEL" },
+          "enabled": { "type": "boolean", "description": "Whether the plugin should be enabled (true) or disabled (false) on the channel" }
+        },
+        "required": ["plugin_id", "channel_id", "enabled"]
+      },
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": false
+      },
+      "require_approval": true
+    },
+    {
+      "name": "mute_space_notifications",
+      "title": "Mute or unmute a space",
+      "description": "Mute or unmute notifications from a given space for the current user.",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "space_id": { "type": "integer", "description": "Identifier of the space to mute or unmute" },
+          "muted": { "type": "boolean", "description": "true to mute the space, false to unmute it" }
+        },
+        "required": ["space_id", "muted"]
+      },
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": false
+      },
+      "require_approval": true
+    },
+    {
+      "name": "list_connection_requests",
+      "title": "List received connection requests",
+      "description": "List the pending incoming connection (network) requests the current user has received and can accept or refuse.",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "offset": { "type": "integer", "description": "Offset of requests to retrieve" },
+          "limit": { "type": "integer", "description": "Limit of requests to retrieve" }
+        }
+      },
+      "annotations": { "readOnlyHint": true, "destructiveHint": false, "idempotentHint": true, "openWorldHint": false }
+    },
+    {
+      "name": "list_sent_connection_requests",
+      "title": "List sent connection requests",
+      "description": "List the pending outgoing connection (network) requests the current user has sent and that are awaiting the other person's approval.",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "offset": { "type": "integer", "description": "Offset of requests to retrieve" },
+          "limit": { "type": "integer", "description": "Limit of requests to retrieve" }
+        }
+      },
+      "annotations": { "readOnlyHint": true, "destructiveHint": false, "idempotentHint": true, "openWorldHint": false }
+    },
+    {
+      "name": "list_my_connections",
+      "title": "List my connections",
+      "description": "List the current user's confirmed connections (their network), optionally filtered by a keyword on the connection's name.",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "query": { "type": "string", "description": "Optional keyword to filter connections by name" },
+          "offset": { "type": "integer", "description": "Offset of connections to retrieve" },
+          "limit": { "type": "integer", "description": "Limit of connections to retrieve" }
+        }
+      },
+      "annotations": { "readOnlyHint": true, "destructiveHint": false, "idempotentHint": true, "openWorldHint": false }
+    },
+    {
+      "name": "list_user_connections",
+      "title": "List a user's connections",
+      "description": "List the confirmed connections (network) of a given user by username.",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "username": { "type": "string", "description": "Username whose connections to list" },
+          "offset": { "type": "integer", "description": "Offset of connections to retrieve" },
+          "limit": { "type": "integer", "description": "Limit of connections to retrieve" }
+        },
+        "required": ["username"]
+      },
+      "annotations": { "readOnlyHint": true, "destructiveHint": false, "idempotentHint": true, "openWorldHint": false }
+    },
+    {
+      "name": "get_connection_status",
+      "title": "Get connection status with a user",
+      "description": "Return the connection status between the current user and a given user: CONFIRMED, PENDING, INCOMING, OUTGOING, IGNORED or NOT_CONNECTED.",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "username": { "type": "string", "description": "Username to check the connection status with" }
+        },
+        "required": ["username"]
+      },
+      "annotations": { "readOnlyHint": true, "destructiveHint": false, "idempotentHint": true, "openWorldHint": false }
+    },
+    {
+      "name": "list_connection_suggestions",
+      "title": "List connection suggestions",
+      "description": "List suggested people to connect with for the current user, based on common connections.",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "limit": { "type": "integer", "description": "Maximum number of suggestions to retrieve" }
+        }
+      },
+      "annotations": { "readOnlyHint": true, "destructiveHint": false, "idempotentHint": true, "openWorldHint": false }
+    },
+    {
+      "name": "send_connection_request",
+      "title": "Send a connection request",
+      "description": "Send a connection (network) request from the current user to another user by username.",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "username": { "type": "string", "description": "Username to send the connection request to" }
+        },
+        "required": ["username"]
+      },
+      "annotations": { "readOnlyHint": false, "destructiveHint": false, "idempotentHint": true, "openWorldHint": false },
+      "require_approval": true
+    },
+    {
+      "name": "accept_connection_request",
+      "title": "Accept a connection request",
+      "description": "Accept a pending incoming connection request from a given user. Use list_connection_requests to find valid usernames.",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "username": { "type": "string", "description": "Username whose connection request to accept" }
+        },
+        "required": ["username"]
+      },
+      "annotations": { "readOnlyHint": false, "destructiveHint": false, "idempotentHint": true, "openWorldHint": false },
+      "require_approval": true
+    },
+    {
+      "name": "refuse_connection_request",
+      "title": "Refuse a connection request",
+      "description": "Refuse/decline a pending incoming connection request from a given user.",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "username": { "type": "string", "description": "Username whose connection request to refuse" }
+        },
+        "required": ["username"]
+      },
+      "annotations": { "readOnlyHint": false, "destructiveHint": true, "idempotentHint": true, "openWorldHint": false },
+      "require_approval": true
+    },
+    {
+      "name": "remove_connection",
+      "title": "Remove a connection",
+      "description": "Remove an existing connection between the current user and a given user (disconnect).",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "username": { "type": "string", "description": "Username to disconnect from" }
+        },
+        "required": ["username"]
+      },
+      "annotations": { "readOnlyHint": false, "destructiveHint": true, "idempotentHint": true, "openWorldHint": false },
+      "require_approval": true
+    },
+    {
+      "name": "update_my_profile",
+      "title": "Update my profile",
+      "description": "Update the current user's own profile fields. Only the provided fields are changed; omit a field to leave it unchanged.",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "about_me": { "type": "string", "description": "The 'about me' / bio text" },
+          "position": { "type": "string", "description": "Job title / position" },
+          "company": { "type": "string", "description": "Company / organization" },
+          "department": { "type": "string", "description": "Department" },
+          "team": { "type": "string", "description": "Team" },
+          "city": { "type": "string", "description": "City" },
+          "country": { "type": "string", "description": "Country" }
+        }
+      },
+      "annotations": { "readOnlyHint": false, "destructiveHint": true, "idempotentHint": true, "openWorldHint": false },
+      "require_approval": true
+    },
+    {
+      "name": "get_user_online_status",
+      "title": "Get a user's online status",
+      "description": "Return whether a given user is currently online, their presence status, and the time of their last activity.",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "username": { "type": "string", "description": "Username to check the online status of" }
+        },
+        "required": ["username"]
+      },
+      "annotations": { "readOnlyHint": true, "destructiveHint": false, "idempotentHint": true, "openWorldHint": false }
+    },
+    {
+      "name": "list_online_users",
+      "title": "List online users",
+      "description": "List users who are currently online, with their presence status and last activity time.",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "offset": { "type": "integer", "description": "Offset of users to retrieve" },
+          "limit": { "type": "integer", "description": "Limit of users to retrieve" }
+        }
+      },
+      "annotations": { "readOnlyHint": true, "destructiveHint": false, "idempotentHint": true, "openWorldHint": false }
+    },
+    {
+      "name": "join_space",
+      "title": "Join a space",
+      "description": "Join a space directly as the current user. Only works for spaces whose registration is open. For spaces requiring validation use request_to_join_space.",
+      "input_schema": {
+        "type": "object",
+        "properties": { "space_id": { "type": "integer", "description": "Identifier of the space to join" } },
+        "required": ["space_id"]
+      },
+      "annotations": { "readOnlyHint": false, "destructiveHint": false, "idempotentHint": true, "openWorldHint": false },
+      "require_approval": true
+    },
+    {
+      "name": "request_to_join_space",
+      "title": "Request to join a space",
+      "description": "Send a request to join a space that requires manager validation. If the space is open the current user is added directly.",
+      "input_schema": {
+        "type": "object",
+        "properties": { "space_id": { "type": "integer", "description": "Identifier of the space to request to join" } },
+        "required": ["space_id"]
+      },
+      "annotations": { "readOnlyHint": false, "destructiveHint": false, "idempotentHint": true, "openWorldHint": false },
+      "require_approval": true
+    },
+    {
+      "name": "cancel_join_request",
+      "title": "Cancel a join request",
+      "description": "Cancel the current user's own pending request to join a space.",
+      "input_schema": {
+        "type": "object",
+        "properties": { "space_id": { "type": "integer", "description": "Identifier of the space" } },
+        "required": ["space_id"]
+      },
+      "annotations": { "readOnlyHint": false, "destructiveHint": true, "idempotentHint": true, "openWorldHint": false },
+      "require_approval": true
+    },
+    {
+      "name": "leave_space",
+      "title": "Leave a space",
+      "description": "Leave a space the current user is a member of. Fails if the current user is the only manager.",
+      "input_schema": {
+        "type": "object",
+        "properties": { "space_id": { "type": "integer", "description": "Identifier of the space to leave" } },
+        "required": ["space_id"]
+      },
+      "annotations": { "readOnlyHint": false, "destructiveHint": true, "idempotentHint": true, "openWorldHint": false },
+      "require_approval": true
+    },
+    {
+      "name": "accept_space_invitation",
+      "title": "Accept a space invitation",
+      "description": "Accept an invitation the current user has received to join a space.",
+      "input_schema": {
+        "type": "object",
+        "properties": { "space_id": { "type": "integer", "description": "Identifier of the space the current user was invited to" } },
+        "required": ["space_id"]
+      },
+      "annotations": { "readOnlyHint": false, "destructiveHint": false, "idempotentHint": true, "openWorldHint": false },
+      "require_approval": true
+    },
+    {
+      "name": "decline_space_invitation",
+      "title": "Decline a space invitation",
+      "description": "Decline an invitation the current user has received to join a space.",
+      "input_schema": {
+        "type": "object",
+        "properties": { "space_id": { "type": "integer", "description": "Identifier of the space the current user was invited to" } },
+        "required": ["space_id"]
+      },
+      "annotations": { "readOnlyHint": false, "destructiveHint": true, "idempotentHint": true, "openWorldHint": false },
+      "require_approval": true
+    },
+    {
+      "name": "list_space_join_requests",
+      "title": "List pending join requests",
+      "description": "List the users who have requested to join a space and are awaiting validation. The current user must be a manager of the space.",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "space_id": { "type": "integer", "description": "Identifier of the space" },
+          "offset": { "type": "integer", "description": "Offset of requests to retrieve" },
+          "limit": { "type": "integer", "description": "Limit of requests to retrieve" }
+        },
+        "required": ["space_id"]
+      },
+      "annotations": { "readOnlyHint": true, "destructiveHint": false, "idempotentHint": true, "openWorldHint": false }
+    },
+    {
+      "name": "accept_space_join_request",
+      "title": "Accept a join request",
+      "description": "Approve a user's pending request to join a space, adding them as a member. The current user must be a manager of the space.",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "space_id": { "type": "integer", "description": "Identifier of the space" },
+          "username": { "type": "string", "description": "Username whose join request to approve" }
+        },
+        "required": ["space_id", "username"]
+      },
+      "annotations": { "readOnlyHint": false, "destructiveHint": false, "idempotentHint": true, "openWorldHint": false },
+      "require_approval": true
+    },
+    {
+      "name": "decline_space_join_request",
+      "title": "Decline a join request",
+      "description": "Reject a user's pending request to join a space. The current user must be a manager of the space.",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "space_id": { "type": "integer", "description": "Identifier of the space" },
+          "username": { "type": "string", "description": "Username whose join request to reject" }
+        },
+        "required": ["space_id", "username"]
+      },
+      "annotations": { "readOnlyHint": false, "destructiveHint": true, "idempotentHint": true, "openWorldHint": false },
+      "require_approval": true
+    },
+    {
+      "name": "get_space_members",
+      "title": "Get space members with roles",
+      "description": "List the members of a space, each annotated with their roles in that space (MANAGER, REDACTOR, PUBLISHER, MEMBER).",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "space_id": { "type": "integer", "description": "Identifier of the space" },
+          "offset": { "type": "integer", "description": "Offset of members to retrieve" },
+          "limit": { "type": "integer", "description": "Limit of members to retrieve" }
+        },
+        "required": ["space_id"]
+      },
+      "annotations": { "readOnlyHint": true, "destructiveHint": false, "idempotentHint": true, "openWorldHint": false }
+    },
+    {
+      "name": "list_sub_spaces",
+      "title": "List sub-spaces",
+      "description": "List the sub-spaces (child spaces in the 7.2 hierarchy) of a given parent space that are accessible to the current user.",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "parent_space_id": { "type": "integer", "description": "Identifier of the parent space" },
+          "offset": { "type": "integer", "description": "Offset of sub-spaces to retrieve" },
+          "limit": { "type": "integer", "description": "Limit of sub-spaces to retrieve" }
+        },
+        "required": ["parent_space_id"]
+      },
+      "annotations": { "readOnlyHint": true, "destructiveHint": false, "idempotentHint": true, "openWorldHint": false }
+    },
+    {
+      "name": "delete_space",
+      "title": "Delete a space",
+      "description": "Permanently delete a space and all its content. The current user must be a manager of the space. This is irreversible.",
+      "input_schema": {
+        "type": "object",
+        "properties": { "space_id": { "type": "integer", "description": "Identifier of the space to delete" } },
+        "required": ["space_id"]
+      },
+      "annotations": { "readOnlyHint": false, "destructiveHint": true, "idempotentHint": false, "openWorldHint": false },
+      "require_approval": true
+    },
+    {
+      "name": "get_my_settings",
+      "title": "Get my settings",
+      "description": "Retrieve the current user's personal settings: preferred language, timezone and presence status.",
+      "input_schema": { "type": "object", "properties": {} },
+      "annotations": { "readOnlyHint": true, "destructiveHint": false, "idempotentHint": true, "openWorldHint": false }
+    },
+    {
+      "name": "list_available_languages",
+      "title": "List available languages",
+      "description": "List the languages available on the platform, with their code (e.g. en, fr) and display label. Use this to find a valid code before calling set_my_language.",
+      "input_schema": { "type": "object", "properties": {} },
+      "annotations": { "readOnlyHint": true, "destructiveHint": false, "idempotentHint": true, "openWorldHint": false }
+    },
+    {
+      "name": "set_my_language",
+      "title": "Set my language",
+      "description": "Set the current user's preferred interface language. The language code must be one of the platform's available languages (see list_available_languages).",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "language": { "type": "string", "description": "Language code, e.g. 'en', 'fr', 'de'" }
+        },
+        "required": ["language"]
+      },
+      "annotations": { "readOnlyHint": false, "destructiveHint": false, "idempotentHint": true, "openWorldHint": false },
+      "require_approval": true
+    },
+    {
+      "name": "set_my_timezone",
+      "title": "Set my timezone",
+      "description": "Set the current user's timezone, used to display dates and times.",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "timezone": { "type": "string", "description": "IANA timezone id, e.g. 'Europe/Paris', 'America/New_York', 'Asia/Tokyo'" }
+        },
+        "required": ["timezone"]
+      },
+      "annotations": { "readOnlyHint": false, "destructiveHint": false, "idempotentHint": true, "openWorldHint": false },
+      "require_approval": true
+    },
+    {
+      "name": "set_my_status",
+      "title": "Set my presence status",
+      "description": "Set the current user's presence status (online availability).",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "status": {
+            "type": "string",
+            "enum": ["AVAILABLE", "AWAY", "DO_NOT_DISTURB", "INVISIBLE", "OFFLINE"],
+            "description": "Presence status: AVAILABLE (online), AWAY, DO_NOT_DISTURB, INVISIBLE, OFFLINE"
+          }
+        },
+        "required": ["status"]
+      },
+      "annotations": { "readOnlyHint": false, "destructiveHint": false, "idempotentHint": true, "openWorldHint": false },
+      "require_approval": true
+    },
+    {
+      "name": "add_to_favorites",
+      "title": "Add content to my favorites",
+      "description": "Mark a content as favorite for the current user. Favoritable content types include: activity, space, note, news, task, event, file. Use the object's technical type and id (e.g. from expressions like /{content_type}:{content_id}).",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "content_type": { "type": "string", "description": "Content type, e.g. activity, space, note, news, task, event, file" },
+          "content_id": { "type": "string", "description": "Technical identifier of the content" }
+        },
+        "required": ["content_type", "content_id"]
+      },
+      "annotations": { "readOnlyHint": false, "destructiveHint": false, "idempotentHint": true, "openWorldHint": false },
+      "require_approval": true
+    },
+    {
+      "name": "remove_from_favorites",
+      "title": "Remove content from my favorites",
+      "description": "Remove a content from the current user's favorites.",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "content_type": { "type": "string", "description": "Content type, e.g. activity, space, note, news, task, event, file" },
+          "content_id": { "type": "string", "description": "Technical identifier of the content" }
+        },
+        "required": ["content_type", "content_id"]
+      },
+      "annotations": { "readOnlyHint": false, "destructiveHint": true, "idempotentHint": true, "openWorldHint": false },
+      "require_approval": true
+    },
+    {
+      "name": "is_content_favorite",
+      "title": "Check if content is a favorite",
+      "description": "Check whether a given content is currently in the current user's favorites.",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "content_type": { "type": "string", "description": "Content type, e.g. activity, space, note, news, task, event, file" },
+          "content_id": { "type": "string", "description": "Technical identifier of the content" }
+        },
+        "required": ["content_type", "content_id"]
+      },
+      "annotations": { "readOnlyHint": true, "destructiveHint": false, "idempotentHint": true, "openWorldHint": false }
+    },
+    {
+      "name": "list_my_favorites",
+      "title": "List my favorites",
+      "description": "List the current user's favorite contents, optionally filtered by content type. Returns each favorite's content type and id.",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "content_type": { "type": "string", "description": "Optional content type to filter by, e.g. activity, note, task" },
+          "offset": { "type": "integer", "description": "Offset of favorites to retrieve" },
+          "limit": { "type": "integer", "description": "Limit of favorites to retrieve" }
+        }
+      },
+      "annotations": { "readOnlyHint": true, "destructiveHint": false, "idempotentHint": true, "openWorldHint": false }
+    },
+    {
+      "name": "get_content_tags",
+      "title": "Get a content's tags",
+      "description": "List the tags (hashtags) associated with a given content, e.g. an activity or a note.",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "content_type": { "type": "string", "description": "Content type, e.g. activity, note" },
+          "content_id": { "type": "string", "description": "Technical identifier of the content" }
+        },
+        "required": ["content_type", "content_id"]
+      },
+      "annotations": { "readOnlyHint": true, "destructiveHint": false, "idempotentHint": true, "openWorldHint": false }
+    },
+    {
+      "name": "search_tags",
+      "title": "Search tags",
+      "description": "Search existing tags by a keyword, to discover tags in use (autocomplete). Returns matching tag names.",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "query": { "type": "string", "description": "Keyword to search tags with" },
+          "limit": { "type": "integer", "description": "Maximum number of tags to retrieve" }
+        }
+      },
+      "annotations": { "readOnlyHint": true, "destructiveHint": false, "idempotentHint": true, "openWorldHint": false }
+    },
+    {
+      "name": "get_contents_by_tag",
+      "title": "Get contents by tag",
+      "description": "Find contents that carry a given tag. Defaults to activities; pass content_type to look up another type (e.g. note).",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "tag": { "type": "string", "description": "Tag name (with or without leading #)" },
+          "content_type": { "type": "string", "description": "Content type to look up, defaults to 'activity'" },
+          "offset": { "type": "integer", "description": "Offset of contents to retrieve" },
+          "limit": { "type": "integer", "description": "Limit of contents to retrieve" }
+        },
+        "required": ["tag"]
+      },
+      "annotations": { "readOnlyHint": true, "destructiveHint": false, "idempotentHint": true, "openWorldHint": false }
+    },
+    {
+      "name": "get_platform_info",
+      "title": "Get platform information",
+      "description": "Retrieve general information about the Meeds platform: name, version, edition, base URL, total number of users and spaces, and the default language.",
+      "input_schema": { "type": "object", "properties": {} },
+      "annotations": { "readOnlyHint": true, "destructiveHint": false, "idempotentHint": true, "openWorldHint": false }
     }
   ]
 }

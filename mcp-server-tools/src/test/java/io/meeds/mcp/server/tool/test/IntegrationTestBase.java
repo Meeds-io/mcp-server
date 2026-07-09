@@ -35,6 +35,7 @@ import org.springframework.test.context.junit.jupiter.SpringExtension;
 import org.exoplatform.container.PortalContainer;
 import org.exoplatform.services.security.ConversationState;
 import org.exoplatform.services.security.Identity;
+import org.exoplatform.services.user.UserStateService;
 import org.exoplatform.social.core.jpa.search.ActivitySearchConnector;
 import org.exoplatform.social.core.jpa.search.ProfileSearchConnector;
 
@@ -53,6 +54,9 @@ public abstract class IntegrationTestBase extends AbstractSpringTest {
 
   @MockitoBean
   protected ActivitySearchConnector activitySearchConnector;
+
+  @MockitoBean
+  protected UserStateService        userStateService;
 
   @BeforeEach
   protected void beginRequest() {

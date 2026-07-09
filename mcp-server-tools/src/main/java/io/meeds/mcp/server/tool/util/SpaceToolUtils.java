@@ -73,7 +73,8 @@ public class SpaceToolUtils {
                           space.getMembers().length,
                           space.getManagers().length,
                           space.getCategoryIds(),
-                          getUserRoles(spaceService, space, username));
+                          getUserRoles(spaceService, space, username),
+                          space.getParentSpaceId() != null && space.getParentSpaceId() > 0 ? space.getParentSpaceId() : null);
   }
 
   public static Visibility toVisibility(SpaceVisibility v) {
