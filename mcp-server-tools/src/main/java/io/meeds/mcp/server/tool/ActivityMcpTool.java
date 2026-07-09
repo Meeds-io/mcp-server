@@ -195,6 +195,24 @@ public class ActivityMcpTool implements McpToolPlugin {
                       .toList();
   }
 
+  public List<ActivityModel> getUserActivityStream(String username,
+                                                   Integer offset,
+                                                   Integer limit) throws ObjectNotFoundException {
+    org.exoplatform.services.security.Identity viewer = getCurrentUserAclIdentity();
+    String targetUsername = username != null && username.startsWith("@") ? username.substring(1) : username;
+    Identity ownerIdentity = identityManager.getOrCreateUserIdentity(targetUsername);
+    if (ownerIdentity == null) {
+      throw new ObjectNotFoundException("User '%s' doesn't exist. Use search_users to find a valid username.".formatted(username));
+    }
+    Identity viewerIdentity = identityManager.getOrCreateUserIdentity(viewer.getUserId());
+    List<String> activityIds = activityManager.getActivitiesWithListAccess(ownerIdentity, viewerIdentity)
+                                              .loadIdsAsList(getInteger(offset, DEFAULT_OFFSET),
+                                                             getInteger(limit, DEFAULT_LIMIT));
+    return activityIds.stream()
+                      .map(this::toActivityModel)
+                      .toList();
+  }
+
   public ActivityModel getActivity(long activityId) throws IllegalAccessException, ObjectNotFoundException {
     org.exoplatform.services.security.Identity authenticatedUserIdentity = getCurrentUserAclIdentity();
     ExoSocialActivity activity = activityManager.getActivity(String.valueOf(activityId));
