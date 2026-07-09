@@ -154,6 +154,23 @@
       }
     },
     {
+      "name": "count_my_spaces",
+      "title": "Count my spaces",
+      "description": "Count the spaces where the current user is a member, optionally filtered by a keyword.",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "query": { "type": "string", "description": "Keyword search" }
+        }
+      },
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": false
+      }
+    },
+    {
       "name": "get_managed_spaces",
       "title": "Search in spaces I manage",
       "description": "Retrieve the list of spaces where the current user is a manager.",
