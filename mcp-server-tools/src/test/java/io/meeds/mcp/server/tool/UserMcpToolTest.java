@@ -346,4 +346,37 @@ class UserMcpToolTest extends IntegrationTestBase {
     assertTrue(online.stream().anyMatch(o -> "mary".equals(o.username())));
   }
 
+  // --- avatar / banner -----------------------------------------------------
+
+  // 1x1 transparent PNG
+  private static final String PNG_1PX =
+      "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==";
+
+  @Test
+  void setMyAvatarFromBase64() throws Exception {
+    UserModel user = userMcpTool.setMyAvatar(null, PNG_1PX, null, null);
+
+    assertNotNull(user);
+    assertNotNull(user.getUsername());
+  }
+
+  @Test
+  void setMyBannerFromBase64() throws Exception {
+    UserModel user = userMcpTool.setMyBanner(null, PNG_1PX, null, null);
+
+    assertNotNull(user);
+    assertNotNull(user.getUsername());
+  }
+
+  @Test
+  void setMyAvatarRequiresASource() {
+    assertThrows(IllegalArgumentException.class, () -> userMcpTool.setMyAvatar(null, null, null, null));
+  }
+
+  @Test
+  void setMyAvatarRejectsBothSources() {
+    assertThrows(IllegalArgumentException.class,
+                 () -> userMcpTool.setMyAvatar("https://8.8.8.8/x.png", PNG_1PX, null, null));
+  }
+
 }

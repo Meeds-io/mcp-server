@@ -30,10 +30,13 @@ import java.util.UUID;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 
+import org.exoplatform.commons.exception.ObjectNotFoundException;
+
 import io.meeds.mcp.server.tool.constant.Registration;
 import io.meeds.mcp.server.tool.constant.Visibility;
 import io.meeds.mcp.server.tool.model.ActivityCommentModel;
 import io.meeds.mcp.server.tool.model.ActivityModel;
+import io.meeds.mcp.server.tool.model.AttachmentModel;
 import io.meeds.mcp.server.tool.model.SpaceModel;
 import io.meeds.mcp.server.tool.model.SpaceTemplateModel;
 import io.meeds.mcp.server.tool.model.UserModel;
@@ -87,6 +90,71 @@ class ActivityMcpToolTest extends IntegrationTestBase {
   void createActivityWithBlankContent() {
     assertThrows(IllegalArgumentException.class,
                  () -> activityMcpTool.createActivity(null, " "));
+  }
+
+  // 1x1 transparent PNG
+  private static final String PNG_1PX =
+      "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==";
+
+  @Test
+  void createActivityWithImageRequiresAnImage() {
+    assertThrows(IllegalArgumentException.class,
+                 () -> activityMcpTool.createActivityWithImage(null, "No image here", null, null, null, null, null));
+  }
+
+  @Test
+  void createActivityWithImageFromBase64() throws Exception {
+    ActivityModel activity = activityMcpTool.createActivityWithImage(null,
+                                                                     "Look at this screenshot",
+                                                                     null,
+                                                                     PNG_1PX,
+                                                                     null,
+                                                                     null,
+                                                                     "a tiny dot");
+    assertNotNull(activity);
+    assertTrue(activity.id() > 0);
+  }
+
+  @Test
+  void attachImageToExistingActivity() throws Exception {
+    ActivityModel activity = activityMcpTool.createActivity(null, "Activity that will get an image");
+
+    ActivityModel updated = activityMcpTool.attachImageToActivity(activity.id(), null, PNG_1PX, null, null, "dot");
+
+    assertNotNull(updated);
+    assertEquals(activity.id(), updated.id());
+  }
+
+  @Test
+  void attachImageWithBothSourcesFails() throws Exception {
+    ActivityModel activity = activityMcpTool.createActivity(null, "Activity for a conflicting attach");
+    assertThrows(IllegalArgumentException.class,
+                 () -> activityMcpTool.attachImageToActivity(activity.id(), "https://8.8.8.8/x.png", PNG_1PX, null, null, null));
+  }
+
+  @Test
+  void attachImageWithAttachmentIdButNoTypeFails() throws Exception {
+    ActivityModel activity = activityMcpTool.createActivity(null, "Activity for an incomplete ref");
+    assertThrows(IllegalArgumentException.class,
+                 () -> activityMcpTool.attachImageToActivity(activity.id(), null, null, null, "12345", null));
+  }
+
+  @Test
+  void attachImageFromAttachmentRefResolvesAsTheUser() throws Exception {
+    // reference an attachment on an activity the current user can read but which
+    // carries no image: the ACL-checked lookup succeeds, finds nothing, and the
+    // tool reports it clearly (proves the attachment source path is exercised as
+    // the user; production references an attachment committed in an earlier request)
+    ActivityModel source = activityMcpTool.createActivity(null, "Activity with no attachment");
+    ActivityModel target = activityMcpTool.createActivity(null, "Target reusing an attachment");
+
+    assertThrows(ObjectNotFoundException.class,
+                 () -> activityMcpTool.attachImageToActivity(target.id(),
+                                                             null,
+                                                             null,
+                                                             "activity",
+                                                             String.valueOf(source.id()),
+                                                             "ref"));
   }
 
   @Test
@@ -194,6 +262,97 @@ class ActivityMcpToolTest extends IntegrationTestBase {
     ActivityModel shared = activityMcpTool.shareActivityToSpace(activity.id(), space.getSpaceId());
 
     assertNotNull(shared);
+  }
+
+  @Test
+  void createActivityCommentWithImageRequiresAnImage() throws Exception {
+    ActivityModel activity = activityMcpTool.createActivity(null, "Activity to comment on");
+    assertThrows(IllegalArgumentException.class,
+                 () -> activityMcpTool.createActivityCommentWithImage(activity.id(), "no image", null, null, null, null, null));
+  }
+
+  @Test
+  void createActivityCommentWithImageFromBase64() throws Exception {
+    ActivityModel activity = activityMcpTool.createActivity(null, "Activity to comment on with an image");
+
+    ActivityCommentModel comment = activityMcpTool.createActivityCommentWithImage(activity.id(),
+                                                                                  "look at this",
+                                                                                  null,
+                                                                                  PNG_1PX,
+                                                                                  null,
+                                                                                  null,
+                                                                                  "a dot");
+    assertNotNull(comment);
+    assertTrue(comment.id() > 0);
+  }
+
+  @Test
+  void attachImageToExistingComment() throws Exception {
+    ActivityModel activity = activityMcpTool.createActivity(null, "Activity with a comment to decorate");
+    ActivityCommentModel comment = activityMcpTool.createActivityComment(activity.id(), "plain comment");
+
+    ActivityCommentModel updated = activityMcpTool.attachImageToComment(comment.id(), null, PNG_1PX, null, null, "dot");
+
+    assertNotNull(updated);
+    assertEquals(comment.id(), updated.id());
+  }
+
+  @Test
+  void attachImageToCommentFailsForNonComment() throws Exception {
+    ActivityModel activity = activityMcpTool.createActivity(null, "This is an activity, not a comment");
+    assertThrows(ObjectNotFoundException.class,
+                 () -> activityMcpTool.attachImageToComment(activity.id(), null, PNG_1PX, null, null, null));
+  }
+
+  // Note on coverage: this integration harness rolls back attachment metadata on
+  // an async UC_SOC_METADATA_01 violation, so a saved attachment isn't readable
+  // back in-test (the same reason the *WithImage tests above only assert the
+  // activity/comment, never the stored image). The list/remove happy path — a
+  // populated listing and an actual delete — is verified live with EVA. The
+  // tests below cover the tools' reachable branches without needing a persisted
+  // attachment: empty listings and every guard/error path.
+
+  @Test
+  void getActivityAttachmentsIsEmptyWhenNoImage() throws Exception {
+    ActivityModel activity = activityMcpTool.createActivity(null, "no image here");
+
+    List<AttachmentModel> attachments = activityMcpTool.getActivityAttachments(activity.id());
+
+    assertNotNull(attachments);
+    assertTrue(attachments.isEmpty());
+  }
+
+  @Test
+  void getCommentAttachmentsIsEmptyWhenNoImage() throws Exception {
+    ActivityModel activity = activityMcpTool.createActivity(null, "activity for a plain comment");
+    ActivityCommentModel comment = activityMcpTool.createActivityComment(activity.id(), "plain comment");
+
+    List<AttachmentModel> attachments = activityMcpTool.getCommentAttachments(comment.id());
+
+    assertNotNull(attachments);
+    assertTrue(attachments.isEmpty());
+  }
+
+  @Test
+  void removeImageFromActivityWithNoAttachmentFails() throws Exception {
+    ActivityModel activity = activityMcpTool.createActivity(null, "nothing to remove");
+
+    assertThrows(ObjectNotFoundException.class,
+                 () -> activityMcpTool.removeImageFromActivity(activity.id(), null));
+  }
+
+  @Test
+  void removeImageFromActivityWhenActivityNotFound() {
+    assertThrows(ObjectNotFoundException.class,
+                 () -> activityMcpTool.removeImageFromActivity(-1L, "123"));
+  }
+
+  @Test
+  void removeImageFromCommentFailsForNonComment() throws Exception {
+    ActivityModel activity = activityMcpTool.createActivity(null, "an activity, not a comment");
+
+    assertThrows(ObjectNotFoundException.class,
+                 () -> activityMcpTool.removeImageFromComment(activity.id(), null));
   }
 
   private SpaceModel createTestSpace() throws Exception { // NOSONAR
