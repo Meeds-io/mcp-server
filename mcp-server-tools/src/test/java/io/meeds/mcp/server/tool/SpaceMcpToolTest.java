@@ -306,6 +306,38 @@ class SpaceMcpToolTest extends IntegrationTestBase {
                  () -> spaceMcpTool.acceptSpaceJoinRequest(space.getSpaceId(), "james"));
   }
 
+  // --- avatar / banner -----------------------------------------------------
+
+  // 1x1 transparent PNG
+  private static final String PNG_1PX =
+      "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==";
+
+  @Test
+  void setSpaceAvatarFromBase64() throws Exception {
+    SpaceModel space = createTestSpace();
+
+    SpaceModel updated = spaceMcpTool.setSpaceAvatar(space.getSpaceId(), null, PNG_1PX, null, null);
+
+    assertNotNull(updated);
+    assertEquals(space.getSpaceId(), updated.getSpaceId());
+  }
+
+  @Test
+  void setSpaceBannerFromBase64() throws Exception {
+    SpaceModel space = createTestSpace();
+
+    SpaceModel updated = spaceMcpTool.setSpaceBanner(space.getSpaceId(), null, PNG_1PX, null, null);
+
+    assertNotNull(updated);
+    assertEquals(space.getSpaceId(), updated.getSpaceId());
+  }
+
+  @Test
+  void setSpaceAvatarWhenSpaceDoesNotExist() {
+    assertThrows(org.exoplatform.commons.exception.ObjectNotFoundException.class,
+                 () -> spaceMcpTool.setSpaceAvatar(-1L, null, PNG_1PX, null, null));
+  }
+
   private SpaceModel createTestSpace() throws Exception {// NOSONAR
     return spaceMcpTool.createSpace(resolveTemplateId(),
                                     "mcp-test-space-" + UUID.randomUUID(),
