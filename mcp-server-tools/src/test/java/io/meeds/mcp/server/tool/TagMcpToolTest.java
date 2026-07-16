@@ -32,7 +32,8 @@ class TagMcpToolTest extends IntegrationTestBase {
   private TagMcpTool tagMcpTool;
 
   @Test
-  void getContentTagsIsEmptyForUntaggedContent() {
+  void getContentTagsIsEmptyForUntaggedContent() throws Exception {
+    // no favorite ACL plugin is registered for 'activity' in this test container, so access defaults to allowed
     assertNotNull(tagMcpTool.getContentTags("activity", "1"));
   }
 

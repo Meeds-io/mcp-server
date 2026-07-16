@@ -124,10 +124,6 @@ public class UserMcpTool implements McpToolPlugin {
     }
   }
 
-  // ---------------------------------------------------------------------------
-  // Connections / relationships (acting as the current user)
-  // ---------------------------------------------------------------------------
-
   @SneakyThrows
   public List<UserModel> listConnectionRequests(Integer offset, Integer limit) {
     ListAccess<Identity> listAccess = relationshipManager.getIncomingWithListAccess(me());
@@ -223,10 +219,6 @@ public class UserMcpTool implements McpToolPlugin {
     relationshipManager.delete(relationship);
   }
 
-  // ---------------------------------------------------------------------------
-  // Profile editing (current user)
-  // ---------------------------------------------------------------------------
-
   public UserModel updateMyProfile(String aboutMe, // NOSONAR
                                    String position,
                                    String company,
@@ -250,10 +242,6 @@ public class UserMcpTool implements McpToolPlugin {
     identityManager.updateProfile(profile, username, true);
     return user(username);
   }
-
-  // ---------------------------------------------------------------------------
-  // Online presence
-  // ---------------------------------------------------------------------------
 
   @SuppressWarnings("deprecation") // UserStateModel.getLastActivity has no non-deprecated replacement yet
   public OnlineStatusModel getUserOnlineStatus(String username) {
@@ -282,10 +270,6 @@ public class UserMcpTool implements McpToolPlugin {
                                                      state.getLastActivity() <= 0 ? null : formatDate(state.getLastActivity())))
                  .toList();
   }
-
-  // ---------------------------------------------------------------------------
-  // Helpers
-  // ---------------------------------------------------------------------------
 
   private Identity me() {
     return identityManager.getOrCreateUserIdentity(getCurrentUserName());

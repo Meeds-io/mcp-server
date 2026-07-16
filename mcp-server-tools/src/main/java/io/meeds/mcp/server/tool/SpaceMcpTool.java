@@ -346,10 +346,6 @@ public class SpaceMcpTool implements McpToolPlugin {
     }
   }
 
-  // ---------------------------------------------------------------------------
-  // Self-service membership (acting as the current user)
-  // ---------------------------------------------------------------------------
-
   public SpaceModel joinSpace(long spaceId) throws ObjectNotFoundException {
     String currentUsername = getCurrentUserName();
     Space space = requireSpace(spaceId);
@@ -424,10 +420,6 @@ public class SpaceMcpTool implements McpToolPlugin {
     return toSpaceModel(spaceService, space, currentUsername);
   }
 
-  // ---------------------------------------------------------------------------
-  // Manager-side join requests + enriched reads
-  // ---------------------------------------------------------------------------
-
   public List<UserModel> listSpaceJoinRequests(long spaceId,
                                                Integer offset,
                                                Integer limit) throws ObjectNotFoundException {
@@ -486,10 +478,6 @@ public class SpaceMcpTool implements McpToolPlugin {
                  .toList();
   }
 
-  // ---------------------------------------------------------------------------
-  // Sub-spaces (7.2 hierarchy) + lifecycle
-  // ---------------------------------------------------------------------------
-
   @SneakyThrows
   public List<SpaceModel> listSubSpaces(long parentSpaceId,
                                         Integer offset,
@@ -513,10 +501,6 @@ public class SpaceMcpTool implements McpToolPlugin {
     Space space = manageableSpace(spaceId);
     spaceService.deleteSpace(space);
   }
-
-  // ---------------------------------------------------------------------------
-  // Helpers
-  // ---------------------------------------------------------------------------
 
   private Space requireSpace(long spaceId) throws ObjectNotFoundException {
     Space space = spaceService.getSpaceById(spaceId);

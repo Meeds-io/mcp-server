@@ -30,6 +30,7 @@ import org.springframework.stereotype.Service;
 
 import org.exoplatform.social.core.manager.IdentityManager;
 import org.exoplatform.social.metadata.MetadataService;
+import org.exoplatform.social.metadata.favorite.FavoriteService;
 import org.exoplatform.social.metadata.model.MetadataItem;
 import org.exoplatform.social.metadata.tag.TagService;
 import org.exoplatform.social.metadata.tag.model.TagFilter;
@@ -51,11 +52,17 @@ public class TagMcpTool implements McpToolPlugin {
   private MetadataService     metadataService;
 
   @Autowired
+  private FavoriteService     favoriteService;
+
+  @Autowired
   private IdentityManager     identityManager;
 
-  public List<String> getContentTags(String contentType, String contentId) {
+  public List<String> getContentTags(String contentType, String contentId) throws IllegalAccessException {
     if (StringUtils.isBlank(contentType) || StringUtils.isBlank(contentId)) {
       throw new IllegalArgumentException("Both 'content_type' and 'content_id' are mandatory.");
+    }
+    if (!canAccess(contentType, contentId)) {
+      throw new IllegalAccessException("You are not allowed to access this '%s'.".formatted(contentType));
     }
     Set<TagName> tagNames = tagService.getTagNames(new TagObject(contentType, contentId));
     return tagNames == null ? Collections.emptyList() : tagNames.stream().map(TagName::getName).toList();
@@ -83,6 +90,7 @@ public class TagMcpTool implements McpToolPlugin {
                                                                                              getInteger(limit, DEFAULT_LIMIT));
     return items == null ? Collections.emptyList()
                          : items.stream()
+                                .filter(item -> canAccess(item.getObjectType(), item.getObjectId()))
                                 .map(item -> new TaggedContentModel(item.getObjectType(),
                                                                     item.getObjectId(),
                                                                     item.getSpaceId() > 0 ? item.getSpaceId() : null))
@@ -91,6 +99,19 @@ public class TagMcpTool implements McpToolPlugin {
 
   private long currentUserIdentityId() {
     return Long.parseLong(identityManager.getOrCreateUserIdentity(getCurrentUserName()).getId());
+  }
+
+  /**
+   * Some object-type ACL plugins (e.g. activities) throw instead of returning
+   * {@code false} when the object itself can't be found, so treat any failure
+   * of the check as "not accessible" rather than leaking the exception.
+   */
+  private boolean canAccess(String contentType, String contentId) {
+    try {
+      return favoriteService.canCreateFavorite(getCurrentUserAclIdentity(), contentType, contentId);
+    } catch (RuntimeException e) {
+      return false;
+    }
   }
 
 }
