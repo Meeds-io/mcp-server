@@ -31,9 +31,14 @@ import java.util.UUID;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 
+import org.exoplatform.social.core.manager.IdentityManager;
+import org.exoplatform.social.core.space.model.Space;
+import org.exoplatform.social.core.space.spi.SpaceService;
+
 import io.meeds.mcp.server.tool.constant.Registration;
 import io.meeds.mcp.server.tool.constant.SpaceRole;
 import io.meeds.mcp.server.tool.constant.Visibility;
+import io.meeds.mcp.server.tool.model.SpaceMemberModel;
 import io.meeds.mcp.server.tool.model.SpaceModel;
 import io.meeds.mcp.server.tool.model.SpaceTemplateModel;
 import io.meeds.mcp.server.tool.model.UserModel;
@@ -47,6 +52,12 @@ class SpaceMcpToolTest extends IntegrationTestBase {
   @Autowired
   private SpaceTemplateMcpTool spaceTemplateMcpTool;
 
+  @Autowired
+  private SpaceService         spaceService;
+
+  @Autowired
+  private IdentityManager      identityManager;
+
   @Test
   void createUpdateAndGetSpace() throws Exception {// NOSONAR
     long templateId = resolveTemplateId();
@@ -57,7 +68,8 @@ class SpaceMcpToolTest extends IntegrationTestBase {
                                                   "Initial description",
                                                   Visibility.LISTED,
                                                   Registration.OPEN,
-                                                  List.of());
+                                                  List.of(),
+                                                  null);
 
     assertNotNull(created);
     assertTrue(created.getSpaceId() > 0);
@@ -150,13 +162,168 @@ class SpaceMcpToolTest extends IntegrationTestBase {
                  () -> spaceMcpTool.removeUserRoleInSpace(-1L, USERNAME, SpaceRole.MANAGER));
   }
 
+  @Test
+  void getSpaceMembersIncludesManagerRole() throws Exception {
+    SpaceModel space = createTestSpace();
+
+    List<SpaceMemberModel> members = spaceMcpTool.getSpaceMembers(space.getSpaceId(), 0, 10);
+
+    assertNotNull(members);
+    assertTrue(members.stream()
+                      .anyMatch(m -> USERNAME.equals(m.user().getUsername()) && m.roles().contains(SpaceRole.MANAGER)));
+  }
+
+  @Test
+  void listSpaceJoinRequestsIsEmptyForNewSpace() throws Exception {
+    SpaceModel space = createTestSpace();
+
+    assertNotNull(spaceMcpTool.listSpaceJoinRequests(space.getSpaceId(), 0, 10));
+  }
+
+  @Test
+  void joinSpaceWhenAlreadyMemberFails() throws Exception {
+    SpaceModel space = createTestSpace();
+
+    assertThrows(IllegalStateException.class, () -> spaceMcpTool.joinSpace(space.getSpaceId()));
+  }
+
+  @Test
+  void leaveSpaceAsOnlyManagerFails() throws Exception {
+    SpaceModel space = createTestSpace();
+
+    assertThrows(IllegalStateException.class, () -> spaceMcpTool.leaveSpace(space.getSpaceId()));
+  }
+
+  @Test
+  void listSubSpacesIsEmptyForLeafSpace() throws Exception {
+    SpaceModel space = createTestSpace();
+
+    assertNotNull(spaceMcpTool.listSubSpaces(space.getSpaceId(), 0, 10));
+  }
+
+  @Test
+  void createSpaceWithInvalidParentFails() {
+    assertThrows(IllegalArgumentException.class,
+                 () -> spaceMcpTool.createSpace(resolveTemplateId(),
+                                                "mcp-orphan-" + UUID.randomUUID(),
+                                                "orphan",
+                                                Visibility.LISTED,
+                                                Registration.OPEN,
+                                                List.of(),
+                                                999999L));
+  }
+
+  @Test
+  void createSubSpaceUnderTemplateThatDisallowsSubspacesFails() throws Exception {
+    SpaceModel parent = createTestSpace();
+
+    // the test template declares no allowed sub-space templates -> must be rejected
+    assertThrows(IllegalStateException.class,
+                 () -> spaceMcpTool.createSpace(resolveTemplateId(),
+                                                "child-" + UUID.randomUUID(),
+                                                "child",
+                                                Visibility.LISTED,
+                                                Registration.OPEN,
+                                                List.of(),
+                                                parent.getSpaceId()));
+  }
+
+  @Test
+  void deleteSpaceRemovesIt() throws Exception {
+    SpaceModel space = createTestSpace();
+
+    spaceMcpTool.deleteSpace(space.getSpaceId());
+
+    assertNull(spaceMcpTool.getSpaceById(space.getSpaceId()));
+  }
+
+  // --- self-service membership guards --------------------------------------
+
+  @Test
+  void requestToJoinSpaceWhenAlreadyMemberFails() throws Exception {
+    SpaceModel space = createTestSpace();
+
+    assertThrows(IllegalStateException.class, () -> spaceMcpTool.requestToJoinSpace(space.getSpaceId()));
+  }
+
+  @Test
+  void cancelJoinRequestWithoutPendingRequestFails() throws Exception {
+    SpaceModel space = createTestSpace();
+
+    assertThrows(IllegalStateException.class, () -> spaceMcpTool.cancelJoinRequest(space.getSpaceId()));
+  }
+
+  @Test
+  void acceptSpaceInvitationWithoutInvitationFails() throws Exception {
+    SpaceModel space = createTestSpace();
+
+    assertThrows(IllegalStateException.class, () -> spaceMcpTool.acceptSpaceInvitation(space.getSpaceId()));
+  }
+
+  @Test
+  void declineSpaceInvitationWithoutInvitationFails() throws Exception {
+    SpaceModel space = createTestSpace();
+
+    assertThrows(IllegalStateException.class, () -> spaceMcpTool.declineSpaceInvitation(space.getSpaceId()));
+  }
+
+  // --- manager-side join requests ------------------------------------------
+
+  @Test
+  void acceptSpaceJoinRequestAddsPendingUserAsMember() throws Exception {
+    SpaceModel spaceModel = createValidationSpace();
+    identityManager.getOrCreateUserIdentity("mary");
+    spaceService.addPendingUser(spaceService.getSpaceById(spaceModel.getSpaceId()), "mary");
+
+    List<UserModel> requests = spaceMcpTool.listSpaceJoinRequests(spaceModel.getSpaceId(), 0, 10);
+    assertTrue(requests.stream().anyMatch(u -> "mary".equals(u.getUsername())));
+
+    spaceMcpTool.acceptSpaceJoinRequest(spaceModel.getSpaceId(), "mary");
+
+    assertTrue(spaceService.isMember(spaceService.getSpaceById(spaceModel.getSpaceId()), "mary"));
+  }
+
+  @Test
+  void declineSpaceJoinRequestRemovesPendingUser() throws Exception {
+    SpaceModel spaceModel = createValidationSpace();
+    identityManager.getOrCreateUserIdentity("demo");
+    spaceService.addPendingUser(spaceService.getSpaceById(spaceModel.getSpaceId()), "demo");
+    assertTrue(spaceService.isPendingUser(spaceService.getSpaceById(spaceModel.getSpaceId()), "demo"));
+
+    spaceMcpTool.declineSpaceJoinRequest(spaceModel.getSpaceId(), "demo");
+
+    Space reloaded = spaceService.getSpaceById(spaceModel.getSpaceId());
+    assertFalse(spaceService.isPendingUser(reloaded, "demo"));
+    assertFalse(spaceService.isMember(reloaded, "demo"));
+  }
+
+  @Test
+  void acceptSpaceJoinRequestWithoutPendingRequestFails() throws Exception {
+    SpaceModel space = createTestSpace();
+    identityManager.getOrCreateUserIdentity("james");
+
+    assertThrows(IllegalStateException.class,
+                 () -> spaceMcpTool.acceptSpaceJoinRequest(space.getSpaceId(), "james"));
+  }
+
   private SpaceModel createTestSpace() throws Exception {// NOSONAR
     return spaceMcpTool.createSpace(resolveTemplateId(),
                                     "mcp-test-space-" + UUID.randomUUID(),
                                     "Test space",
                                     Visibility.LISTED,
                                     Registration.OPEN,
-                                    List.of());
+                                    List.of(),
+                                    null);
+  }
+
+  private SpaceModel createValidationSpace() throws Exception {// NOSONAR
+    return spaceMcpTool.createSpace(resolveTemplateId(),
+                                    "mcp-test-space-" + UUID.randomUUID(),
+                                    "Test space requiring validation",
+                                    Visibility.LISTED,
+                                    Registration.REQUEST_JOIN,
+                                    List.of(),
+                                    null);
   }
 
   private long resolveTemplateId() {

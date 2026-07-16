@@ -73,4 +73,7 @@ public class SpaceModel {
   @JsonProperty("my_roles")
   private List<SpaceRole> myRoles;
 
+  @JsonProperty("parent_space_id")
+  private Long            parentSpaceId;
+
 }
