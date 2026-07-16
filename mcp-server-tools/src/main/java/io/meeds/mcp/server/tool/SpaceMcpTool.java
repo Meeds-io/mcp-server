@@ -513,7 +513,10 @@ public class SpaceMcpTool implements McpToolPlugin {
   /**
    * Verifies a sub-space with the given child template can actually be created
    * under the parent space, since the platform silently allows creation when the
-   * parent template declares no sub-space templates.
+   * parent template declares no sub-space templates. Per-template and global
+   * subspace count limits are NOT re-checked here: SpaceService#createSpace(...,
+   * parentSpaceId) already enforces both (SpaceTemplate#getAllowedSubspaceTemplates
+   * rule limits and #getSubspacesMaxLimit) and throws SpaceException on its own.
    */
   private void checkSubspaceAllowed(Space parentSpace, long childTemplateId) {
     SpaceTemplate parentTemplate = spaceTemplateService.getSpaceTemplate(parentSpace.getTemplateId());
