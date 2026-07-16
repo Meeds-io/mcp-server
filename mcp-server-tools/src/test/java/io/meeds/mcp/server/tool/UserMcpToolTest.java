@@ -99,12 +99,12 @@ class UserMcpToolTest extends IntegrationTestBase {
   }
 
   @Test
-  void sendConnectionRequestThenStatusIsPending() {
+  void sendConnectionRequestThenStatusIsOutgoing() {
     identityManager.getOrCreateUserIdentity("demo");
 
     userMcpTool.sendConnectionRequest("demo");
 
-    assertEquals("PENDING", userMcpTool.getConnectionStatus("demo"));
+    assertEquals("OUTGOING", userMcpTool.getConnectionStatus("demo"));
   }
 
   @Test
@@ -121,6 +121,7 @@ class UserMcpToolTest extends IntegrationTestBase {
 
     List<UserModel> requests = userMcpTool.listConnectionRequests(0, 10);
     assertTrue(requests.stream().anyMatch(u -> "mary".equals(u.getUsername())));
+    assertEquals("INCOMING", userMcpTool.getConnectionStatus("mary"));
 
     userMcpTool.acceptConnectionRequest("mary");
 

@@ -877,7 +877,7 @@
       },
       "annotations": {
         "readOnlyHint": false,
-        "destructiveHint": true,
+        "destructiveHint": false,
         "idempotentHint": true,
         "openWorldHint": false
       },
@@ -1033,7 +1033,7 @@
     {
       "name": "get_connection_status",
       "title": "Get connection status with a user",
-      "description": "Return the connection status between the current user and a given user: CONFIRMED, PENDING (a request exists either way, direction isn't distinguished), IGNORED or NOT_CONNECTED.",
+      "description": "Return the connection status between the current user and a given user: CONFIRMED, INCOMING (they sent a pending request), OUTGOING (you sent a pending request), IGNORED or NOT_CONNECTED.",
       "input_schema": {
         "type": "object",
         "properties": {

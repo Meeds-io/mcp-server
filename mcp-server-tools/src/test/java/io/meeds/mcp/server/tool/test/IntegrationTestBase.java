@@ -18,6 +18,8 @@
  */
 package io.meeds.mcp.server.tool.test;
 
+import java.util.Collections;
+
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -35,6 +37,7 @@ import org.springframework.test.context.junit.jupiter.SpringExtension;
 import org.exoplatform.container.PortalContainer;
 import org.exoplatform.services.security.ConversationState;
 import org.exoplatform.services.security.Identity;
+import org.exoplatform.services.security.MembershipEntry;
 import org.exoplatform.services.user.UserStateService;
 import org.exoplatform.social.core.jpa.search.ActivitySearchConnector;
 import org.exoplatform.social.core.jpa.search.ProfileSearchConnector;
@@ -63,7 +66,7 @@ public abstract class IntegrationTestBase extends AbstractSpringTest {
     getContainer();
     registerServiceMocks();
 
-    Identity userIdentity = new Identity(USERNAME);
+    Identity userIdentity = new Identity(USERNAME, Collections.singletonList(new MembershipEntry("/platform/users")));
     ConversationState state = new ConversationState(userIdentity);
     ConversationState.setCurrent(state);
 

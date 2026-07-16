@@ -24,7 +24,6 @@ import org.springframework.stereotype.Service;
 import org.exoplatform.commons.info.ProductInformations;
 import org.exoplatform.commons.utils.CommonsUtils;
 import org.exoplatform.portal.branding.BrandingService;
-import org.exoplatform.portal.config.UserACL;
 import org.exoplatform.services.resources.LocaleConfigService;
 import org.exoplatform.social.core.identity.provider.OrganizationIdentityProvider;
 import org.exoplatform.social.core.manager.IdentityManager;
@@ -53,12 +52,8 @@ public class PlatformMcpTool implements McpToolPlugin {
   @Autowired
   private LocaleConfigService localeConfigService;
 
-  @Autowired
-  private UserACL             userAcl;
-
-  @SuppressWarnings("deprecation")
   public PlatformInfoModel getPlatformInfo() {
-    org.exoplatform.services.security.Identity userIdentity = userAcl.getUserIdentity(getCurrentUserName());
+    org.exoplatform.services.security.Identity userIdentity = getCurrentUserAclIdentity();
     if (userIdentity == null || !userIdentity.isMemberOf("/platform/users")) {
       throw new IllegalStateException("Guest users can't access platform information.");
     }

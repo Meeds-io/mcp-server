@@ -157,9 +157,18 @@ public class UserMcpTool implements McpToolPlugin {
     return toUserModels(listAccess.load(getInteger(offset, DEFAULT_OFFSET), getInteger(limit, DEFAULT_LIMIT)));
   }
 
+  @SneakyThrows
   public String getConnectionStatus(String username) {
-    Relationship.Type type = relationshipManager.getStatus(me(), requireIdentity(username));
-    return type == null ? "NOT_CONNECTED" : type.name();
+    Identity currentIdentity = me();
+    Relationship relationship = relationshipManager.get(currentIdentity, requireIdentity(username));
+    if (relationship == null) {
+      return "NOT_CONNECTED";
+    }
+    Relationship.Type status = relationship.getStatus();
+    if (status == Relationship.Type.PENDING) {
+      return relationship.isSender(currentIdentity) ? "OUTGOING" : "INCOMING";
+    }
+    return status.name();
   }
 
   public List<UserModel> listConnectionSuggestions(Integer limit) {
