@@ -102,7 +102,7 @@ public class ActivityToolUtils {
       }
     }
 
-    return new ActivityModel(Long.parseLong(activityId),
+    return new ActivityModel(parseActivityId(activityId),
                              sharedActivityId,
                              activityBody,
                              activityUrl,
@@ -165,10 +165,10 @@ public class ActivityToolUtils {
       commentActivity = i18NActivityProcessor.process(commentActivity, currentUserLocale);
     }
     transformHtmlContent(commentActivity, currentUserAclIdentity, currentUserLocale);
-    return new ActivityCommentModel(Long.parseLong(commentId.replace(COMMENT_TEMPLATE_PARAM, "")),
-                                    Long.parseLong(commentActivity.getParentId()),
+    return new ActivityCommentModel(parseActivityId(commentId),
+                                    parseActivityId(commentActivity.getParentId()),
                                     StringUtils.isBlank(commentActivity.getParentCommentId()) ? null :
-                                                                                              Long.parseLong(commentActivity.getParentCommentId()),
+                                                                                              parseActivityId(commentActivity.getParentCommentId()),
                                     commentActivity.getTitle(),
                                     activityCommentUrl,
                                     formatDate(commentActivity.getUpdated()),
@@ -253,6 +253,10 @@ public class ActivityToolUtils {
       }
     }
     return null;
+  }
+
+  private static long parseActivityId(String commentId) {
+    return Long.parseLong(commentId.replace(COMMENT_TEMPLATE_PARAM, ""));
   }
 
 }
