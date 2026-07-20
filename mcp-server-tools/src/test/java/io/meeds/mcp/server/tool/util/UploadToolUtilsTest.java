@@ -58,6 +58,19 @@ class UploadToolUtilsTest {
   }
 
   @Test
+  void blocksIpv4MappedIpv6Addresses() throws Exception {
+    // ::ffff:a.b.c.d embeds an IPv4 address; the embedded address must be checked too
+    for (String ip : new String[] { "::ffff:127.0.0.1", "::ffff:100.64.0.1", "::ffff:0.0.0.1" }) {
+      assertTrue(UploadToolUtils.isBlockedAddress(InetAddress.getByName(ip)), ip + " should be blocked");
+    }
+  }
+
+  @Test
+  void allowsIpv4MappedIpv6PublicAddresses() throws Exception {
+    assertFalse(UploadToolUtils.isBlockedAddress(InetAddress.getByName("::ffff:8.8.8.8")), "::ffff:8.8.8.8 should be allowed");
+  }
+
+  @Test
   void assertPublicHttpUrlRejectsBadSchemesAndPrivateHosts() {
     assertThrows(IllegalArgumentException.class, () -> UploadToolUtils.assertPublicHttpUrl("ftp://8.8.8.8/x"));
     assertThrows(IllegalArgumentException.class, () -> UploadToolUtils.assertPublicHttpUrl("file:///etc/passwd"));

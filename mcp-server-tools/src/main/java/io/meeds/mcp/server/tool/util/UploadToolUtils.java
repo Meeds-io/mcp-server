@@ -27,6 +27,7 @@ import java.net.InetAddress;
 import java.net.URI;
 import java.net.UnknownHostException;
 import java.net.http.HttpClient;
+import java.net.http.HttpHeaders;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.nio.file.Files;
@@ -34,6 +35,9 @@ import java.time.Duration;
 import java.util.Base64;
 import java.util.List;
 import java.util.UUID;
+
+import javax.net.ssl.SNIHostName;
+import javax.net.ssl.SSLParameters;
 
 import org.apache.commons.collections4.CollectionUtils;
 import org.apache.commons.lang3.StringUtils;
@@ -56,7 +60,12 @@ import org.exoplatform.upload.UploadService;
  * which otherwise only registers/reads resources.
  *
  * <p>Fetching an image from a URL happens server-side, so the URL is validated
- * against SSRF (only public http/https hosts are allowed).
+ * against SSRF (only public http/https hosts are allowed). To close the
+ * TOCTOU/DNS-rebinding gap between that validation and the actual connection
+ * (the JDK's {@link HttpClient} would otherwise re-resolve the hostname
+ * independently at connect time, which an attacker controlling DNS could
+ * answer differently), the fetch pins the TCP connection to the exact address
+ * that was just validated — see {@link #fetchViaPinnedConnection}.
  */
 public final class UploadToolUtils {
 
@@ -69,11 +78,28 @@ public final class UploadToolUtils {
 
   private static final int    READ_TIMEOUT_SECONDS     = 20;
 
+  static {
+    // Lets fetchViaPinnedConnection set an explicit "Host" header on the pinned-IP
+    // request (normally a restricted header the JDK HttpClient manages itself).
+    // Best-effort: has no effect if java.net.http was already initialized elsewhere
+    // in this JVM before this class loads.
+    String existing = System.getProperty("jdk.httpclient.allowRestrictedHeaders");
+    if (StringUtils.isBlank(existing)) {
+      System.setProperty("jdk.httpclient.allowRestrictedHeaders", "host");
+    } else if (!existing.toLowerCase().contains("host")) {
+      System.setProperty("jdk.httpclient.allowRestrictedHeaders", existing + ",host");
+    }
+  }
+
   private UploadToolUtils() {
   }
 
   /** A downloaded image: its bytes, resolved mime type and a file name. */
   public record FetchedContent(byte[] bytes, String mimeType, String fileName) {
+  }
+
+  /** A raw http(s) response: its status, headers and body bytes (already size-capped). */
+  private record FetchedResponse(int statusCode, HttpHeaders headers, byte[] bytes) {
   }
 
   /**
@@ -171,29 +197,12 @@ public final class UploadToolUtils {
    * Downloads an image over http(s) after validating the URL against SSRF.
    */
   public static FetchedContent fetchImage(String url, long maxBytes) {
-    assertPublicHttpUrl(url);
-    HttpClient client = HttpClient.newBuilder()
-                                  .followRedirects(HttpClient.Redirect.NEVER)
-                                  .connectTimeout(Duration.ofSeconds(CONNECT_TIMEOUT_SECONDS))
-                                  .build();
-    HttpRequest request = HttpRequest.newBuilder(URI.create(url.trim()))
-                                     .timeout(Duration.ofSeconds(READ_TIMEOUT_SECONDS))
-                                     .GET()
-                                     .build();
-    HttpResponse<InputStream> response;
-    try {
-      response = client.send(request, HttpResponse.BodyHandlers.ofInputStream());
-    } catch (InterruptedException e) {
-      Thread.currentThread().interrupt();
-      throw new IllegalStateException("Interrupted while downloading the image from the URL.");
-    } catch (IOException e) {
-      throw new IllegalArgumentException("Could not fetch the URL: " + e.getMessage());
-    }
+    FetchedResponse response = fetchViaPinnedConnection(url, maxBytes);
     int status = response.statusCode();
     if (status < 200 || status >= 300) {
       throw new IllegalArgumentException("The image URL returned HTTP " + status + ".");
     }
-    byte[] bytes = readCapped(response.body(), maxBytes);
+    byte[] bytes = response.bytes();
     String mimeType = response.headers()
                               .firstValue("Content-Type")
                               .map(value -> value.split(";")[0].trim().toLowerCase())
@@ -219,29 +228,12 @@ public final class UploadToolUtils {
    * @return the downloaded bytes, resolved mime type and file name
    */
   public static FetchedContent fetchUrl(String url, long maxBytes, String defaultFileName) {
-    assertPublicHttpUrl(url);
-    HttpClient client = HttpClient.newBuilder()
-                                  .followRedirects(HttpClient.Redirect.NEVER)
-                                  .connectTimeout(Duration.ofSeconds(CONNECT_TIMEOUT_SECONDS))
-                                  .build();
-    HttpRequest request = HttpRequest.newBuilder(URI.create(url.trim()))
-                                     .timeout(Duration.ofSeconds(READ_TIMEOUT_SECONDS))
-                                     .GET()
-                                     .build();
-    HttpResponse<InputStream> response;
-    try {
-      response = client.send(request, HttpResponse.BodyHandlers.ofInputStream());
-    } catch (InterruptedException e) {
-      Thread.currentThread().interrupt();
-      throw new IllegalStateException("Interrupted while downloading the file from the URL.");
-    } catch (IOException e) {
-      throw new IllegalArgumentException("Could not fetch the URL: " + e.getMessage());
-    }
+    FetchedResponse response = fetchViaPinnedConnection(url, maxBytes);
     int status = response.statusCode();
     if (status < 200 || status >= 300) {
       throw new IllegalArgumentException("The file URL returned HTTP " + status + ".");
     }
-    byte[] bytes = readCapped(response.body(), maxBytes);
+    byte[] bytes = response.bytes();
     if (bytes.length == 0) {
       throw new IllegalArgumentException("The file URL returned an empty response body; provide a URL that points to actual file bytes.");
     }
@@ -251,6 +243,97 @@ public final class UploadToolUtils {
                               .filter(StringUtils::isNotBlank)
                               .orElse("application/octet-stream");
     return new FetchedContent(bytes, mimeType, fileNameFromUrl(url, defaultFileName));
+  }
+
+  /**
+   * Downloads bytes from a validated public http(s) URL, pinning the TCP
+   * connection to the exact address that {@link #assertPublicHttpUrl} just
+   * validated. Without this, the SSRF guard's DNS resolution and the
+   * {@link HttpClient}'s own (separate, later) resolution at connect time
+   * could return different answers for the same hostname — an attacker
+   * controlling the DNS record can serve a public IP for the first lookup and
+   * a private/internal one for the second ("DNS rebinding"), fully bypassing
+   * the guard. When the host is already an IP literal there is no DNS
+   * resolution to pin (nothing to rebind), so the request goes out unchanged.
+   *
+   * <p>The pin is done by connecting directly to the validated IP while
+   * keeping TLS SNI and the HTTP <code>Host</code> header set to the original
+   * hostname (via {@link SSLParameters#setServerNames} and, best-effort, an
+   * explicit <code>Host</code> header — see the static initializer), so
+   * certificate hostname verification and name-based virtual hosting both
+   * keep working correctly against the pinned connection.
+   */
+  private static FetchedResponse fetchViaPinnedConnection(String url, long maxBytes) {
+    String trimmedUrl = StringUtils.trimToEmpty(url);
+    URI uri;
+    try {
+      uri = URI.create(trimmedUrl);
+    } catch (IllegalArgumentException e) {
+      throw new IllegalArgumentException("Invalid URL.");
+    }
+    InetAddress[] validatedAddresses = assertPublicHttpUrl(trimmedUrl);
+    String host = uri.getHost();
+
+    HttpClient.Builder clientBuilder = HttpClient.newBuilder()
+                                                 .followRedirects(HttpClient.Redirect.NEVER)
+                                                 .connectTimeout(Duration.ofSeconds(CONNECT_TIMEOUT_SECONDS));
+    URI targetUri = uri;
+    boolean pinned = false;
+    if (!isIpLiteral(host)) {
+      targetUri = withHost(uri, validatedAddresses[0].getHostAddress());
+      SSLParameters sslParameters = new SSLParameters();
+      sslParameters.setServerNames(List.of(new SNIHostName(host)));
+      clientBuilder.sslParameters(sslParameters);
+      pinned = true;
+    }
+    HttpClient client = clientBuilder.build();
+
+    HttpRequest.Builder requestBuilder = HttpRequest.newBuilder(targetUri)
+                                                    .timeout(Duration.ofSeconds(READ_TIMEOUT_SECONDS))
+                                                    .GET();
+    if (pinned) {
+      try {
+        requestBuilder.header("Host", host);
+      } catch (IllegalArgumentException e) {
+        LOG.warn("Could not pin the Host header for {} (JVM property 'jdk.httpclient.allowRestrictedHeaders' isn't in "
+            + "effect); the request will use the pinned IP as its Host header instead.", host);
+      }
+    }
+    HttpRequest request = requestBuilder.build();
+
+    HttpResponse<InputStream> response;
+    try {
+      response = client.send(request, HttpResponse.BodyHandlers.ofInputStream());
+    } catch (InterruptedException e) {
+      Thread.currentThread().interrupt();
+      throw new IllegalStateException("Interrupted while downloading from the URL.");
+    } catch (IOException e) {
+      throw new IllegalArgumentException("Could not fetch the URL: " + e.getMessage());
+    }
+    byte[] bytes = readCapped(response.body(), maxBytes);
+    return new FetchedResponse(response.statusCode(), response.headers(), bytes);
+  }
+
+  /** True when {@code host} is an IPv4/IPv6 literal rather than a DNS name (nothing to pin/rebind). */
+  private static boolean isIpLiteral(String host) {
+    String candidate = host.startsWith("[") && host.endsWith("]") ? host.substring(1, host.length() - 1) : host;
+    return candidate.indexOf(':') >= 0 || candidate.matches("\\d{1,3}(\\.\\d{1,3}){3}");
+  }
+
+  /** Rebuilds {@code uri} with its host replaced by {@code ipLiteral}, keeping scheme/port/path/query. */
+  private static URI withHost(URI uri, String ipLiteral) {
+    String hostForUri = ipLiteral.indexOf(':') >= 0 ? "[" + ipLiteral + "]" : ipLiteral;
+    StringBuilder builder = new StringBuilder(uri.getScheme()).append("://").append(hostForUri);
+    if (uri.getPort() >= 0) {
+      builder.append(':').append(uri.getPort());
+    }
+    if (uri.getRawPath() != null) {
+      builder.append(uri.getRawPath());
+    }
+    if (uri.getRawQuery() != null) {
+      builder.append('?').append(uri.getRawQuery());
+    }
+    return URI.create(builder.toString());
   }
 
   /** Extracts the last path segment of a URL as a file name, or the given fallback. */
@@ -329,8 +412,11 @@ public final class UploadToolUtils {
    * Rejects any URL that is not public http/https — no other scheme, and no
    * host resolving to a loopback/link-local/site-local/CGNAT/unique-local
    * address (SSRF guard). Package-visible for testing.
+   *
+   * @return the validated, resolved addresses, so callers can pin their
+   *         connection to the exact address that was checked here.
    */
-  static void assertPublicHttpUrl(String urlString) {
+  static InetAddress[] assertPublicHttpUrl(String urlString) {
     URI uri;
     try {
       uri = URI.create(StringUtils.trimToEmpty(urlString));
@@ -356,6 +442,7 @@ public final class UploadToolUtils {
         throw new IllegalArgumentException("URL host is not allowed (it points to a private or internal address).");
       }
     }
+    return addresses;
   }
 
   static boolean isBlockedAddress(InetAddress address) {
@@ -364,6 +451,11 @@ public final class UploadToolUtils {
       return true;
     }
     byte[] bytes = address.getAddress();
+    if (bytes.length == 16 && isIpv4Mapped(bytes)) {
+      // ::ffff:a.b.c.d — re-check the embedded IPv4 address against the same rules below,
+      // otherwise a mapped literal in a blocked IPv4 range (e.g. ::ffff:100.64.0.1) slips through.
+      bytes = new byte[] { bytes[12], bytes[13], bytes[14], bytes[15] };
+    }
     if (bytes.length == 4) {
       int b0 = bytes[0] & 0xFF;
       int b1 = bytes[1] & 0xFF;
@@ -375,6 +467,15 @@ public final class UploadToolUtils {
       return (bytes[0] & 0xFE) == 0xFC;
     }
     return false;
+  }
+
+  private static boolean isIpv4Mapped(byte[] bytes) {
+    for (int i = 0; i < 10; i++) {
+      if (bytes[i] != 0) {
+        return false;
+      }
+    }
+    return (bytes[10] & 0xFF) == 0xFF && (bytes[11] & 0xFF) == 0xFF;
   }
 
   private static byte[] readCapped(InputStream input, long maxBytes) {

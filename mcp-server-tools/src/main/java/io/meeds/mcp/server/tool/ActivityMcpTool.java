@@ -45,6 +45,8 @@ import org.exoplatform.commons.exception.ObjectNotFoundException;
 import org.exoplatform.commons.file.services.FileService;
 import org.exoplatform.portal.config.UserACL;
 import org.exoplatform.portal.config.UserPortalConfigService;
+import org.exoplatform.services.log.ExoLogger;
+import org.exoplatform.services.log.Log;
 import org.exoplatform.social.attachment.AttachmentService;
 import org.exoplatform.social.attachment.model.ObjectAttachmentDetail;
 import org.exoplatform.social.attachment.model.ObjectAttachmentList;
@@ -81,6 +83,8 @@ import lombok.SneakyThrows;
 
 @Service
 public class ActivityMcpTool implements McpToolPlugin {
+
+  private static final Log        LOG                      = ExoLogger.getLogger(ActivityMcpTool.class);
 
   private static final int        MAX_TO_LOAD              = 100;
 
@@ -309,7 +313,13 @@ public class ActivityMcpTool implements McpToolPlugin {
     }
     String uploadId = resolveImageUploadId(imageUrl, imageBase64, attachmentObjectType, attachmentObjectId);
     ActivityModel model = createActivity(spaceId, htmlContent);
-    attachUploadToObject(ACTIVITY_OBJECT_TYPE, String.valueOf(model.id()), uploadId, altText);
+    try {
+      attachUploadToObject(ACTIVITY_OBJECT_TYPE, String.valueOf(model.id()), uploadId, altText);
+    } catch (RuntimeException e) {
+      deleteActivityQuietly(String.valueOf(model.id()));
+      throw new IllegalStateException("The image could not be attached, so the post was not created: " + e.getMessage()
+          + ". Nothing was posted; retry create_activity_with_image.");
+    }
     return toActivityModel(String.valueOf(model.id()));
   }
 
@@ -366,6 +376,20 @@ public class ActivityMcpTool implements McpToolPlugin {
       throw new IllegalStateException("Could not attach the image: " + e.getMessage());
     } finally {
       UploadToolUtils.release(uploadService, uploadId);
+    }
+  }
+
+  // Best-effort compensating delete used when an activity/comment was just created but its
+  // image attachment then failed: without this, the post would stay live with no image and a
+  // retry would create a duplicate (see create_activity_with_image / create_activity_comment_with_image).
+  private void deleteActivityQuietly(String activityId) {
+    try {
+      ExoSocialActivity activity = activityManager.getActivity(activityId);
+      if (activity != null) {
+        activityManager.deleteActivity(activity);
+      }
+    } catch (RuntimeException e) {
+      LOG.warn("Could not roll back activity {} after a failed image attachment", activityId, e);
     }
   }
 
@@ -476,7 +500,13 @@ public class ActivityMcpTool implements McpToolPlugin {
     // a comment is itself an activity; its attachment uses object type "activity" with the
     // comment's *prefixed* id ("comment<id>"), which is the metadata object id the comment renders from
     String commentActivityId = COMMENT_ID_PREFIX + model.id();
-    attachUploadToObject(ACTIVITY_OBJECT_TYPE, commentActivityId, uploadId, altText);
+    try {
+      attachUploadToObject(ACTIVITY_OBJECT_TYPE, commentActivityId, uploadId, altText);
+    } catch (RuntimeException e) {
+      deleteActivityQuietly(commentActivityId);
+      throw new IllegalStateException("The image could not be attached, so the comment was not created: " + e.getMessage()
+          + ". Nothing was posted; retry create_activity_comment_with_image.");
+    }
     return toActivityCommentModel(commentActivityId);
   }
 
