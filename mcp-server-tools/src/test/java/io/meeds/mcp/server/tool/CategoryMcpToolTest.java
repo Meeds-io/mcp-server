@@ -47,6 +47,16 @@ class CategoryMcpToolTest extends IntegrationTestBase {
   }
 
   @Test
+  void getContentTypes() {
+    List<String> types = categoryMcpTool.getContentTypes();
+
+    // Depending on the registered category plugins the list may be empty;
+    // verify the tool is wired and only returns non-blank content type names.
+    assertNotNull(types);
+    types.forEach(type -> assertTrue(type != null && !type.isBlank()));
+  }
+
+  @Test
   void getCategoriesOfContent() {
     List<CategoryModel> categories = categoryMcpTool.getCategoriesOfContent(ActivityAclPlugin.OBJECT_TYPE, "1");
 
