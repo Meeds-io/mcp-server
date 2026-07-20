@@ -154,6 +154,23 @@
       }
     },
     {
+      "name": "count_my_spaces",
+      "title": "Count my spaces",
+      "description": "Count the spaces where the current user is a member, optionally filtered by a keyword.",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "query": { "type": "string", "description": "Keyword search" }
+        }
+      },
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": false
+      }
+    },
+    {
       "name": "get_managed_spaces",
       "title": "Search in spaces I manage",
       "description": "Retrieve the list of spaces where the current user is a manager.",
@@ -1482,6 +1499,429 @@
       "description": "Retrieve general information about the Meeds platform: name, version, edition, base URL, total number of users and spaces, and the default language.",
       "input_schema": { "type": "object", "properties": {} },
       "annotations": { "readOnlyHint": true, "destructiveHint": false, "idempotentHint": true, "openWorldHint": false }
+    },
+    {
+      "name": "create_activity_with_image",
+      "title": "Post an activity with an image",
+      "description": "Create an activity (post) in a space (or the personal stream if space_id is null) and attach an image to it. The image comes from either a public image URL or base64-encoded bytes (e.g. a screenshot). Use create_activity when no image is needed.",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "space_id": {
+            "type": "integer"
+          },
+          "html_content": {
+            "type": "string"
+          },
+          "image_url": {
+            "type": "string",
+            "description": "Direct http(s) URL of an image to attach. Provide either image_url or image_base64 (not both)."
+          },
+          "image_base64": {
+            "type": "string",
+            "description": "Base64-encoded image bytes (png, jpeg, gif or webp), optionally as a data: URI. Use for a locally-produced image such as a screenshot; prefer image_url when the image is reachable by URL. Provide either image_url or image_base64 (not both)."
+          },
+          "attachment_object_type": {
+            "type": "string",
+            "description": "Internal: object type of an existing platform attachment to use as the image (set automatically by the client from the user's attached image — do not fill this yourself). Read as the current user, so its ACL is enforced."
+          },
+          "attachment_object_id": {
+            "type": "string",
+            "description": "Internal: object id of an existing platform attachment to use as the image (set automatically by the client — do not fill this yourself). Provide exactly one image source: attachment_object_id, image_url or image_base64."
+          },
+          "alt_text": {
+            "type": "string",
+            "description": "Optional accessibility description of the image."
+          }
+        },
+        "required": [
+          "html_content"
+        ]
+      },
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": false,
+        "idempotentHint": false,
+        "openWorldHint": false
+      },
+      "require_approval": true
+    },
+    {
+      "name": "attach_image_to_activity",
+      "title": "Attach an image to an activity",
+      "description": "Attach an image to an existing activity (post) that the current user is allowed to edit. The image comes from either a public image URL or base64-encoded bytes (e.g. a screenshot).",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "activity_id": {
+            "type": "integer"
+          },
+          "image_url": {
+            "type": "string",
+            "description": "Direct http(s) URL of an image to attach. Provide either image_url or image_base64 (not both)."
+          },
+          "image_base64": {
+            "type": "string",
+            "description": "Base64-encoded image bytes (png, jpeg, gif or webp), optionally as a data: URI. Use for a locally-produced image such as a screenshot; prefer image_url when the image is reachable by URL. Provide either image_url or image_base64 (not both)."
+          },
+          "attachment_object_type": {
+            "type": "string",
+            "description": "Internal: object type of an existing platform attachment to use as the image (set automatically by the client from the user's attached image — do not fill this yourself). Read as the current user, so its ACL is enforced."
+          },
+          "attachment_object_id": {
+            "type": "string",
+            "description": "Internal: object id of an existing platform attachment to use as the image (set automatically by the client — do not fill this yourself). Provide exactly one image source: attachment_object_id, image_url or image_base64."
+          },
+          "alt_text": {
+            "type": "string",
+            "description": "Optional accessibility description of the image."
+          }
+        },
+        "required": [
+          "activity_id"
+        ]
+      },
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": false,
+        "idempotentHint": false,
+        "openWorldHint": false
+      },
+      "require_approval": true
+    },
+    {
+      "name": "create_activity_comment_with_image",
+      "title": "Comment on an activity with an image",
+      "description": "Add a comment to an activity and attach an image to that comment. The image comes from a public image URL, base64-encoded bytes, or the current conversation's attached image. Use create_activity_comment when no image is needed.",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "activity_id": {
+            "type": "integer"
+          },
+          "comment": {
+            "type": "string"
+          },
+          "image_url": {
+            "type": "string",
+            "description": "Direct http(s) URL of an image to attach. Provide exactly one of image_url, image_base64 or attachment_object_id."
+          },
+          "image_base64": {
+            "type": "string",
+            "description": "Base64-encoded image bytes (png, jpeg, gif or webp), optionally as a data: URI. Use for a locally-produced image such as a screenshot."
+          },
+          "attachment_object_type": {
+            "type": "string",
+            "description": "Internal: object type of an existing platform attachment to use as the image (set automatically by the client from the user's attached image — do not fill this yourself)."
+          },
+          "attachment_object_id": {
+            "type": "string",
+            "description": "Internal: object id of an existing platform attachment to use as the image (set automatically by the client — do not fill this yourself)."
+          },
+          "alt_text": {
+            "type": "string",
+            "description": "Optional accessibility description of the image."
+          }
+        },
+        "required": [
+          "activity_id",
+          "comment"
+        ]
+      },
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": false,
+        "idempotentHint": false,
+        "openWorldHint": false
+      },
+      "require_approval": true
+    },
+    {
+      "name": "attach_image_to_comment",
+      "title": "Attach an image to a comment",
+      "description": "Attach an image to an existing activity comment that the current user is allowed to edit. The image comes from a public image URL, base64-encoded bytes, or the current conversation's attached image.",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "comment_id": {
+            "type": "integer"
+          },
+          "image_url": {
+            "type": "string",
+            "description": "Direct http(s) URL of an image to attach. Provide exactly one of image_url, image_base64 or attachment_object_id."
+          },
+          "image_base64": {
+            "type": "string",
+            "description": "Base64-encoded image bytes (png, jpeg, gif or webp), optionally as a data: URI. Use for a locally-produced image such as a screenshot."
+          },
+          "attachment_object_type": {
+            "type": "string",
+            "description": "Internal: object type of an existing platform attachment to use as the image (set automatically by the client from the user's attached image — do not fill this yourself)."
+          },
+          "attachment_object_id": {
+            "type": "string",
+            "description": "Internal: object id of an existing platform attachment to use as the image (set automatically by the client — do not fill this yourself)."
+          },
+          "alt_text": {
+            "type": "string",
+            "description": "Optional accessibility description of the image."
+          }
+        },
+        "required": [
+          "comment_id"
+        ]
+      },
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": false,
+        "idempotentHint": false,
+        "openWorldHint": false
+      },
+      "require_approval": true
+    },
+    {
+      "name": "set_my_avatar",
+      "title": "Set my profile avatar",
+      "description": "Set the current user's profile picture (avatar) from an image. The image comes from a public image URL or base64-encoded bytes (e.g. a generated image). Applies to the current user only.",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "image_url": {
+            "type": "string",
+            "description": "Direct http(s) URL of an image. Provide either image_url or image_base64 (not both)."
+          },
+          "image_base64": {
+            "type": "string",
+            "description": "Base64-encoded image bytes (png, jpeg, gif or webp), optionally as a data: URI. Use for a locally-produced image such as a screenshot; prefer image_url when the image is reachable by URL. Provide either image_url or image_base64 (not both)."
+          },
+          "attachment_object_type": {
+            "type": "string",
+            "description": "Internal: object type of an existing platform attachment to use as the image (set automatically by the client from the user's attached image — do not fill this yourself). Read as the current user, so its ACL is enforced."
+          },
+          "attachment_object_id": {
+            "type": "string",
+            "description": "Internal: object id of an existing platform attachment to use as the image (set automatically by the client — do not fill this yourself). Provide exactly one image source: attachment_object_id, image_url or image_base64."
+          }
+        },
+        "required": []
+      },
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": false,
+        "idempotentHint": false,
+        "openWorldHint": false
+      },
+      "require_approval": true
+    },
+    {
+      "name": "set_my_banner",
+      "title": "Set my profile banner",
+      "description": "Set the current user's profile banner (cover image) from an image. The image comes from a public image URL or base64-encoded bytes. Applies to the current user only.",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "image_url": {
+            "type": "string",
+            "description": "Direct http(s) URL of an image. Provide either image_url or image_base64 (not both)."
+          },
+          "image_base64": {
+            "type": "string",
+            "description": "Base64-encoded image bytes (png, jpeg, gif or webp), optionally as a data: URI. Use for a locally-produced image such as a screenshot; prefer image_url when the image is reachable by URL. Provide either image_url or image_base64 (not both)."
+          },
+          "attachment_object_type": {
+            "type": "string",
+            "description": "Internal: object type of an existing platform attachment to use as the image (set automatically by the client from the user's attached image — do not fill this yourself). Read as the current user, so its ACL is enforced."
+          },
+          "attachment_object_id": {
+            "type": "string",
+            "description": "Internal: object id of an existing platform attachment to use as the image (set automatically by the client — do not fill this yourself). Provide exactly one image source: attachment_object_id, image_url or image_base64."
+          }
+        },
+        "required": []
+      },
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": false,
+        "idempotentHint": false,
+        "openWorldHint": false
+      },
+      "require_approval": true
+    },
+    {
+      "name": "set_space_avatar",
+      "title": "Set a space's avatar",
+      "description": "Set the avatar (picture) of a space the current user manages, from an image (public URL or base64 bytes). Only a manager of the space may change it.",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "space_id": {
+            "type": "integer"
+          },
+          "image_url": {
+            "type": "string",
+            "description": "Direct http(s) URL of an image. Provide either image_url or image_base64 (not both)."
+          },
+          "image_base64": {
+            "type": "string",
+            "description": "Base64-encoded image bytes (png, jpeg, gif or webp), optionally as a data: URI. Use for a locally-produced image such as a screenshot; prefer image_url when the image is reachable by URL. Provide either image_url or image_base64 (not both)."
+          },
+          "attachment_object_type": {
+            "type": "string",
+            "description": "Internal: object type of an existing platform attachment to use as the image (set automatically by the client from the user's attached image — do not fill this yourself). Read as the current user, so its ACL is enforced."
+          },
+          "attachment_object_id": {
+            "type": "string",
+            "description": "Internal: object id of an existing platform attachment to use as the image (set automatically by the client — do not fill this yourself). Provide exactly one image source: attachment_object_id, image_url or image_base64."
+          }
+        },
+        "required": [
+          "space_id"
+        ]
+      },
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": false,
+        "idempotentHint": false,
+        "openWorldHint": false
+      },
+      "require_approval": true
+    },
+    {
+      "name": "set_space_banner",
+      "title": "Set a space's banner",
+      "description": "Set the banner (cover image) of a space the current user manages, from an image (public URL or base64 bytes). Only a manager of the space may change it.",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "space_id": {
+            "type": "integer"
+          },
+          "image_url": {
+            "type": "string",
+            "description": "Direct http(s) URL of an image. Provide either image_url or image_base64 (not both)."
+          },
+          "image_base64": {
+            "type": "string",
+            "description": "Base64-encoded image bytes (png, jpeg, gif or webp), optionally as a data: URI. Use for a locally-produced image such as a screenshot; prefer image_url when the image is reachable by URL. Provide either image_url or image_base64 (not both)."
+          },
+          "attachment_object_type": {
+            "type": "string",
+            "description": "Internal: object type of an existing platform attachment to use as the image (set automatically by the client from the user's attached image — do not fill this yourself). Read as the current user, so its ACL is enforced."
+          },
+          "attachment_object_id": {
+            "type": "string",
+            "description": "Internal: object id of an existing platform attachment to use as the image (set automatically by the client — do not fill this yourself). Provide exactly one image source: attachment_object_id, image_url or image_base64."
+          }
+        },
+        "required": [
+          "space_id"
+        ]
+      },
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": false,
+        "idempotentHint": false,
+        "openWorldHint": false
+      },
+      "require_approval": true
+    },
+    {
+      "name": "get_activity_attachments",
+      "title": "List an activity's attachments",
+      "description": "List the attachments (images) on an activity (post): each attachment's file id, name, mime type, size and alt text. Read as the current user, so the activity's ACL is enforced.",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "activity_id": {
+            "type": "integer"
+          }
+        },
+        "required": [
+          "activity_id"
+        ]
+      },
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": false
+      }
+    },
+    {
+      "name": "get_comment_attachments",
+      "title": "List a comment's attachments",
+      "description": "List the attachments (images) on an activity comment: each attachment's file id, name, mime type, size and alt text. Read as the current user, so the comment's ACL is enforced.",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "comment_id": {
+            "type": "integer"
+          }
+        },
+        "required": [
+          "comment_id"
+        ]
+      },
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": false
+      }
+    },
+    {
+      "name": "remove_image_from_activity",
+      "title": "Remove an image from an activity",
+      "description": "Remove one attachment (image) from an activity the current user can edit, by its file id (from get_activity_attachments). If the activity has exactly one attachment, file_id may be omitted.",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "activity_id": {
+            "type": "integer"
+          },
+          "file_id": {
+            "type": "string",
+            "description": "File id of the attachment to remove, from the matching get_*_attachments Tool. Optional when the object has exactly one attachment."
+          }
+        },
+        "required": [
+          "activity_id"
+        ]
+      },
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": true,
+        "idempotentHint": false,
+        "openWorldHint": false
+      },
+      "require_approval": true
+    },
+    {
+      "name": "remove_image_from_comment",
+      "title": "Remove an image from a comment",
+      "description": "Remove one attachment (image) from an activity comment the current user can edit, by its file id (from get_comment_attachments). If the comment has exactly one attachment, file_id may be omitted.",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "comment_id": {
+            "type": "integer"
+          },
+          "file_id": {
+            "type": "string",
+            "description": "File id of the attachment to remove, from the matching get_*_attachments Tool. Optional when the object has exactly one attachment."
+          }
+        },
+        "required": [
+          "comment_id"
+        ]
+      },
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": true,
+        "idempotentHint": false,
+        "openWorldHint": false
+      },
+      "require_approval": true
     }
   ]
 }
