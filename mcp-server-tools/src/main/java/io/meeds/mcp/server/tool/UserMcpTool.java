@@ -170,10 +170,10 @@ public class UserMcpTool implements McpToolPlugin {
     UploadToolUtils.FetchedContent image = UploadToolUtils.resolveImage(attachmentService,
                                                                       fileService,
                                                                       getCurrentUserAclIdentity(),
-                                                                      imageUrl,
-                                                                      imageBase64,
-                                                                      attachmentObjectType,
-                                                                      attachmentObjectId,
+                                                                      new UploadToolUtils.ImageSource(imageUrl,
+                                                                                                     imageBase64,
+                                                                                                     attachmentObjectType,
+                                                                                                     attachmentObjectId),
                                                                       UploadToolUtils.DEFAULT_MAX_BYTES);
     Identity userIdentity = identityManager.getOrCreateUserIdentity(username);
     if (userIdentity == null || userIdentity.getProfile() == null) {

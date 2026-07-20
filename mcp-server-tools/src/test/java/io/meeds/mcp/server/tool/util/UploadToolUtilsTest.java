@@ -59,7 +59,8 @@ class UploadToolUtilsTest {
 
   @Test
   void blocksIpv4MappedIpv6Addresses() throws Exception {
-    // ::ffff:a.b.c.d embeds an IPv4 address; the embedded address must be checked too
+    // the JDK normalizes ::ffff:a.b.c.d to a plain 4-byte Inet4Address before isBlockedAddress
+    // ever sees it, so these hit the same checks as their raw IPv4 form above
     for (String ip : new String[] { "::ffff:127.0.0.1", "::ffff:100.64.0.1", "::ffff:0.0.0.1" }) {
       assertTrue(UploadToolUtils.isBlockedAddress(InetAddress.getByName(ip)), ip + " should be blocked");
     }

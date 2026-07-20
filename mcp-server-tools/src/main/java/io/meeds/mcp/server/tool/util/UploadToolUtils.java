@@ -30,10 +30,18 @@ import java.net.http.HttpClient;
 import java.net.http.HttpHeaders;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
+import java.nio.file.FileSystems;
 import java.nio.file.Files;
+import java.nio.file.attribute.FileAttribute;
+import java.nio.file.attribute.PosixFilePermission;
+import java.nio.file.attribute.PosixFilePermissions;
 import java.time.Duration;
+import java.util.Arrays;
 import java.util.Base64;
+import java.util.EnumSet;
 import java.util.List;
+import java.util.Objects;
+import java.util.Set;
 import java.util.UUID;
 
 import org.apache.commons.collections4.CollectionUtils;
@@ -75,10 +83,56 @@ public final class UploadToolUtils {
 
   /** A downloaded image: its bytes, resolved mime type and a file name. */
   public record FetchedContent(byte[] bytes, String mimeType, String fileName) {
+
+    @Override
+    public boolean equals(Object o) {
+      return this == o
+          || (o instanceof FetchedContent other
+              && Arrays.equals(bytes, other.bytes)
+              && Objects.equals(mimeType, other.mimeType)
+              && Objects.equals(fileName, other.fileName));
+    }
+
+    @Override
+    public int hashCode() {
+      return Objects.hash(Arrays.hashCode(bytes), mimeType, fileName);
+    }
+
+    @Override
+    public String toString() {
+      return "FetchedContent[bytes.length=%d, mimeType=%s, fileName=%s]".formatted(bytes.length, mimeType, fileName);
+    }
   }
 
   /** A raw http(s) response: its status, headers and body bytes (already size-capped). */
   private record FetchedResponse(int statusCode, HttpHeaders headers, byte[] bytes) {
+
+    @Override
+    public boolean equals(Object o) {
+      return this == o
+          || (o instanceof FetchedResponse other
+              && statusCode == other.statusCode
+              && Objects.equals(headers, other.headers)
+              && Arrays.equals(bytes, other.bytes));
+    }
+
+    @Override
+    public int hashCode() {
+      return Objects.hash(statusCode, headers, Arrays.hashCode(bytes));
+    }
+
+    @Override
+    public String toString() {
+      return "FetchedResponse[statusCode=%d, bytes.length=%d]".formatted(statusCode, bytes.length);
+    }
+  }
+
+  /**
+   * The three mutually-exclusive ways to provide an image to {@link #resolveImage}: a public
+   * http(s) URL, base64-encoded bytes, or a reference to an existing platform attachment
+   * (<code>attachmentObjectType</code> + <code>attachmentObjectId</code>).
+   */
+  public record ImageSource(String imageUrl, String imageBase64, String attachmentObjectType, String attachmentObjectId) {
   }
 
   /**
@@ -118,11 +172,12 @@ public final class UploadToolUtils {
   public static FetchedContent resolveImage(AttachmentService attachmentService,
                                           FileService fileService,
                                           Identity aclIdentity,
-                                          String imageUrl,
-                                          String imageBase64,
-                                          String attachmentObjectType,
-                                          String attachmentObjectId,
+                                          ImageSource source,
                                           long maxBytes) throws IllegalAccessException, ObjectNotFoundException {
+    String imageUrl = source.imageUrl();
+    String imageBase64 = source.imageBase64();
+    String attachmentObjectType = source.attachmentObjectType();
+    String attachmentObjectId = source.attachmentObjectId();
     if (StringUtils.isNotBlank(attachmentObjectId)) {
       if (StringUtils.isNotBlank(imageUrl) || StringUtils.isNotBlank(imageBase64)) {
         throw new IllegalArgumentException("Provide only one image source: attachment_object_id, image_url or image_base64.");
@@ -279,7 +334,7 @@ public final class UploadToolUtils {
     String uploadId = UUID.randomUUID().toString();
     File temp;
     try {
-      temp = Files.createTempFile("mcp-upload-", ".bin").toFile();
+      temp = createOwnerOnlyTempFile();
       temp.deleteOnExit();
       try (FileOutputStream output = new FileOutputStream(temp)) {
         output.write(bytes);
@@ -295,6 +350,21 @@ public final class UploadToolUtils {
     resource.setStatus(UploadResource.UPLOADED_STATUS);
     uploadService.createUploadResource(resource);
     return uploadId;
+  }
+
+  /**
+   * Creates a temp file restricted to the owner (rw-------) rather than relying on the
+   * platform/umask default, since the default temp directory is shared and world-writable
+   * on most systems and the staged bytes are user-supplied image content.
+   */
+  private static File createOwnerOnlyTempFile() throws IOException {
+    if (FileSystems.getDefault().supportedFileAttributeViews().contains("posix")) {
+      FileAttribute<Set<PosixFilePermission>> ownerOnly =
+                                                        PosixFilePermissions.asFileAttribute(EnumSet.of(PosixFilePermission.OWNER_READ,
+                                                                                                         PosixFilePermission.OWNER_WRITE));
+      return Files.createTempFile("mcp-upload-", ".bin", ownerOnly).toFile();
+    }
+    return Files.createTempFile("mcp-upload-", ".bin").toFile();
   }
 
   /** Removes the upload resource and its temp file. Safe to call in a finally. */
@@ -363,11 +433,6 @@ public final class UploadToolUtils {
       return true;
     }
     byte[] bytes = address.getAddress();
-    if (bytes.length == 16 && isIpv4Mapped(bytes)) {
-      // ::ffff:a.b.c.d — re-check the embedded IPv4 address against the same rules below,
-      // otherwise a mapped literal in a blocked IPv4 range (e.g. ::ffff:100.64.0.1) slips through.
-      bytes = new byte[] { bytes[12], bytes[13], bytes[14], bytes[15] };
-    }
     if (bytes.length == 4) {
       int b0 = bytes[0] & 0xFF;
       int b1 = bytes[1] & 0xFF;
@@ -379,15 +444,6 @@ public final class UploadToolUtils {
       return (bytes[0] & 0xFE) == 0xFC;
     }
     return false;
-  }
-
-  private static boolean isIpv4Mapped(byte[] bytes) {
-    for (int i = 0; i < 10; i++) {
-      if (bytes[i] != 0) {
-        return false;
-      }
-    }
-    return (bytes[10] & 0xFF) == 0xFF && (bytes[11] & 0xFF) == 0xFF;
   }
 
   private static byte[] readCapped(InputStream input, long maxBytes) {
