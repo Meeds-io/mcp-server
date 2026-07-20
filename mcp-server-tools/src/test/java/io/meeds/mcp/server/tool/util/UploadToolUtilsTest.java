@@ -188,4 +188,19 @@ class UploadToolUtilsTest {
     verify(uploadService).removeUploadResource("some-id");
   }
 
+  // --- FetchedContent (array-content equals/hashCode/toString) -------------
+
+  @Test
+  void fetchedContentEqualityComparesArrayContentNotReference() {
+    UploadToolUtils.FetchedContent a = new UploadToolUtils.FetchedContent(new byte[] { 1, 2, 3 }, "image/png", "a.png");
+    UploadToolUtils.FetchedContent b = new UploadToolUtils.FetchedContent(new byte[] { 1, 2, 3 }, "image/png", "a.png");
+    UploadToolUtils.FetchedContent different = new UploadToolUtils.FetchedContent(new byte[] { 9 }, "image/png", "a.png");
+
+    assertEquals(a, b);
+    assertEquals(a.hashCode(), b.hashCode());
+    assertFalse(a.equals(different));
+    assertFalse(a.equals(null));
+    assertTrue(a.toString().contains("bytes.length=3"));
+  }
+
 }

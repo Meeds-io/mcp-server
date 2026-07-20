@@ -30,7 +30,6 @@ import java.net.http.HttpClient;
 import java.net.http.HttpHeaders;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
-import java.nio.file.FileSystems;
 import java.nio.file.Files;
 import java.nio.file.attribute.FileAttribute;
 import java.nio.file.attribute.PosixFilePermission;
@@ -352,19 +351,18 @@ public final class UploadToolUtils {
     return uploadId;
   }
 
+  private static final FileAttribute<Set<PosixFilePermission>> OWNER_ONLY_PERMS =
+                                                                                 PosixFilePermissions.asFileAttribute(EnumSet.of(PosixFilePermission.OWNER_READ,
+                                                                                                                                  PosixFilePermission.OWNER_WRITE));
+
   /**
    * Creates a temp file restricted to the owner (rw-------) rather than relying on the
    * platform/umask default, since the default temp directory is shared and world-writable
-   * on most systems and the staged bytes are user-supplied image content.
+   * on most systems and the staged bytes are user-supplied image content. The eXo/Meeds
+   * runtime is POSIX-only (Linux), so no non-POSIX fallback is needed.
    */
   private static File createOwnerOnlyTempFile() throws IOException {
-    if (FileSystems.getDefault().supportedFileAttributeViews().contains("posix")) {
-      FileAttribute<Set<PosixFilePermission>> ownerOnly =
-                                                        PosixFilePermissions.asFileAttribute(EnumSet.of(PosixFilePermission.OWNER_READ,
-                                                                                                         PosixFilePermission.OWNER_WRITE));
-      return Files.createTempFile("mcp-upload-", ".bin", ownerOnly).toFile();
-    }
-    return Files.createTempFile("mcp-upload-", ".bin").toFile();
+    return Files.createTempFile("mcp-upload-", ".bin", OWNER_ONLY_PERMS).toFile();
   }
 
   /** Removes the upload resource and its temp file. Safe to call in a finally. */
