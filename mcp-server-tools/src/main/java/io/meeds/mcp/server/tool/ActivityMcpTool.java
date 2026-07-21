@@ -638,6 +638,7 @@ public class ActivityMcpTool implements McpToolPlugin {
       commentActivity.setTemplateParams(new HashMap<>(commentActivity.getTemplateParams()));
     }
     commentActivity.getTemplateParams().put("original_comment", commentActivity.getTitle());
+    commentActivity.getTemplateParams().put("comment", comment);
     commentActivity.setTitle(comment);
     commentActivity.setUpdated(System.currentTimeMillis());
     activityManager.updateActivity(commentActivity, true);
