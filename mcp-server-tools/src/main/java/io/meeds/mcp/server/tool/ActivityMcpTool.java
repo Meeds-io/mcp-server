@@ -23,7 +23,10 @@ import static io.meeds.mcp.server.util.McpToolUtils.markdownToHtml;
 
 import java.io.IOException;
 import java.time.LocalDate;
+import java.time.LocalDateTime;
+import java.time.OffsetDateTime;
 import java.time.ZoneId;
+import java.time.format.DateTimeParseException;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.HashMap;
@@ -74,6 +77,7 @@ import io.meeds.mcp.server.tool.model.UserModel;
 import io.meeds.mcp.server.tool.util.ActivityToolUtils;
 import io.meeds.mcp.server.tool.util.UploadToolUtils;
 import io.meeds.mcp.server.tool.util.UserToolUtils;
+import io.meeds.mcp.server.util.McpToolUtils;
 import io.meeds.portal.permlink.service.PermanentLinkService;
 import io.meeds.social.translation.service.TranslationService;
 
@@ -268,10 +272,60 @@ public class ActivityMcpTool implements McpToolPlugin {
     return toActivityCommentModel(activity.getId());
   }
 
-  public ActivityModel createActivity(Long spaceId, String htmlContent) throws IllegalAccessException, ObjectNotFoundException {
+  /**
+   * Parses a caller-supplied scheduled publication time into epoch milliseconds.
+   * An explicit offset or zone is honoured; a bare local date-time such as
+   * {@code 2026-08-01T09:00} is resolved in the <b>current user's</b> timezone,
+   * which is the wall clock the user reasons about (and the one every date this
+   * tool returns is rendered in). Resolving it in the server timezone instead
+   * would silently publish at the wrong hour for anyone elsewhere.
+   *
+   * @param publicationStartTime ISO-8601 date-time, or blank for an immediate post
+   * @return the publication time in milliseconds, or null when blank
+   */
+  private Long parsePublicationStartTime(String publicationStartTime) {
+    if (StringUtils.isBlank(publicationStartTime)) {
+      return null;
+    }
+    String value = publicationStartTime.trim();
+    try {
+      return OffsetDateTime.parse(value).toInstant().toEpochMilli();
+    } catch (DateTimeParseException e) { // NOSONAR - fall back to a zone-less value
+      try {
+        return LocalDateTime.parse(value)
+                            .atZone(McpToolUtils.getUserTimeZone().toZoneId())
+                            .toInstant()
+                            .toEpochMilli();
+      } catch (DateTimeParseException e2) { // NOSONAR - reported to the caller below
+        throw new IllegalArgumentException(("The scheduled publication time '%s' isn't a valid ISO-8601 date-time. "
+            + "Use for instance 2026-08-01T09:00 (interpreted in the user's timezone) "
+            + "or 2026-08-01T09:00+02:00.").formatted(publicationStartTime));
+      }
+    }
+  }
+
+  /**
+   * Rejects a scheduled publication time that isn't strictly in the future. The
+   * social layer raises an i18n message key here, which is meaningless to an LLM,
+   * so the check is done up-front with an actionable message instead.
+   *
+   * @param publicationStartTime publication time in milliseconds, may be null
+   */
+  private void checkPublicationStartTimeInFuture(Long publicationStartTime) {
+    if (publicationStartTime != null && publicationStartTime <= System.currentTimeMillis()) {
+      throw new IllegalArgumentException(("The scheduled publication time must be in the future, but '%s' is in the past. "
+          + "Pick a later time, or omit it to post immediately.").formatted(McpToolUtils.formatDate(publicationStartTime)));
+    }
+  }
+
+  public ActivityModel createActivity(Long spaceId,
+                                      String htmlContent,
+                                      String publicationStartTime) throws IllegalAccessException, ObjectNotFoundException {
     if (StringUtils.isBlank(htmlContent)) {
       throw new IllegalArgumentException("Activity 'content' attribute is mandatory");
     }
+    Long scheduledTime = parsePublicationStartTime(publicationStartTime);
+    checkPublicationStartTimeInFuture(scheduledTime);
     htmlContent = markdownToHtml(htmlContent);
     org.exoplatform.services.security.Identity userIdentity = getCurrentUserAclIdentity();
     String currentUsername = userIdentity.getUserId();
@@ -293,6 +347,11 @@ public class ActivityMcpTool implements McpToolPlugin {
     ExoSocialActivity activity = new ExoSocialActivityImpl();
     activity.setTitle(htmlContent);
     activity.setUserId(authenticatedUserIdentity.getId());
+    if (scheduledTime != null) {
+      // Social hides the activity and defers its lifecycle events (so no
+      // notification fires) until the publication job claims it.
+      activity.setPublicationStartTime(scheduledTime);
+    }
     if (spaceIdentity != null) {
       activityManager.saveActivityNoReturn(spaceIdentity, activity);
     } else {
@@ -312,7 +371,7 @@ public class ActivityMcpTool implements McpToolPlugin {
       throw new IllegalArgumentException("Provide an image via image_url, image_base64 or attachment_object_id. To post without an image, use create_activity.");
     }
     String uploadId = resolveImageUploadId(imageUrl, imageBase64, attachmentObjectType, attachmentObjectId);
-    ActivityModel model = createActivity(spaceId, htmlContent);
+    ActivityModel model = createActivity(spaceId, htmlContent, null);
     try {
       attachUploadToObject(ACTIVITY_OBJECT_TYPE, String.valueOf(model.id()), uploadId, altText);
     } catch (RuntimeException e) {
@@ -393,8 +452,12 @@ public class ActivityMcpTool implements McpToolPlugin {
     }
   }
 
-  public ActivityModel updateActivity(long activityId, String htmlContent) throws IllegalAccessException,
-                                                                           ObjectNotFoundException {
+  public ActivityModel updateActivity(long activityId,
+                                      String htmlContent,
+                                      String publicationStartTime) throws IllegalAccessException, ObjectNotFoundException {
+    if (StringUtils.isBlank(htmlContent) && StringUtils.isBlank(publicationStartTime)) {
+      throw new IllegalArgumentException("Nothing to update: provide a new 'html_content', a new 'publication_start_time', or both.");
+    }
     org.exoplatform.services.security.Identity authenticatedUserIdentity = getCurrentUserAclIdentity();
     ExoSocialActivity activity = activityManager.getActivity(String.valueOf(activityId));
     if (activity == null) {
@@ -402,11 +465,85 @@ public class ActivityMcpTool implements McpToolPlugin {
     } else if (!activityManager.isActivityEditable(activity, authenticatedUserIdentity)) {
       throw new IllegalAccessException("Activity with id '%s' can't be edited by current user".formatted(activityId));
     }
-    htmlContent = markdownToHtml(htmlContent);
-    activity.setTitle(htmlContent);
+    Long scheduledTime = parsePublicationStartTime(publicationStartTime);
+    if (scheduledTime != null) {
+      if (activity.getPublicationStartTime() == null) {
+        // Social forbids adding a publication time to an already posted activity
+        throw new IllegalArgumentException(("Activity with id '%s' is already published, so it can't be rescheduled. "
+            + "A publication time can only be changed while the post is still scheduled.").formatted(activityId));
+      }
+      checkPublicationStartTimeInFuture(scheduledTime);
+      activity.setPublicationStartTime(scheduledTime);
+    }
+    if (StringUtils.isNotBlank(htmlContent)) {
+      activity.setTitle(markdownToHtml(htmlContent));
+    }
     activity.setUpdated(System.currentTimeMillis());
     activityManager.updateActivity(activity, true);
     return toActivityModel(activity.getId());
+  }
+
+  /**
+   * Lists the activities the current user has scheduled but not yet published.
+   * These are deliberately absent from streams and from search_activities, so
+   * this is their only discovery path.
+   *
+   * @param spaceId restrict to one space, or null for every space the user sees
+   * @param offset  index of the first activity to retrieve
+   * @param limit   maximum number of activities to retrieve
+   * @return the list of pending scheduled activities, soonest first
+   */
+  public List<ActivityModel> getScheduledActivities(Long spaceId,
+                                                    Integer offset,
+                                                    Integer limit) throws IllegalAccessException, ObjectNotFoundException {
+    org.exoplatform.services.security.Identity currentUser = getCurrentUserAclIdentity();
+    String currentUsername = currentUser.getUserId();
+    Identity currentUserIdentity = identityManager.getOrCreateUserIdentity(currentUsername);
+    ActivityFilter activityFilter = new ActivityFilter();
+    // The storage layer applies the ACL for this stream type: space content
+    // writers see everyone's scheduled posts, other members only their own.
+    activityFilter.setStreamType(ActivityStreamType.SCHEDULED_STREAM);
+    if (spaceId != null && spaceId > 0) {
+      Space space = spaceService.getSpaceById(spaceId);
+      if (space == null) {
+        throw new ObjectNotFoundException("Space with id %s doesn't exist. Use get_my_spaces to search for spaces by name".formatted(spaceId));
+      } else if (!spaceService.canViewSpace(space, currentUsername)) {
+        throw new IllegalAccessException(USER_ACCESS_SPACE_DENIED.formatted(currentUsername, spaceId));
+      }
+      Identity spaceIdentity = identityManager.getOrCreateSpaceIdentity(space.getPrettyName());
+      activityFilter.setSpaceIdentityId(spaceIdentity.getIdentityId());
+    }
+    List<String> activityIds = activityManager.getActivitiesByFilterWithListAccess(currentUserIdentity,
+                                                                                   activityFilter)
+                                              .loadIdsAsList(getInteger(offset, DEFAULT_OFFSET),
+                                                             getInteger(limit, DEFAULT_LIMIT));
+    return activityIds.stream()
+                      .map(this::toActivityModel)
+                      .toList();
+  }
+
+  /**
+   * Publishes a scheduled activity immediately instead of waiting for its
+   * publication time. Publication is idempotent on the social side: publishing
+   * an already published activity simply returns its current state.
+   *
+   * @param activityId id of the scheduled activity to publish now
+   * @return the published activity
+   */
+  public ActivityModel publishScheduledActivityNow(long activityId) throws IllegalAccessException, ObjectNotFoundException {
+    org.exoplatform.services.security.Identity authenticatedUserIdentity = getCurrentUserAclIdentity();
+    ExoSocialActivity activity = activityManager.getActivity(String.valueOf(activityId));
+    if (activity == null) {
+      throw new ObjectNotFoundException(ACTIVITY_NOT_FOUND.formatted(activityId));
+    } else if (!activityManager.isActivityEditable(activity, authenticatedUserIdentity)) {
+      // publishScheduledActivity performs no ACL check of its own, so the
+      // caller has to enforce it here, exactly as the REST layer does
+      throw new IllegalAccessException("Activity with id '%s' can't be published by current user".formatted(activityId));
+    } else if (activity.getPublicationStartTime() == null) {
+      throw new IllegalArgumentException("Activity with id '%s' isn't a pending scheduled post, so it can't be published.".formatted(activityId));
+    }
+    activityManager.publishScheduledActivity(String.valueOf(activityId));
+    return toActivityModel(String.valueOf(activityId));
   }
 
   public void deleteActivity(long activityId) throws IllegalAccessException, ObjectNotFoundException {

@@ -36,6 +36,12 @@ public record ActivityModel(
                             String updatedDate,
                             @JsonProperty("created_date")
                             String createDate,
+                            /*
+                             * Set only while the activity is a pending scheduled post; cleared
+                             * once it is published, so its presence means "not published yet".
+                             */
+                            @JsonProperty("publication_start_time")
+                            String publicationStartTime,
                             @JsonProperty("content_type")
                             String referencedContentType,
                             @JsonProperty("content_id")

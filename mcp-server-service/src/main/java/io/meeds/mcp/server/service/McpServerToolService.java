@@ -78,7 +78,7 @@ public class McpServerToolService {
 
   private static final Context              AI_AGENT_CONTEXT              = Context.GLOBAL.id("AI_AGENT");
 
-  private static final String               TOOLS_KEY                     = "AI_AGENT_TOOL_DEFINITIONS_v13";
+  private static final String               TOOLS_KEY                     = "AI_AGENT_TOOL_DEFINITIONS_v14";
 
   private static final Scope                TOOLS_SCOPE                   = Scope.APPLICATION.id(TOOLS_KEY);
 
