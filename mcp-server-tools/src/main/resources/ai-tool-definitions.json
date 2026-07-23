@@ -215,7 +215,10 @@
       "input_schema": {
         "type": "object",
         "properties": {
-          "query": { "type": "string", "description": "Keyword search" }
+          "query": {
+            "type": "string",
+            "description": "Keyword search"
+          }
         }
       },
       "annotations": {
@@ -688,7 +691,7 @@
     {
       "name": "create_activity",
       "title": "Post an activity",
-      "description": "Create a new activity (Also Known As 'post') in a space activity stream (or personal activity stream if space_id is null).",
+      "description": "Create a new activity (Also Known As 'post') in a space activity stream (or personal activity stream if space_id is null). Pass publication_start_time to schedule it for later instead of posting immediately.",
       "input_schema": {
         "type": "object",
         "properties": {
@@ -697,6 +700,10 @@
           },
           "html_content": {
             "type": "string"
+          },
+          "publication_start_time": {
+            "type": "string",
+            "description": "Optional ISO-8601 date-time to schedule the post for later instead of publishing it now, for instance 2026-08-01T09:00 (interpreted in the user's timezone) or 2026-08-01T09:00+02:00. Must be in the future. A scheduled post stays hidden from streams, search and notifications until its publication time."
           }
         },
         "required": [
@@ -714,7 +721,7 @@
     {
       "name": "update_activity",
       "title": "Update an activity",
-      "description": "Update an existing activity (Also Known As 'post') by its ID.",
+      "description": "Update an existing activity (Also Known As 'post') by its ID. Provide html_content, publication_start_time, or both; omitting html_content reschedules without changing the text.",
       "input_schema": {
         "type": "object",
         "properties": {
@@ -723,11 +730,14 @@
           },
           "html_content": {
             "type": "string"
+          },
+          "publication_start_time": {
+            "type": "string",
+            "description": "Optional new ISO-8601 publication date-time. Only a post that is still scheduled can be rescheduled; an already published activity can't be given a publication time."
           }
         },
         "required": [
-          "activity_id",
-          "html_content"
+          "activity_id"
         ]
       },
       "annotations": {
@@ -741,7 +751,7 @@
     {
       "name": "delete_activity",
       "title": "Delete an activity",
-      "description": "Delete an activity (Also Known As 'post') by its ID.",
+      "description": "Delete an activity (Also Known As 'post') by its ID. Deleting a post that is still scheduled cancels its scheduling and permanently discards it; there is no way to unschedule a post back to a draft.",
       "input_schema": {
         "type": "object",
         "properties": {
@@ -2484,8 +2494,16 @@
       "name": "get_platform_info",
       "title": "Get platform information",
       "description": "Retrieve general information about the Meeds platform: name, version, edition, base URL, total number of users and spaces, and the default language.",
-      "input_schema": { "type": "object", "properties": {} },
-      "annotations": { "readOnlyHint": true, "destructiveHint": false, "idempotentHint": true, "openWorldHint": false }
+      "input_schema": {
+        "type": "object",
+        "properties": {}
+      },
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": false
+      }
     },
     {
       "name": "create_activity_with_image",
@@ -2906,6 +2924,59 @@
         "readOnlyHint": false,
         "destructiveHint": true,
         "idempotentHint": false,
+        "openWorldHint": false
+      },
+      "require_approval": true
+    },
+    {
+      "name": "get_scheduled_activities",
+      "title": "List scheduled posts",
+      "description": "List the activities (posts) the current user has scheduled but not published yet, soonest first. Scheduled posts are deliberately excluded from search_activities and from the regular activity streams, so this is the only way to find them. Space content writers also see the scheduled posts of other members of that space; everyone else sees only their own.",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "space_id": {
+            "type": "integer",
+            "description": "Optional space id to restrict the result to a single space."
+          },
+          "offset": {
+            "type": "integer",
+            "description": "Index of the first activity to retrieve, 0 by default."
+          },
+          "limit": {
+            "type": "integer",
+            "description": "Maximum number of activities to retrieve."
+          }
+        },
+        "required": []
+      },
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": false
+      }
+    },
+    {
+      "name": "publish_scheduled_activity_now",
+      "title": "Publish a scheduled post now",
+      "description": "Publish immediately an activity (post) that is still scheduled, instead of waiting for its publication time. This is what triggers its notifications and makes it visible in streams and search.",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "activity_id": {
+            "type": "integer",
+            "description": "Id of the scheduled activity to publish now."
+          }
+        },
+        "required": [
+          "activity_id"
+        ]
+      },
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": false,
+        "idempotentHint": true,
         "openWorldHint": false
       },
       "require_approval": true

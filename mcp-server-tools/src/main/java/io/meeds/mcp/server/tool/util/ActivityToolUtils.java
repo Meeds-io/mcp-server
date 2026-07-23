@@ -109,6 +109,7 @@ public class ActivityToolUtils {
                              activity.isPinned() ? formatDate(StorageUtils.parseRFC3339Date(activity.getPinDate())) : null,
                              formatDate(activity.getUpdated()),
                              formatDate(activity.getPostedTime()),
+                             activity.getPublicationStartTime() == null ? null : formatDate(activity.getPublicationStartTime()),
                              activity.getMetadataObjectType(),
                              activity.getMetadataObjectId(),
                              activity.getNumberOfLikes(),
