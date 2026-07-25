@@ -179,7 +179,7 @@ public class McpToolApprovalService {
     Map<String, String> parameters = Map.of(AI_AGENT_TOOL_ID_PARAM,
                                             id,
                                             AI_AGENT_TOOL_CONVERSATION_ID_PARAM,
-                                            conversationId,
+                                            StringUtils.defaultIfBlank(conversationId, ""),
                                             AI_AGENT_TOOL_TYPE_PARAM,
                                             UserToolRequestType.APPROVAL_REQUEST.name(),
                                             AI_AGENT_TOOL_NAME_PARAM,
@@ -187,7 +187,7 @@ public class McpToolApprovalService {
                                             AI_AGENT_TOOL_INPUT_PARAM,
                                             StringUtils.defaultIfBlank(toolInput, ""),
                                             AI_AGENT_TOOL_USERNAME_PARAM,
-                                            username);
+                                            StringUtils.defaultIfBlank(username, ""));
     continuationService.sendMessage(username,
                                     COMETD_CHANNEL,
                                     JsonUtils.toJsonString(parameters));
@@ -203,7 +203,7 @@ public class McpToolApprovalService {
     Map<String, String> parameters = Map.of(AI_AGENT_TOOL_ID_PARAM,
                                             id,
                                             AI_AGENT_TOOL_CONVERSATION_ID_PARAM,
-                                            conversationId,
+                                            StringUtils.defaultIfBlank(conversationId, ""),
                                             AI_AGENT_TOOL_TYPE_PARAM,
                                             UserToolRequestType.APPROVAL_ANSWER.name(),
                                             AI_AGENT_TOOL_NAME_PARAM,
@@ -211,7 +211,7 @@ public class McpToolApprovalService {
                                             AI_AGENT_TOOL_INPUT_PARAM,
                                             String.valueOf(toolInput),
                                             AI_AGENT_TOOL_USERNAME_PARAM,
-                                            username,
+                                            StringUtils.defaultIfBlank(username, ""),
                                             AI_AGENT_TOOL_APPROVED_PARAM,
                                             String.valueOf(approved));
     continuationService.sendMessage(username,
@@ -228,15 +228,15 @@ public class McpToolApprovalService {
     Map<String, String> parameters = Map.of(AI_AGENT_TOOL_ID_PARAM,
                                             id,
                                             AI_AGENT_TOOL_CONVERSATION_ID_PARAM,
-                                            conversationId,
+                                            StringUtils.defaultIfBlank(conversationId, ""),
                                             AI_AGENT_TOOL_TYPE_PARAM,
                                             UserToolRequestType.APPROVAL_TIMEOUT.name(),
                                             AI_AGENT_TOOL_NAME_PARAM,
-                                            toolName,
+                                            StringUtils.defaultIfBlank(toolName, ""),
                                             AI_AGENT_TOOL_INPUT_PARAM,
                                             String.valueOf(toolInput),
                                             AI_AGENT_TOOL_USERNAME_PARAM,
-                                            username);
+                                            StringUtils.defaultIfBlank(username, ""));
     continuationService.sendMessage(username,
                                     COMETD_CHANNEL,
                                     JsonUtils.toJsonString(parameters));
