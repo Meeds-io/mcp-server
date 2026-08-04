@@ -32,7 +32,9 @@
             "description": "Space Template Technical Identifier"
           }
         },
-        "required": ["template_id"]
+        "required": [
+          "template_id"
+        ]
       },
       "annotations": {
         "readOnlyHint": true,
@@ -52,21 +54,36 @@
             "type": "integer",
             "description": "Template ID of the space (required). Use 'listSpaceTemplates' Tool to find valid IDs and Search for a Space Template by its name."
           },
-          "name": { "type": "string", "description": "User-facing display name of the space" },
-          "description": { "type": "string", "description": "Detailed description of the space" },
+          "name": {
+            "type": "string",
+            "description": "User-facing display name of the space"
+          },
+          "description": {
+            "type": "string",
+            "description": "Detailed description of the space"
+          },
           "visibility": {
             "type": "string",
-            "enum": ["LISTED", "UNLISTED"],
+            "enum": [
+              "LISTED",
+              "UNLISTED"
+            ],
             "description": "Visibility of the space"
           },
           "registration": {
             "type": "string",
-            "enum": ["OPEN", "REQUEST_JOIN", "INVITE_ONLY"],
+            "enum": [
+              "OPEN",
+              "REQUEST_JOIN",
+              "INVITE_ONLY"
+            ],
             "description": "How users can join the space"
           },
           "usernames_to_invite": {
             "type": "array",
-            "items": { "type": "string" },
+            "items": {
+              "type": "string"
+            },
             "description": "List of usernames to invite"
           },
           "parent_space_id": {
@@ -74,7 +91,9 @@
             "description": "Identifier of the parent space, REQUIRED to create a sub-space (7.2 hierarchy). Set this whenever the user asks for a 'sub-space of X' / a space 'under X' — resolve X's id first via get_my_spaces or get_all_spaces. Omit only for a genuine top-level space."
           }
         },
-        "required": ["space_template_id"]
+        "required": [
+          "space_template_id"
+        ]
       },
       "annotations": {
         "readOnlyHint": false,
@@ -91,21 +110,39 @@
       "input_schema": {
         "type": "object",
         "properties": {
-          "space_id": { "type": "integer", "description": "Identifier of the Space to update" },
-          "name": { "type": "string", "description": "Updated display name" },
-          "description": { "type": "string", "description": "Updated description" },
+          "space_id": {
+            "type": "integer",
+            "description": "Identifier of the Space to update"
+          },
+          "name": {
+            "type": "string",
+            "description": "Updated display name"
+          },
+          "description": {
+            "type": "string",
+            "description": "Updated description"
+          },
           "visibility": {
             "type": "string",
-            "enum": ["LISTED", "UNLISTED"],
+            "enum": [
+              "LISTED",
+              "UNLISTED"
+            ],
             "description": "Updated visibility"
           },
           "registration": {
             "type": "string",
-            "enum": ["OPEN", "REQUEST_JOIN", "INVITE_ONLY"],
+            "enum": [
+              "OPEN",
+              "REQUEST_JOIN",
+              "INVITE_ONLY"
+            ],
             "description": "Updated registration"
           }
         },
-        "required": ["space_id"]
+        "required": [
+          "space_id"
+        ]
       },
       "annotations": {
         "readOnlyHint": false,
@@ -122,9 +159,18 @@
       "input_schema": {
         "type": "object",
         "properties": {
-          "query": { "type": "string", "description": "Keyword search" },
-          "offset": { "type": "integer", "description": "Offset of spaces to retrieve" },
-          "limit": { "type": "integer", "description": "Limit of spaces to retrieve" }
+          "query": {
+            "type": "string",
+            "description": "Keyword search"
+          },
+          "offset": {
+            "type": "integer",
+            "description": "Offset of spaces to retrieve"
+          },
+          "limit": {
+            "type": "integer",
+            "description": "Limit of spaces to retrieve"
+          }
         }
       },
       "annotations": {
@@ -141,9 +187,18 @@
       "input_schema": {
         "type": "object",
         "properties": {
-          "query": { "type": "string", "description": "Keyword search" },
-          "offset": { "type": "integer", "description": "Offset of spaces to retrieve" },
-          "limit": { "type": "integer", "description": "Limit of spaces to retrieve" }
+          "query": {
+            "type": "string",
+            "description": "Keyword search"
+          },
+          "offset": {
+            "type": "integer",
+            "description": "Offset of spaces to retrieve"
+          },
+          "limit": {
+            "type": "integer",
+            "description": "Limit of spaces to retrieve"
+          }
         }
       },
       "annotations": {
@@ -177,9 +232,18 @@
       "input_schema": {
         "type": "object",
         "properties": {
-          "query": { "type": "string", "description": "Keyword search" },
-          "offset": { "type": "integer", "description": "Offset of spaces to retrieve" },
-          "limit": { "type": "integer", "description": "Limit of spaces to retrieve" }
+          "query": {
+            "type": "string",
+            "description": "Keyword search"
+          },
+          "offset": {
+            "type": "integer",
+            "description": "Offset of spaces to retrieve"
+          },
+          "limit": {
+            "type": "integer",
+            "description": "Limit of spaces to retrieve"
+          }
         }
       },
       "annotations": {
@@ -196,9 +260,14 @@
       "input_schema": {
         "type": "object",
         "properties": {
-          "space_id": { "type": "integer", "description": "Identifier of the Space" }
+          "space_id": {
+            "type": "integer",
+            "description": "Identifier of the Space"
+          }
         },
-        "required": ["space_id"]
+        "required": [
+          "space_id"
+        ]
       },
       "annotations": {
         "readOnlyHint": true,
@@ -214,15 +283,31 @@
       "input_schema": {
         "type": "object",
         "properties": {
-          "space_id": { "type": "integer" },
+          "space_id": {
+            "type": "integer"
+          },
           "space_role": {
             "type": "string",
-            "enum": ["MEMBER", "MANAGER", "REDACTOR", "PUBLISHER", "INVITED", "PENDING"]
+            "enum": [
+              "MEMBER",
+              "MANAGER",
+              "REDACTOR",
+              "PUBLISHER",
+              "INVITED",
+              "PENDING"
+            ]
           },
-          "offset": { "type": "integer" },
-          "limit": { "type": "integer" }
+          "offset": {
+            "type": "integer"
+          },
+          "limit": {
+            "type": "integer"
+          }
         },
-        "required": ["space_id", "space_role"]
+        "required": [
+          "space_id",
+          "space_role"
+        ]
       },
       "annotations": {
         "readOnlyHint": true,
@@ -238,13 +323,20 @@
       "input_schema": {
         "type": "object",
         "properties": {
-          "space_id": { "type": "integer" },
+          "space_id": {
+            "type": "integer"
+          },
           "usernames_to_invite": {
             "type": "array",
-            "items": { "type": "string" }
+            "items": {
+              "type": "string"
+            }
           }
         },
-        "required": ["space_id", "usernames_to_invite"]
+        "required": [
+          "space_id",
+          "usernames_to_invite"
+        ]
       },
       "annotations": {
         "readOnlyHint": false,
@@ -261,13 +353,20 @@
       "input_schema": {
         "type": "object",
         "properties": {
-          "space_id": { "type": "integer" },
+          "space_id": {
+            "type": "integer"
+          },
           "usernames_to_remove": {
             "type": "array",
-            "items": { "type": "string" }
+            "items": {
+              "type": "string"
+            }
           }
         },
-        "required": ["space_id", "usernames_to_remove"]
+        "required": [
+          "space_id",
+          "usernames_to_remove"
+        ]
       },
       "annotations": {
         "readOnlyHint": false,
@@ -284,14 +383,26 @@
       "input_schema": {
         "type": "object",
         "properties": {
-          "space_id": { "type": "integer" },
-          "username": { "type": "string" },
+          "space_id": {
+            "type": "integer"
+          },
+          "username": {
+            "type": "string"
+          },
           "space_role": {
             "type": "string",
-            "enum": ["MANAGER", "REDACTOR", "PUBLISHER"]
+            "enum": [
+              "MANAGER",
+              "REDACTOR",
+              "PUBLISHER"
+            ]
           }
         },
-        "required": ["space_id", "username", "space_role"]
+        "required": [
+          "space_id",
+          "username",
+          "space_role"
+        ]
       },
       "annotations": {
         "readOnlyHint": false,
@@ -308,14 +419,26 @@
       "input_schema": {
         "type": "object",
         "properties": {
-          "space_id": { "type": "integer" },
-          "username": { "type": "string" },
+          "space_id": {
+            "type": "integer"
+          },
+          "username": {
+            "type": "string"
+          },
           "space_role": {
             "type": "string",
-            "enum": ["MANAGER", "REDACTOR", "PUBLISHER"]
+            "enum": [
+              "MANAGER",
+              "REDACTOR",
+              "PUBLISHER"
+            ]
           }
         },
-        "required": ["space_id", "username", "space_role"]
+        "required": [
+          "space_id",
+          "username",
+          "space_role"
+        ]
       },
       "annotations": {
         "readOnlyHint": false,
@@ -329,7 +452,10 @@
       "name": "get_my_user_information",
       "title": "Get curent user info",
       "description": "Provides the identity and profile information of the currently connected user.",
-      "input_schema": { "type": "object", "properties": {} },
+      "input_schema": {
+        "type": "object",
+        "properties": {}
+      },
       "annotations": {
         "readOnlyHint": true,
         "destructiveHint": false,
@@ -344,9 +470,14 @@
       "input_schema": {
         "type": "object",
         "properties": {
-          "username": { "type": "string", "description": "The username to use in search query" }
+          "username": {
+            "type": "string",
+            "description": "The username to use in search query"
+          }
         },
-        "required": ["username"]
+        "required": [
+          "username"
+        ]
       },
       "annotations": {
         "readOnlyHint": true,
@@ -362,11 +493,19 @@
       "input_schema": {
         "type": "object",
         "properties": {
-          "query": { "type": "string" },
-          "offset": { "type": "integer" },
-          "limit": { "type": "integer" }
+          "query": {
+            "type": "string"
+          },
+          "offset": {
+            "type": "integer"
+          },
+          "limit": {
+            "type": "integer"
+          }
         },
-        "required": ["query"]
+        "required": [
+          "query"
+        ]
       },
       "annotations": {
         "readOnlyHint": true,
@@ -379,7 +518,10 @@
       "name": "get_users_count",
       "title": "Count users",
       "description": "Retrieves the users count.",
-      "input_schema": { "type": "object", "properties": {} },
+      "input_schema": {
+        "type": "object",
+        "properties": {}
+      },
       "annotations": {
         "readOnlyHint": true,
         "destructiveHint": false,
@@ -394,13 +536,25 @@
       "input_schema": {
         "type": "object",
         "properties": {
-          "query": { "type": "string" },
-          "space_id": { "type": "integer" },
-          "is_favorite": { "type": "boolean" },
-          "offset": { "type": "integer" },
-          "limit": { "type": "integer" }
+          "query": {
+            "type": "string"
+          },
+          "space_id": {
+            "type": "integer"
+          },
+          "is_favorite": {
+            "type": "boolean"
+          },
+          "offset": {
+            "type": "integer"
+          },
+          "limit": {
+            "type": "integer"
+          }
         },
-        "required": ["query"]
+        "required": [
+          "query"
+        ]
       },
       "annotations": {
         "readOnlyHint": true,
@@ -416,9 +570,15 @@
       "input_schema": {
         "type": "object",
         "properties": {
-          "space_id": { "type": "integer" },
-          "offset": { "type": "integer" },
-          "limit": { "type": "integer" }
+          "space_id": {
+            "type": "integer"
+          },
+          "offset": {
+            "type": "integer"
+          },
+          "limit": {
+            "type": "integer"
+          }
         }
       },
       "annotations": {
@@ -435,8 +595,12 @@
       "input_schema": {
         "type": "object",
         "properties": {
-          "space_id": { "type": "integer" },
-          "days": { "type": "integer" }
+          "space_id": {
+            "type": "integer"
+          },
+          "days": {
+            "type": "integer"
+          }
         }
       },
       "annotations": {
@@ -453,11 +617,22 @@
       "input_schema": {
         "type": "object",
         "properties": {
-          "username": { "type": "string", "description": "Username whose activity stream to retrieve" },
-          "offset": { "type": "integer", "description": "Offset of activities to retrieve" },
-          "limit": { "type": "integer", "description": "Limit of activities to retrieve" }
+          "username": {
+            "type": "string",
+            "description": "Username whose activity stream to retrieve"
+          },
+          "offset": {
+            "type": "integer",
+            "description": "Offset of activities to retrieve"
+          },
+          "limit": {
+            "type": "integer",
+            "description": "Limit of activities to retrieve"
+          }
         },
-        "required": ["username"]
+        "required": [
+          "username"
+        ]
       },
       "annotations": {
         "readOnlyHint": true,
@@ -473,9 +648,13 @@
       "input_schema": {
         "type": "object",
         "properties": {
-          "activity_id": { "type": "integer" }
+          "activity_id": {
+            "type": "integer"
+          }
         },
-        "required": ["activity_id"]
+        "required": [
+          "activity_id"
+        ]
       },
       "annotations": {
         "readOnlyHint": true,
@@ -491,9 +670,13 @@
       "input_schema": {
         "type": "object",
         "properties": {
-          "activity_comment_id": { "type": "integer" }
+          "activity_comment_id": {
+            "type": "integer"
+          }
         },
-        "required": ["activity_comment_id"]
+        "required": [
+          "activity_comment_id"
+        ]
       },
       "annotations": {
         "readOnlyHint": true,
@@ -509,10 +692,16 @@
       "input_schema": {
         "type": "object",
         "properties": {
-          "space_id": { "type": "integer" },
-          "html_content": { "type": "string" }
+          "space_id": {
+            "type": "integer"
+          },
+          "html_content": {
+            "type": "string"
+          }
         },
-        "required": ["html_content"]
+        "required": [
+          "html_content"
+        ]
       },
       "annotations": {
         "readOnlyHint": false,
@@ -529,10 +718,17 @@
       "input_schema": {
         "type": "object",
         "properties": {
-          "activity_id": { "type": "integer" },
-          "html_content": { "type": "string" }
+          "activity_id": {
+            "type": "integer"
+          },
+          "html_content": {
+            "type": "string"
+          }
         },
-        "required": ["activity_id", "html_content"]
+        "required": [
+          "activity_id",
+          "html_content"
+        ]
       },
       "annotations": {
         "readOnlyHint": false,
@@ -549,9 +745,13 @@
       "input_schema": {
         "type": "object",
         "properties": {
-          "activity_id": { "type": "integer" }
+          "activity_id": {
+            "type": "integer"
+          }
         },
-        "required": ["activity_id"]
+        "required": [
+          "activity_id"
+        ]
       },
       "annotations": {
         "readOnlyHint": false,
@@ -568,9 +768,13 @@
       "input_schema": {
         "type": "object",
         "properties": {
-          "activity_id": { "type": "integer" }
+          "activity_id": {
+            "type": "integer"
+          }
         },
-        "required": ["activity_id"]
+        "required": [
+          "activity_id"
+        ]
       },
       "annotations": {
         "readOnlyHint": false,
@@ -587,9 +791,13 @@
       "input_schema": {
         "type": "object",
         "properties": {
-          "activity_id": { "type": "integer" }
+          "activity_id": {
+            "type": "integer"
+          }
         },
-        "required": ["activity_id"]
+        "required": [
+          "activity_id"
+        ]
       },
       "annotations": {
         "readOnlyHint": false,
@@ -606,11 +814,19 @@
       "input_schema": {
         "type": "object",
         "properties": {
-          "activity_id": { "type": "integer" },
-          "offset": { "type": "integer" },
-          "limit": { "type": "integer" }
+          "activity_id": {
+            "type": "integer"
+          },
+          "offset": {
+            "type": "integer"
+          },
+          "limit": {
+            "type": "integer"
+          }
         },
-        "required": ["activity_id"]
+        "required": [
+          "activity_id"
+        ]
       },
       "annotations": {
         "readOnlyHint": true,
@@ -626,10 +842,17 @@
       "input_schema": {
         "type": "object",
         "properties": {
-          "activity_id": { "type": "integer" },
-          "comment": { "type": "string" }
+          "activity_id": {
+            "type": "integer"
+          },
+          "comment": {
+            "type": "string"
+          }
         },
-        "required": ["activity_id", "comment"]
+        "required": [
+          "activity_id",
+          "comment"
+        ]
       },
       "annotations": {
         "readOnlyHint": false,
@@ -646,10 +869,17 @@
       "input_schema": {
         "type": "object",
         "properties": {
-          "activity_comment_id": { "type": "integer" },
-          "comment": { "type": "string" }
+          "activity_comment_id": {
+            "type": "integer"
+          },
+          "comment": {
+            "type": "string"
+          }
         },
-        "required": ["activity_comment_id", "comment"]
+        "required": [
+          "activity_comment_id",
+          "comment"
+        ]
       },
       "annotations": {
         "readOnlyHint": false,
@@ -666,10 +896,17 @@
       "input_schema": {
         "type": "object",
         "properties": {
-          "activity_id": { "type": "integer" },
-          "space_id": { "type": "integer" }
+          "activity_id": {
+            "type": "integer"
+          },
+          "space_id": {
+            "type": "integer"
+          }
         },
-        "required": ["activity_id", "space_id"]
+        "required": [
+          "activity_id",
+          "space_id"
+        ]
       },
       "annotations": {
         "readOnlyHint": false,
@@ -686,11 +923,19 @@
       "input_schema": {
         "type": "object",
         "properties": {
-          "activity_id": { "type": "integer" },
-          "offset": { "type": "integer" },
-          "limit": { "type": "integer" }
+          "activity_id": {
+            "type": "integer"
+          },
+          "offset": {
+            "type": "integer"
+          },
+          "limit": {
+            "type": "integer"
+          }
         },
-        "required": ["activity_id"]
+        "required": [
+          "activity_id"
+        ]
       },
       "annotations": {
         "readOnlyHint": true,
@@ -706,9 +951,13 @@
       "input_schema": {
         "type": "object",
         "properties": {
-          "activity_id": { "type": "integer" }
+          "activity_id": {
+            "type": "integer"
+          }
         },
-        "required": ["activity_id"]
+        "required": [
+          "activity_id"
+        ]
       },
       "annotations": {
         "readOnlyHint": false,
@@ -725,9 +974,13 @@
       "input_schema": {
         "type": "object",
         "properties": {
-          "activity_id": { "type": "integer" }
+          "activity_id": {
+            "type": "integer"
+          }
         },
-        "required": ["activity_id"]
+        "required": [
+          "activity_id"
+        ]
       },
       "annotations": {
         "readOnlyHint": false,
@@ -783,7 +1036,10 @@
             "description": "Content Id: can be extracted from expressions like `/{content_type}:{content_id}`"
           }
         },
-        "required": ["content_type", "content_id"]
+        "required": [
+          "content_type",
+          "content_id"
+        ]
       },
       "annotations": {
         "readOnlyHint": true,
@@ -799,7 +1055,9 @@
       "input_schema": {
         "type": "object",
         "properties": {
-          "category_id": { "type": "integer" },
+          "category_id": {
+            "type": "integer"
+          },
           "content_type": {
             "type": "string",
             "description": "Content Type: can be extracted from expressions like `/{content_type}:{content_id}`. Use the tool `get_content_types` to list them all if you don't know the exact content type name."
@@ -809,7 +1067,11 @@
             "description": "Content Id: can be extracted from expressions like `/{content_type}:{content_id}`"
           }
         },
-        "required": ["category_id", "content_type", "content_id"]
+        "required": [
+          "category_id",
+          "content_type",
+          "content_id"
+        ]
       },
       "annotations": {
         "readOnlyHint": false,
@@ -826,7 +1088,9 @@
       "input_schema": {
         "type": "object",
         "properties": {
-          "category_id": { "type": "integer" },
+          "category_id": {
+            "type": "integer"
+          },
           "content_type": {
             "type": "string",
             "description": "Content Type: can be extracted from expressions like `/{content_type}:{content_id}`. Use the tool `get_content_types` to list them all if you don't know the exact content type name."
@@ -836,7 +1100,11 @@
             "description": "Content Id: can be extracted from expressions like `/{content_type}:{content_id}`"
           }
         },
-        "required": ["category_id", "content_type", "content_id"]
+        "required": [
+          "category_id",
+          "content_type",
+          "content_id"
+        ]
       },
       "annotations": {
         "readOnlyHint": false,
@@ -853,10 +1121,22 @@
       "input_schema": {
         "type": "object",
         "properties": {
-          "only_unread": { "type": "boolean", "description": "When true, return only unread notifications" },
-          "plugin": { "type": "string", "description": "Optional notification plugin/type id to filter on" },
-          "offset": { "type": "integer", "description": "Offset of notifications to retrieve" },
-          "limit": { "type": "integer", "description": "Limit of notifications to retrieve" }
+          "only_unread": {
+            "type": "boolean",
+            "description": "When true, return only unread notifications"
+          },
+          "plugin": {
+            "type": "string",
+            "description": "Optional notification plugin/type id to filter on"
+          },
+          "offset": {
+            "type": "integer",
+            "description": "Offset of notifications to retrieve"
+          },
+          "limit": {
+            "type": "integer",
+            "description": "Limit of notifications to retrieve"
+          }
         }
       },
       "annotations": {
@@ -870,7 +1150,10 @@
       "name": "get_unread_notifications_count",
       "title": "Count my unread notifications",
       "description": "Get the current user's total unread web notifications badge count, plus the unread count broken down by notification plugin/type.",
-      "input_schema": { "type": "object", "properties": {} },
+      "input_schema": {
+        "type": "object",
+        "properties": {}
+      },
       "annotations": {
         "readOnlyHint": true,
         "destructiveHint": false,
@@ -885,9 +1168,14 @@
       "input_schema": {
         "type": "object",
         "properties": {
-          "notification_id": { "type": "string", "description": "Identifier of the notification to mark as read" }
+          "notification_id": {
+            "type": "string",
+            "description": "Identifier of the notification to mark as read"
+          }
         },
-        "required": ["notification_id"]
+        "required": [
+          "notification_id"
+        ]
       },
       "annotations": {
         "readOnlyHint": false,
@@ -904,7 +1192,10 @@
       "input_schema": {
         "type": "object",
         "properties": {
-          "plugin": { "type": "string", "description": "Optional notification plugin/type id to restrict the operation to" }
+          "plugin": {
+            "type": "string",
+            "description": "Optional notification plugin/type id to restrict the operation to"
+          }
         }
       },
       "annotations": {
@@ -922,9 +1213,14 @@
       "input_schema": {
         "type": "object",
         "properties": {
-          "notification_id": { "type": "string", "description": "Identifier of the notification to hide" }
+          "notification_id": {
+            "type": "string",
+            "description": "Identifier of the notification to hide"
+          }
         },
-        "required": ["notification_id"]
+        "required": [
+          "notification_id"
+        ]
       },
       "annotations": {
         "readOnlyHint": false,
@@ -938,7 +1234,10 @@
       "name": "get_notification_settings",
       "title": "Get my notification settings",
       "description": "Retrieve the current user's notification settings: available channels with their enabled state, per-plugin enabled channels, and the list of muted space identifiers.",
-      "input_schema": { "type": "object", "properties": {} },
+      "input_schema": {
+        "type": "object",
+        "properties": {}
+      },
       "annotations": {
         "readOnlyHint": true,
         "destructiveHint": false,
@@ -953,10 +1252,19 @@
       "input_schema": {
         "type": "object",
         "properties": {
-          "channel_id": { "type": "string", "description": "Channel id, e.g. WEB_CHANNEL or MAIL_CHANNEL" },
-          "enabled": { "type": "boolean", "description": "Whether the channel should be enabled (true) or disabled (false)" }
+          "channel_id": {
+            "type": "string",
+            "description": "Channel id, e.g. WEB_CHANNEL or MAIL_CHANNEL"
+          },
+          "enabled": {
+            "type": "boolean",
+            "description": "Whether the channel should be enabled (true) or disabled (false)"
+          }
         },
-        "required": ["channel_id", "enabled"]
+        "required": [
+          "channel_id",
+          "enabled"
+        ]
       },
       "annotations": {
         "readOnlyHint": false,
@@ -973,11 +1281,24 @@
       "input_schema": {
         "type": "object",
         "properties": {
-          "plugin_id": { "type": "string", "description": "Notification plugin/type id" },
-          "channel_id": { "type": "string", "description": "Channel id, e.g. WEB_CHANNEL or MAIL_CHANNEL" },
-          "enabled": { "type": "boolean", "description": "Whether the plugin should be enabled (true) or disabled (false) on the channel" }
+          "plugin_id": {
+            "type": "string",
+            "description": "Notification plugin/type id"
+          },
+          "channel_id": {
+            "type": "string",
+            "description": "Channel id, e.g. WEB_CHANNEL or MAIL_CHANNEL"
+          },
+          "enabled": {
+            "type": "boolean",
+            "description": "Whether the plugin should be enabled (true) or disabled (false) on the channel"
+          }
         },
-        "required": ["plugin_id", "channel_id", "enabled"]
+        "required": [
+          "plugin_id",
+          "channel_id",
+          "enabled"
+        ]
       },
       "annotations": {
         "readOnlyHint": false,
@@ -994,10 +1315,19 @@
       "input_schema": {
         "type": "object",
         "properties": {
-          "space_id": { "type": "integer", "description": "Identifier of the space to mute or unmute" },
-          "muted": { "type": "boolean", "description": "true to mute the space, false to unmute it" }
+          "space_id": {
+            "type": "integer",
+            "description": "Identifier of the space to mute or unmute"
+          },
+          "muted": {
+            "type": "boolean",
+            "description": "true to mute the space, false to unmute it"
+          }
         },
-        "required": ["space_id", "muted"]
+        "required": [
+          "space_id",
+          "muted"
+        ]
       },
       "annotations": {
         "readOnlyHint": false,
@@ -1014,11 +1344,22 @@
       "input_schema": {
         "type": "object",
         "properties": {
-          "offset": { "type": "integer", "description": "Offset of requests to retrieve" },
-          "limit": { "type": "integer", "description": "Limit of requests to retrieve" }
+          "offset": {
+            "type": "integer",
+            "description": "Offset of requests to retrieve"
+          },
+          "limit": {
+            "type": "integer",
+            "description": "Limit of requests to retrieve"
+          }
         }
       },
-      "annotations": { "readOnlyHint": true, "destructiveHint": false, "idempotentHint": true, "openWorldHint": false }
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": false
+      }
     },
     {
       "name": "list_sent_connection_requests",
@@ -1027,11 +1368,22 @@
       "input_schema": {
         "type": "object",
         "properties": {
-          "offset": { "type": "integer", "description": "Offset of requests to retrieve" },
-          "limit": { "type": "integer", "description": "Limit of requests to retrieve" }
+          "offset": {
+            "type": "integer",
+            "description": "Offset of requests to retrieve"
+          },
+          "limit": {
+            "type": "integer",
+            "description": "Limit of requests to retrieve"
+          }
         }
       },
-      "annotations": { "readOnlyHint": true, "destructiveHint": false, "idempotentHint": true, "openWorldHint": false }
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": false
+      }
     },
     {
       "name": "list_my_connections",
@@ -1040,12 +1392,26 @@
       "input_schema": {
         "type": "object",
         "properties": {
-          "query": { "type": "string", "description": "Optional keyword to filter connections by name" },
-          "offset": { "type": "integer", "description": "Offset of connections to retrieve" },
-          "limit": { "type": "integer", "description": "Limit of connections to retrieve" }
+          "query": {
+            "type": "string",
+            "description": "Optional keyword to filter connections by name"
+          },
+          "offset": {
+            "type": "integer",
+            "description": "Offset of connections to retrieve"
+          },
+          "limit": {
+            "type": "integer",
+            "description": "Limit of connections to retrieve"
+          }
         }
       },
-      "annotations": { "readOnlyHint": true, "destructiveHint": false, "idempotentHint": true, "openWorldHint": false }
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": false
+      }
     },
     {
       "name": "list_user_connections",
@@ -1054,13 +1420,29 @@
       "input_schema": {
         "type": "object",
         "properties": {
-          "username": { "type": "string", "description": "Username whose connections to list" },
-          "offset": { "type": "integer", "description": "Offset of connections to retrieve" },
-          "limit": { "type": "integer", "description": "Limit of connections to retrieve" }
+          "username": {
+            "type": "string",
+            "description": "Username whose connections to list"
+          },
+          "offset": {
+            "type": "integer",
+            "description": "Offset of connections to retrieve"
+          },
+          "limit": {
+            "type": "integer",
+            "description": "Limit of connections to retrieve"
+          }
         },
-        "required": ["username"]
+        "required": [
+          "username"
+        ]
       },
-      "annotations": { "readOnlyHint": true, "destructiveHint": false, "idempotentHint": true, "openWorldHint": false }
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": false
+      }
     },
     {
       "name": "get_connection_status",
@@ -1069,11 +1451,21 @@
       "input_schema": {
         "type": "object",
         "properties": {
-          "username": { "type": "string", "description": "Username to check the connection status with" }
+          "username": {
+            "type": "string",
+            "description": "Username to check the connection status with"
+          }
         },
-        "required": ["username"]
+        "required": [
+          "username"
+        ]
       },
-      "annotations": { "readOnlyHint": true, "destructiveHint": false, "idempotentHint": true, "openWorldHint": false }
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": false
+      }
     },
     {
       "name": "list_connection_suggestions",
@@ -1082,10 +1474,18 @@
       "input_schema": {
         "type": "object",
         "properties": {
-          "limit": { "type": "integer", "description": "Maximum number of suggestions to retrieve" }
+          "limit": {
+            "type": "integer",
+            "description": "Maximum number of suggestions to retrieve"
+          }
         }
       },
-      "annotations": { "readOnlyHint": true, "destructiveHint": false, "idempotentHint": true, "openWorldHint": false }
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": false
+      }
     },
     {
       "name": "send_connection_request",
@@ -1094,11 +1494,21 @@
       "input_schema": {
         "type": "object",
         "properties": {
-          "username": { "type": "string", "description": "Username to send the connection request to" }
+          "username": {
+            "type": "string",
+            "description": "Username to send the connection request to"
+          }
         },
-        "required": ["username"]
+        "required": [
+          "username"
+        ]
       },
-      "annotations": { "readOnlyHint": false, "destructiveHint": false, "idempotentHint": true, "openWorldHint": false },
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": false
+      },
       "require_approval": true
     },
     {
@@ -1108,11 +1518,21 @@
       "input_schema": {
         "type": "object",
         "properties": {
-          "username": { "type": "string", "description": "Username whose connection request to accept" }
+          "username": {
+            "type": "string",
+            "description": "Username whose connection request to accept"
+          }
         },
-        "required": ["username"]
+        "required": [
+          "username"
+        ]
       },
-      "annotations": { "readOnlyHint": false, "destructiveHint": false, "idempotentHint": true, "openWorldHint": false },
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": false
+      },
       "require_approval": true
     },
     {
@@ -1122,11 +1542,21 @@
       "input_schema": {
         "type": "object",
         "properties": {
-          "username": { "type": "string", "description": "Username whose connection request to refuse" }
+          "username": {
+            "type": "string",
+            "description": "Username whose connection request to refuse"
+          }
         },
-        "required": ["username"]
+        "required": [
+          "username"
+        ]
       },
-      "annotations": { "readOnlyHint": false, "destructiveHint": true, "idempotentHint": true, "openWorldHint": false },
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": true,
+        "idempotentHint": true,
+        "openWorldHint": false
+      },
       "require_approval": true
     },
     {
@@ -1136,11 +1566,21 @@
       "input_schema": {
         "type": "object",
         "properties": {
-          "username": { "type": "string", "description": "Username to disconnect from" }
+          "username": {
+            "type": "string",
+            "description": "Username to disconnect from"
+          }
         },
-        "required": ["username"]
+        "required": [
+          "username"
+        ]
       },
-      "annotations": { "readOnlyHint": false, "destructiveHint": true, "idempotentHint": true, "openWorldHint": false },
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": true,
+        "idempotentHint": true,
+        "openWorldHint": false
+      },
       "require_approval": true
     },
     {
@@ -1150,17 +1590,219 @@
       "input_schema": {
         "type": "object",
         "properties": {
-          "about_me": { "type": "string", "description": "The 'about me' / bio text" },
-          "position": { "type": "string", "description": "Job title / position" },
-          "company": { "type": "string", "description": "Company / organization" },
-          "department": { "type": "string", "description": "Department" },
-          "team": { "type": "string", "description": "Team" },
-          "city": { "type": "string", "description": "City" },
-          "country": { "type": "string", "description": "Country" }
+          "about_me": {
+            "type": "string",
+            "description": "The 'about me' / bio text"
+          },
+          "position": {
+            "type": "string",
+            "description": "Job title / position"
+          },
+          "company": {
+            "type": "string",
+            "description": "Company / organization"
+          },
+          "department": {
+            "type": "string",
+            "description": "Department"
+          },
+          "team": {
+            "type": "string",
+            "description": "Team"
+          },
+          "city": {
+            "type": "string",
+            "description": "City"
+          },
+          "country": {
+            "type": "string",
+            "description": "Country"
+          },
+          "phones": {
+            "type": "string",
+            "description": "Contact phone number to display on the profile"
+          },
+          "urls": {
+            "type": "string",
+            "description": "One or more personal/professional website urls, comma-separated. Replaces the current list; pass an empty string to clear it."
+          }
         }
       },
-      "annotations": { "readOnlyHint": false, "destructiveHint": true, "idempotentHint": true, "openWorldHint": false },
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": true,
+        "idempotentHint": true,
+        "openWorldHint": false
+      },
       "require_approval": true
+    },
+    {
+      "name": "add_work_experience",
+      "title": "Add a work experience",
+      "description": "Add a work experience to the current user's profile. 'company' is required; other fields are optional.",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "company": {
+            "type": "string",
+            "description": "Company / organization name"
+          },
+          "position": {
+            "type": "string",
+            "description": "Job title / position held"
+          },
+          "skills": {
+            "type": "string",
+            "description": "Comma-separated list of skills"
+          },
+          "start_date": {
+            "type": "string",
+            "description": "Start date in ISO format yyyy-MM-dd (e.g. 2020-01-15)"
+          },
+          "end_date": {
+            "type": "string",
+            "description": "End date in ISO format yyyy-MM-dd. Omit (or set is_current=true) for an ongoing experience."
+          },
+          "is_current": {
+            "type": "boolean",
+            "description": "True if this is the user's current (ongoing) experience; when true any end_date is cleared."
+          },
+          "description": {
+            "type": "string",
+            "description": "Free-text description of the experience"
+          }
+        },
+        "required": [
+          "company"
+        ]
+      },
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": false
+      },
+      "require_approval": true
+    },
+    {
+      "name": "update_work_experience",
+      "title": "Update a work experience",
+      "description": "Update an existing work experience of the current user. Only the supplied fields are changed; omit a field to leave it unchanged. Call get_my_user_information first to get the experience_id.",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "experience_id": {
+            "type": "string",
+            "description": "Id of the experience to update. Call get_my_user_information first to get the experience_id."
+          },
+          "company": {
+            "type": "string",
+            "description": "Company / organization name"
+          },
+          "position": {
+            "type": "string",
+            "description": "Job title / position held"
+          },
+          "skills": {
+            "type": "string",
+            "description": "Comma-separated list of skills"
+          },
+          "start_date": {
+            "type": "string",
+            "description": "Start date in ISO format yyyy-MM-dd (e.g. 2020-01-15)"
+          },
+          "end_date": {
+            "type": "string",
+            "description": "End date in ISO format yyyy-MM-dd. Omit (or set is_current=true) for an ongoing experience."
+          },
+          "is_current": {
+            "type": "boolean",
+            "description": "True if this is the user's current (ongoing) experience; when true any end_date is cleared."
+          },
+          "description": {
+            "type": "string",
+            "description": "Free-text description of the experience"
+          }
+        },
+        "required": [
+          "experience_id"
+        ]
+      },
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": false
+      },
+      "require_approval": true
+    },
+    {
+      "name": "remove_work_experience",
+      "title": "Remove a work experience",
+      "description": "Remove a work experience from the current user's profile. Call get_my_user_information first to get the experience_id.",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "experience_id": {
+            "type": "string",
+            "description": "Id of the experience to remove. Call get_my_user_information first to get the experience_id."
+          }
+        },
+        "required": [
+          "experience_id"
+        ]
+      },
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": false
+      },
+      "require_approval": true
+    },
+    {
+      "name": "set_profile_field_visibility",
+      "title": "Set profile field visibility",
+      "description": "Hide or show one of the current user's own profile fields. field_name must be one of the toggleable fields returned by get_profile_field_visibility; call it first to get valid names. Some fields (like the full name) can't be hidden.",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "field_name": {
+            "type": "string",
+            "description": "Exact technical name of the profile field to toggle. Must be one of the toggleable_fields returned by get_profile_field_visibility."
+          },
+          "hidden": {
+            "type": "boolean",
+            "description": "True to hide the field from other users, false to make it visible again."
+          }
+        },
+        "required": [
+          "field_name",
+          "hidden"
+        ]
+      },
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": false
+      },
+      "require_approval": true
+    },
+    {
+      "name": "get_profile_field_visibility",
+      "title": "Get hidden profile fields",
+      "description": "List the current user's profile field visibility: returns which fields are hidden AND the list of fields you can toggle (their exact field_name values and current hidden state). Call this before set_profile_field_visibility.",
+      "input_schema": {
+        "type": "object",
+        "properties": {}
+      },
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": false
+      }
     },
     {
       "name": "get_user_online_status",
@@ -1169,11 +1811,21 @@
       "input_schema": {
         "type": "object",
         "properties": {
-          "username": { "type": "string", "description": "Username to check the online status of" }
+          "username": {
+            "type": "string",
+            "description": "Username to check the online status of"
+          }
         },
-        "required": ["username"]
+        "required": [
+          "username"
+        ]
       },
-      "annotations": { "readOnlyHint": true, "destructiveHint": false, "idempotentHint": true, "openWorldHint": false }
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": false
+      }
     },
     {
       "name": "list_online_users",
@@ -1182,11 +1834,22 @@
       "input_schema": {
         "type": "object",
         "properties": {
-          "offset": { "type": "integer", "description": "Offset of users to retrieve" },
-          "limit": { "type": "integer", "description": "Limit of users to retrieve" }
+          "offset": {
+            "type": "integer",
+            "description": "Offset of users to retrieve"
+          },
+          "limit": {
+            "type": "integer",
+            "description": "Limit of users to retrieve"
+          }
         }
       },
-      "annotations": { "readOnlyHint": true, "destructiveHint": false, "idempotentHint": true, "openWorldHint": false }
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": false
+      }
     },
     {
       "name": "join_space",
@@ -1194,10 +1857,22 @@
       "description": "Join a space directly as the current user. Only works for spaces whose registration is open. For spaces requiring validation use request_to_join_space.",
       "input_schema": {
         "type": "object",
-        "properties": { "space_id": { "type": "integer", "description": "Identifier of the space to join" } },
-        "required": ["space_id"]
+        "properties": {
+          "space_id": {
+            "type": "integer",
+            "description": "Identifier of the space to join"
+          }
+        },
+        "required": [
+          "space_id"
+        ]
       },
-      "annotations": { "readOnlyHint": false, "destructiveHint": false, "idempotentHint": true, "openWorldHint": false },
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": false
+      },
       "require_approval": true
     },
     {
@@ -1206,10 +1881,22 @@
       "description": "Send a request to join a space that requires manager validation. If the space is open the current user is added directly.",
       "input_schema": {
         "type": "object",
-        "properties": { "space_id": { "type": "integer", "description": "Identifier of the space to request to join" } },
-        "required": ["space_id"]
+        "properties": {
+          "space_id": {
+            "type": "integer",
+            "description": "Identifier of the space to request to join"
+          }
+        },
+        "required": [
+          "space_id"
+        ]
       },
-      "annotations": { "readOnlyHint": false, "destructiveHint": false, "idempotentHint": true, "openWorldHint": false },
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": false
+      },
       "require_approval": true
     },
     {
@@ -1218,10 +1905,22 @@
       "description": "Cancel the current user's own pending request to join a space.",
       "input_schema": {
         "type": "object",
-        "properties": { "space_id": { "type": "integer", "description": "Identifier of the space" } },
-        "required": ["space_id"]
+        "properties": {
+          "space_id": {
+            "type": "integer",
+            "description": "Identifier of the space"
+          }
+        },
+        "required": [
+          "space_id"
+        ]
       },
-      "annotations": { "readOnlyHint": false, "destructiveHint": true, "idempotentHint": true, "openWorldHint": false },
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": true,
+        "idempotentHint": true,
+        "openWorldHint": false
+      },
       "require_approval": true
     },
     {
@@ -1230,10 +1929,22 @@
       "description": "Leave a space the current user is a member of. Fails if the current user is the only manager.",
       "input_schema": {
         "type": "object",
-        "properties": { "space_id": { "type": "integer", "description": "Identifier of the space to leave" } },
-        "required": ["space_id"]
+        "properties": {
+          "space_id": {
+            "type": "integer",
+            "description": "Identifier of the space to leave"
+          }
+        },
+        "required": [
+          "space_id"
+        ]
       },
-      "annotations": { "readOnlyHint": false, "destructiveHint": true, "idempotentHint": true, "openWorldHint": false },
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": true,
+        "idempotentHint": true,
+        "openWorldHint": false
+      },
       "require_approval": true
     },
     {
@@ -1242,10 +1953,22 @@
       "description": "Accept an invitation the current user has received to join a space.",
       "input_schema": {
         "type": "object",
-        "properties": { "space_id": { "type": "integer", "description": "Identifier of the space the current user was invited to" } },
-        "required": ["space_id"]
+        "properties": {
+          "space_id": {
+            "type": "integer",
+            "description": "Identifier of the space the current user was invited to"
+          }
+        },
+        "required": [
+          "space_id"
+        ]
       },
-      "annotations": { "readOnlyHint": false, "destructiveHint": false, "idempotentHint": true, "openWorldHint": false },
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": false
+      },
       "require_approval": true
     },
     {
@@ -1254,10 +1977,22 @@
       "description": "Decline an invitation the current user has received to join a space.",
       "input_schema": {
         "type": "object",
-        "properties": { "space_id": { "type": "integer", "description": "Identifier of the space the current user was invited to" } },
-        "required": ["space_id"]
+        "properties": {
+          "space_id": {
+            "type": "integer",
+            "description": "Identifier of the space the current user was invited to"
+          }
+        },
+        "required": [
+          "space_id"
+        ]
       },
-      "annotations": { "readOnlyHint": false, "destructiveHint": true, "idempotentHint": true, "openWorldHint": false },
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": true,
+        "idempotentHint": true,
+        "openWorldHint": false
+      },
       "require_approval": true
     },
     {
@@ -1267,13 +2002,29 @@
       "input_schema": {
         "type": "object",
         "properties": {
-          "space_id": { "type": "integer", "description": "Identifier of the space" },
-          "offset": { "type": "integer", "description": "Offset of requests to retrieve" },
-          "limit": { "type": "integer", "description": "Limit of requests to retrieve" }
+          "space_id": {
+            "type": "integer",
+            "description": "Identifier of the space"
+          },
+          "offset": {
+            "type": "integer",
+            "description": "Offset of requests to retrieve"
+          },
+          "limit": {
+            "type": "integer",
+            "description": "Limit of requests to retrieve"
+          }
         },
-        "required": ["space_id"]
+        "required": [
+          "space_id"
+        ]
       },
-      "annotations": { "readOnlyHint": true, "destructiveHint": false, "idempotentHint": true, "openWorldHint": false }
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": false
+      }
     },
     {
       "name": "accept_space_join_request",
@@ -1282,12 +2033,26 @@
       "input_schema": {
         "type": "object",
         "properties": {
-          "space_id": { "type": "integer", "description": "Identifier of the space" },
-          "username": { "type": "string", "description": "Username whose join request to approve" }
+          "space_id": {
+            "type": "integer",
+            "description": "Identifier of the space"
+          },
+          "username": {
+            "type": "string",
+            "description": "Username whose join request to approve"
+          }
         },
-        "required": ["space_id", "username"]
+        "required": [
+          "space_id",
+          "username"
+        ]
       },
-      "annotations": { "readOnlyHint": false, "destructiveHint": false, "idempotentHint": true, "openWorldHint": false },
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": false
+      },
       "require_approval": true
     },
     {
@@ -1297,12 +2062,26 @@
       "input_schema": {
         "type": "object",
         "properties": {
-          "space_id": { "type": "integer", "description": "Identifier of the space" },
-          "username": { "type": "string", "description": "Username whose join request to reject" }
+          "space_id": {
+            "type": "integer",
+            "description": "Identifier of the space"
+          },
+          "username": {
+            "type": "string",
+            "description": "Username whose join request to reject"
+          }
         },
-        "required": ["space_id", "username"]
+        "required": [
+          "space_id",
+          "username"
+        ]
       },
-      "annotations": { "readOnlyHint": false, "destructiveHint": true, "idempotentHint": true, "openWorldHint": false },
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": true,
+        "idempotentHint": true,
+        "openWorldHint": false
+      },
       "require_approval": true
     },
     {
@@ -1312,13 +2091,29 @@
       "input_schema": {
         "type": "object",
         "properties": {
-          "space_id": { "type": "integer", "description": "Identifier of the space" },
-          "offset": { "type": "integer", "description": "Offset of members to retrieve" },
-          "limit": { "type": "integer", "description": "Limit of members to retrieve" }
+          "space_id": {
+            "type": "integer",
+            "description": "Identifier of the space"
+          },
+          "offset": {
+            "type": "integer",
+            "description": "Offset of members to retrieve"
+          },
+          "limit": {
+            "type": "integer",
+            "description": "Limit of members to retrieve"
+          }
         },
-        "required": ["space_id"]
+        "required": [
+          "space_id"
+        ]
       },
-      "annotations": { "readOnlyHint": true, "destructiveHint": false, "idempotentHint": true, "openWorldHint": false }
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": false
+      }
     },
     {
       "name": "list_sub_spaces",
@@ -1327,13 +2122,29 @@
       "input_schema": {
         "type": "object",
         "properties": {
-          "parent_space_id": { "type": "integer", "description": "Identifier of the parent space" },
-          "offset": { "type": "integer", "description": "Offset of sub-spaces to retrieve" },
-          "limit": { "type": "integer", "description": "Limit of sub-spaces to retrieve" }
+          "parent_space_id": {
+            "type": "integer",
+            "description": "Identifier of the parent space"
+          },
+          "offset": {
+            "type": "integer",
+            "description": "Offset of sub-spaces to retrieve"
+          },
+          "limit": {
+            "type": "integer",
+            "description": "Limit of sub-spaces to retrieve"
+          }
         },
-        "required": ["parent_space_id"]
+        "required": [
+          "parent_space_id"
+        ]
       },
-      "annotations": { "readOnlyHint": true, "destructiveHint": false, "idempotentHint": true, "openWorldHint": false }
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": false
+      }
     },
     {
       "name": "delete_space",
@@ -1341,25 +2152,53 @@
       "description": "Permanently delete a space and all its content. The current user must be a manager of the space. This is irreversible.",
       "input_schema": {
         "type": "object",
-        "properties": { "space_id": { "type": "integer", "description": "Identifier of the space to delete" } },
-        "required": ["space_id"]
+        "properties": {
+          "space_id": {
+            "type": "integer",
+            "description": "Identifier of the space to delete"
+          }
+        },
+        "required": [
+          "space_id"
+        ]
       },
-      "annotations": { "readOnlyHint": false, "destructiveHint": true, "idempotentHint": false, "openWorldHint": false },
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": true,
+        "idempotentHint": false,
+        "openWorldHint": false
+      },
       "require_approval": true
     },
     {
       "name": "get_my_settings",
       "title": "Get my settings",
       "description": "Retrieve the current user's personal settings: preferred language, timezone and presence status.",
-      "input_schema": { "type": "object", "properties": {} },
-      "annotations": { "readOnlyHint": true, "destructiveHint": false, "idempotentHint": true, "openWorldHint": false }
+      "input_schema": {
+        "type": "object",
+        "properties": {}
+      },
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": false
+      }
     },
     {
       "name": "list_available_languages",
       "title": "List available languages",
       "description": "List the languages available on the platform, with their code (e.g. en, fr) and display label. Use this to find a valid code before calling set_my_language.",
-      "input_schema": { "type": "object", "properties": {} },
-      "annotations": { "readOnlyHint": true, "destructiveHint": false, "idempotentHint": true, "openWorldHint": false }
+      "input_schema": {
+        "type": "object",
+        "properties": {}
+      },
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": false
+      }
     },
     {
       "name": "set_my_language",
@@ -1368,11 +2207,21 @@
       "input_schema": {
         "type": "object",
         "properties": {
-          "language": { "type": "string", "description": "Language code, e.g. 'en', 'fr', 'de'" }
+          "language": {
+            "type": "string",
+            "description": "Language code, e.g. 'en', 'fr', 'de'"
+          }
         },
-        "required": ["language"]
+        "required": [
+          "language"
+        ]
       },
-      "annotations": { "readOnlyHint": false, "destructiveHint": false, "idempotentHint": true, "openWorldHint": false },
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": false
+      },
       "require_approval": true
     },
     {
@@ -1382,11 +2231,21 @@
       "input_schema": {
         "type": "object",
         "properties": {
-          "timezone": { "type": "string", "description": "IANA timezone id, e.g. 'Europe/Paris', 'America/New_York', 'Asia/Tokyo'" }
+          "timezone": {
+            "type": "string",
+            "description": "IANA timezone id, e.g. 'Europe/Paris', 'America/New_York', 'Asia/Tokyo'"
+          }
         },
-        "required": ["timezone"]
+        "required": [
+          "timezone"
+        ]
       },
-      "annotations": { "readOnlyHint": false, "destructiveHint": false, "idempotentHint": true, "openWorldHint": false },
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": false
+      },
       "require_approval": true
     },
     {
@@ -1398,13 +2257,26 @@
         "properties": {
           "status": {
             "type": "string",
-            "enum": ["AVAILABLE", "AWAY", "DO_NOT_DISTURB", "INVISIBLE", "OFFLINE"],
+            "enum": [
+              "AVAILABLE",
+              "AWAY",
+              "DO_NOT_DISTURB",
+              "INVISIBLE",
+              "OFFLINE"
+            ],
             "description": "Presence status: AVAILABLE (online), AWAY, DO_NOT_DISTURB, INVISIBLE, OFFLINE"
           }
         },
-        "required": ["status"]
+        "required": [
+          "status"
+        ]
       },
-      "annotations": { "readOnlyHint": false, "destructiveHint": false, "idempotentHint": true, "openWorldHint": false },
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": false
+      },
       "require_approval": true
     },
     {
@@ -1414,12 +2286,26 @@
       "input_schema": {
         "type": "object",
         "properties": {
-          "content_type": { "type": "string", "description": "Content type, e.g. activity, space, note, news, task, event, file" },
-          "content_id": { "type": "string", "description": "Technical identifier of the content" }
+          "content_type": {
+            "type": "string",
+            "description": "Content type, e.g. activity, space, note, news, task, event, file"
+          },
+          "content_id": {
+            "type": "string",
+            "description": "Technical identifier of the content"
+          }
         },
-        "required": ["content_type", "content_id"]
+        "required": [
+          "content_type",
+          "content_id"
+        ]
       },
-      "annotations": { "readOnlyHint": false, "destructiveHint": false, "idempotentHint": true, "openWorldHint": false },
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": false
+      },
       "require_approval": true
     },
     {
@@ -1429,12 +2315,26 @@
       "input_schema": {
         "type": "object",
         "properties": {
-          "content_type": { "type": "string", "description": "Content type, e.g. activity, space, note, news, task, event, file" },
-          "content_id": { "type": "string", "description": "Technical identifier of the content" }
+          "content_type": {
+            "type": "string",
+            "description": "Content type, e.g. activity, space, note, news, task, event, file"
+          },
+          "content_id": {
+            "type": "string",
+            "description": "Technical identifier of the content"
+          }
         },
-        "required": ["content_type", "content_id"]
+        "required": [
+          "content_type",
+          "content_id"
+        ]
       },
-      "annotations": { "readOnlyHint": false, "destructiveHint": true, "idempotentHint": true, "openWorldHint": false },
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": true,
+        "idempotentHint": true,
+        "openWorldHint": false
+      },
       "require_approval": true
     },
     {
@@ -1444,12 +2344,26 @@
       "input_schema": {
         "type": "object",
         "properties": {
-          "content_type": { "type": "string", "description": "Content type, e.g. activity, space, note, news, task, event, file" },
-          "content_id": { "type": "string", "description": "Technical identifier of the content" }
+          "content_type": {
+            "type": "string",
+            "description": "Content type, e.g. activity, space, note, news, task, event, file"
+          },
+          "content_id": {
+            "type": "string",
+            "description": "Technical identifier of the content"
+          }
         },
-        "required": ["content_type", "content_id"]
+        "required": [
+          "content_type",
+          "content_id"
+        ]
       },
-      "annotations": { "readOnlyHint": true, "destructiveHint": false, "idempotentHint": true, "openWorldHint": false }
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": false
+      }
     },
     {
       "name": "list_my_favorites",
@@ -1458,12 +2372,26 @@
       "input_schema": {
         "type": "object",
         "properties": {
-          "content_type": { "type": "string", "description": "Optional content type to filter by, e.g. activity, note, task" },
-          "offset": { "type": "integer", "description": "Offset of favorites to retrieve" },
-          "limit": { "type": "integer", "description": "Limit of favorites to retrieve" }
+          "content_type": {
+            "type": "string",
+            "description": "Optional content type to filter by, e.g. activity, note, task"
+          },
+          "offset": {
+            "type": "integer",
+            "description": "Offset of favorites to retrieve"
+          },
+          "limit": {
+            "type": "integer",
+            "description": "Limit of favorites to retrieve"
+          }
         }
       },
-      "annotations": { "readOnlyHint": true, "destructiveHint": false, "idempotentHint": true, "openWorldHint": false }
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": false
+      }
     },
     {
       "name": "get_content_tags",
@@ -1472,12 +2400,26 @@
       "input_schema": {
         "type": "object",
         "properties": {
-          "content_type": { "type": "string", "description": "Content type, e.g. activity, note" },
-          "content_id": { "type": "string", "description": "Technical identifier of the content" }
+          "content_type": {
+            "type": "string",
+            "description": "Content type, e.g. activity, note"
+          },
+          "content_id": {
+            "type": "string",
+            "description": "Technical identifier of the content"
+          }
         },
-        "required": ["content_type", "content_id"]
+        "required": [
+          "content_type",
+          "content_id"
+        ]
       },
-      "annotations": { "readOnlyHint": true, "destructiveHint": false, "idempotentHint": true, "openWorldHint": false }
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": false
+      }
     },
     {
       "name": "search_tags",
@@ -1486,11 +2428,22 @@
       "input_schema": {
         "type": "object",
         "properties": {
-          "query": { "type": "string", "description": "Keyword to search tags with" },
-          "limit": { "type": "integer", "description": "Maximum number of tags to retrieve" }
+          "query": {
+            "type": "string",
+            "description": "Keyword to search tags with"
+          },
+          "limit": {
+            "type": "integer",
+            "description": "Maximum number of tags to retrieve"
+          }
         }
       },
-      "annotations": { "readOnlyHint": true, "destructiveHint": false, "idempotentHint": true, "openWorldHint": false }
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": false
+      }
     },
     {
       "name": "get_contents_by_tag",
@@ -1499,14 +2452,33 @@
       "input_schema": {
         "type": "object",
         "properties": {
-          "tag": { "type": "string", "description": "Tag name (with or without leading #)" },
-          "content_type": { "type": "string", "description": "Content type to look up, defaults to 'activity'" },
-          "offset": { "type": "integer", "description": "Offset of contents to retrieve" },
-          "limit": { "type": "integer", "description": "Limit of contents to retrieve" }
+          "tag": {
+            "type": "string",
+            "description": "Tag name (with or without leading #)"
+          },
+          "content_type": {
+            "type": "string",
+            "description": "Content type to look up, defaults to 'activity'"
+          },
+          "offset": {
+            "type": "integer",
+            "description": "Offset of contents to retrieve"
+          },
+          "limit": {
+            "type": "integer",
+            "description": "Limit of contents to retrieve"
+          }
         },
-        "required": ["tag"]
+        "required": [
+          "tag"
+        ]
       },
-      "annotations": { "readOnlyHint": true, "destructiveHint": false, "idempotentHint": true, "openWorldHint": false }
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": false
+      }
     },
     {
       "name": "get_platform_info",

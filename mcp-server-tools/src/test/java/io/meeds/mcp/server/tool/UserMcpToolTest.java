@@ -25,15 +25,21 @@ import static org.mockito.Mockito.when;
 
 import java.util.List;
 
+import org.junit.jupiter.api.Assumptions;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 
+import org.exoplatform.commons.exception.ObjectNotFoundException;
 import org.exoplatform.services.user.UserStateModel;
 import org.exoplatform.social.core.identity.model.Identity;
 import org.exoplatform.social.core.manager.IdentityManager;
 import org.exoplatform.social.core.manager.RelationshipManager;
+import org.exoplatform.social.core.profileproperty.ProfilePropertyService;
+import org.exoplatform.social.core.profileproperty.model.ProfilePropertySetting;
 
+import io.meeds.mcp.server.tool.model.ExperienceModel;
 import io.meeds.mcp.server.tool.model.OnlineStatusModel;
+import io.meeds.mcp.server.tool.model.ProfileFieldVisibilityModel;
 import io.meeds.mcp.server.tool.model.UserModel;
 import io.meeds.mcp.server.tool.test.IntegrationTestBase;
 
@@ -44,6 +50,9 @@ class UserMcpToolTest extends IntegrationTestBase {
 
   @Autowired
   private RelationshipManager relationshipManager;
+
+  @Autowired
+  private ProfilePropertyService profilePropertyService;
 
   @Autowired
   private UserMcpTool         userMcpTool;
@@ -138,17 +147,179 @@ class UserMcpToolTest extends IntegrationTestBase {
   @Test
   void updateMyProfileWithoutFieldsFails() {
     assertThrows(IllegalArgumentException.class,
-                 () -> userMcpTool.updateMyProfile(null, null, null, null, null, null, null));
+                 () -> userMcpTool.updateMyProfile(null, null, null, null, null, null, null, null, null));
   }
 
   @Test
   void updateMyProfileSetsFields() {
     UserModel updated = userMcpTool.updateMyProfile("Hello, I test MCP tools", "Platform Engineer", "Meeds",
-                                                    null, null, null, null);
+                                                    null, null, null, null, "+33123456789", "https://meeds.io");
 
     assertNotNull(updated);
     assertEquals("Platform Engineer", updated.getPosition());
     assertEquals("Meeds", updated.getCompany());
+  }
+
+  // --- work experience -----------------------------------------------------
+
+  @Test
+  void addUpdateAndRemoveWorkExperience() throws ObjectNotFoundException {
+    List<ExperienceModel> afterAdd = userMcpTool.addWorkExperience("Meeds",
+                                                                   "Engineer",
+                                                                   "Java,Vue",
+                                                                   "2020-01-01",
+                                                                   null,
+                                                                   Boolean.TRUE,
+                                                                   "Building the platform");
+    assertNotNull(afterAdd);
+    ExperienceModel added = afterAdd.stream()
+                                    .filter(e -> "Meeds".equals(e.company()))
+                                    .findFirst()
+                                    .orElse(null);
+    assertNotNull(added);
+    assertNotNull(added.experienceId());
+    assertEquals("Engineer", added.position());
+
+    List<ExperienceModel> afterUpdate = userMcpTool.updateWorkExperience(added.experienceId(),
+                                                                         null,
+                                                                         "Lead Engineer",
+                                                                         null,
+                                                                         null,
+                                                                         "2023-06-01",
+                                                                         Boolean.FALSE,
+                                                                         null);
+    ExperienceModel updated = afterUpdate.stream()
+                                         .filter(e -> added.experienceId().equals(e.experienceId()))
+                                         .findFirst()
+                                         .orElse(null);
+    assertNotNull(updated);
+    assertEquals("Lead Engineer", updated.position());
+    assertEquals("Meeds", updated.company());
+
+    List<ExperienceModel> afterRemove = userMcpTool.removeWorkExperience(added.experienceId());
+    assertTrue(afterRemove.stream().noneMatch(e -> added.experienceId().equals(e.experienceId())));
+  }
+
+  @Test
+  void addWorkExperienceWithoutCompanyFails() {
+    assertThrows(IllegalArgumentException.class,
+                 () -> userMcpTool.addWorkExperience(null, "Engineer", null, null, null, null, null));
+  }
+
+  @Test
+  void addWorkExperienceWithInvalidDateFails() {
+    assertThrows(IllegalArgumentException.class,
+                 () -> userMcpTool.addWorkExperience("Meeds", null, null, "not-a-date", null, null, null));
+  }
+
+  @Test
+  void updateUnknownWorkExperienceFails() {
+    assertThrows(ObjectNotFoundException.class,
+                 () -> userMcpTool.updateWorkExperience("9999999", "Meeds", null, null, null, null, null, null));
+  }
+
+  @Test
+  void removeUnknownWorkExperienceFails() {
+    assertThrows(ObjectNotFoundException.class,
+                 () -> userMcpTool.removeWorkExperience("9999999"));
+  }
+
+  // --- profile field visibility --------------------------------------------
+
+  @Test
+  void setAndGetProfileFieldVisibility() {
+    String hiddenableField = firstHiddenableField();
+    if (hiddenableField == null) {
+      hiddenableField = createHiddenableField("mcpVisibilityTestField");
+    }
+    Assumptions.assumeTrue(hiddenableField != null, "Unable to obtain a hiddenable profile property in test kernel");
+
+    // get_profile_field_visibility exposes the toggleable field list
+    ProfileFieldVisibilityModel initial = userMcpTool.getProfileFieldVisibility();
+    assertNotNull(initial);
+    final String field = hiddenableField;
+    assertTrue(initial.toggleableFields().stream().anyMatch(f -> field.equals(f.name())),
+               "toggleable_fields should list the hiddenable field");
+    assertFalse(initial.hiddenFields().contains(hiddenableField));
+
+    ProfileFieldVisibilityModel afterHide = userMcpTool.setProfileFieldVisibility(hiddenableField, Boolean.TRUE);
+    assertTrue(afterHide.hiddenFields().contains(hiddenableField));
+    assertTrue(afterHide.toggleableFields().stream().anyMatch(f -> field.equals(f.name()) && f.hidden()));
+
+    ProfileFieldVisibilityModel afterShow = userMcpTool.setProfileFieldVisibility(hiddenableField, Boolean.FALSE);
+    assertFalse(afterShow.hiddenFields().contains(hiddenableField));
+  }
+
+  private String firstHiddenableField() {
+    return profilePropertyService.getPropertySettings()
+                                 .stream()
+                                 .filter(s -> profilePropertyService.isPropertySettingHiddenable(s.getId()))
+                                 .map(ProfilePropertySetting::getPropertyName)
+                                 .findFirst()
+                                 .orElse(null);
+  }
+
+  private String createHiddenableField(String name) {
+    try {
+      ProfilePropertySetting setting = new ProfilePropertySetting();
+      setting.setPropertyName(name);
+      setting.setPropertyType("text");
+      setting.setActive(true);
+      setting.setVisible(true);
+      setting.setEditable(true);
+      setting.setHiddenbale(true);
+      return profilePropertyService.createPropertySetting(setting).getPropertyName();
+    } catch (Exception e) {
+      return null;
+    }
+  }
+
+  @Test
+  void setVisibilityOnUnknownFieldListsValidNames() {
+    // Ensure at least one toggleable field exists so the error can enumerate it
+    String hiddenableField = firstHiddenableField();
+    if (hiddenableField == null) {
+      hiddenableField = createHiddenableField("mcpUnknownErrorTestField");
+    }
+    Assumptions.assumeTrue(hiddenableField != null, "Unable to obtain a hiddenable profile property in test kernel");
+
+    IllegalArgumentException error = assertThrows(IllegalArgumentException.class,
+                                                  () -> userMcpTool.setProfileFieldVisibility("notARealField", Boolean.TRUE));
+    assertTrue(error.getMessage().contains("Toggleable fields are:"), "error should list the toggleable fields");
+    assertTrue(error.getMessage().contains(hiddenableField), "error should include a valid field name");
+  }
+
+  @Test
+  void setVisibilityOnUnhiddenableFieldFails() {
+    String unhiddenableField = profilePropertyService.getPropertySettings()
+                                                     .stream()
+                                                     .filter(s -> !profilePropertyService.isPropertySettingHiddenable(s.getId()))
+                                                     .map(ProfilePropertySetting::getPropertyName)
+                                                     .findFirst()
+                                                     .orElse(null);
+    if (unhiddenableField == null) {
+      unhiddenableField = createNonHiddenableField("mcpUnhiddenableTestField");
+    }
+    Assumptions.assumeTrue(unhiddenableField != null, "Unable to obtain an unhiddenable profile property in test kernel");
+
+    String field = unhiddenableField;
+    assertThrows(IllegalArgumentException.class,
+                 () -> userMcpTool.setProfileFieldVisibility(field, Boolean.TRUE));
+  }
+
+  private String createNonHiddenableField(String name) {
+    try {
+      ProfilePropertySetting setting = new ProfilePropertySetting();
+      setting.setPropertyName(name);
+      setting.setPropertyType("text");
+      setting.setActive(true);
+      setting.setVisible(true);
+      setting.setEditable(true);
+      setting.setHiddenbale(false);
+      return profilePropertyService.createPropertySetting(setting).getPropertyName();
+    } catch (Exception e) {
+      return null;
+    }
   }
 
   // --- online status -------------------------------------------------------

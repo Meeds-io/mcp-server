@@ -19,15 +19,22 @@
 package io.meeds.mcp.server.tool;
 
 import static io.meeds.mcp.server.tool.util.McpToolPluginUtils.getInteger;
+import static io.meeds.mcp.server.tool.util.UserToolUtils.buildExperiences;
 import static io.meeds.mcp.server.tool.util.UserToolUtils.toUserModel;
 import static io.meeds.mcp.server.util.McpToolUtils.formatDate;
 
 import java.io.ByteArrayInputStream;
 import java.io.IOException;
 import java.io.InputStream;
+import java.time.LocalDate;
+import java.time.OffsetDateTime;
+import java.time.format.DateTimeParseException;
+import java.util.ArrayList;
 import java.util.Collections;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.stream.Collectors;
 import java.util.stream.Stream;
 
 import org.apache.commons.lang3.ArrayUtils;
@@ -52,10 +59,14 @@ import org.exoplatform.social.core.model.AvatarAttachment;
 import org.exoplatform.social.core.model.BannerAttachment;
 import org.exoplatform.social.core.profile.ProfileFilter;
 import org.exoplatform.social.core.profileproperty.ProfilePropertyService;
+import org.exoplatform.social.core.profileproperty.model.ProfilePropertySetting;
 import org.exoplatform.social.core.relationship.model.Relationship;
 
 import io.meeds.mcp.server.plugin.McpToolPlugin;
+import io.meeds.mcp.server.tool.model.ExperienceModel;
 import io.meeds.mcp.server.tool.model.OnlineStatusModel;
+import io.meeds.mcp.server.tool.model.ProfileFieldVisibilityModel;
+import io.meeds.mcp.server.tool.model.ProfileFieldVisibilityModel.ToggleableField;
 import io.meeds.mcp.server.tool.model.UserModel;
 import io.meeds.mcp.server.tool.util.UploadToolUtils;
 import io.meeds.social.translation.service.TranslationService;
@@ -310,7 +321,9 @@ public class UserMcpTool implements McpToolPlugin {
                                    String department,
                                    String team,
                                    String city,
-                                   String country) {
+                                   String country,
+                                   String phones,
+                                   String urls) {
     String username = getCurrentUserName();
     Identity identity = identityManager.getOrCreateUserIdentity(username);
     Profile profile = identityManager.getProfile(identity);
@@ -321,12 +334,146 @@ public class UserMcpTool implements McpToolPlugin {
     changed = setIfPresent(profile, Profile.TEAM, team) || changed;
     changed = setIfPresent(profile, Profile.CITY, city) || changed;
     changed = setIfPresent(profile, Profile.COUNTRY, country) || changed;
+    changed = setIfPresent(profile, Profile.DISPLAYED_PHONE, phones) || changed;
+    changed = setUrlsIfPresent(profile, urls) || changed;
     if (!changed) {
-      throw new IllegalArgumentException("No profile field provided to update. Provide at least one of: about_me, position, company, department, team, city, country.");
+      throw new IllegalArgumentException("No profile field provided to update. Provide at least one of: about_me, position, company, department, team, city, country, phones, urls.");
     }
     identityManager.updateProfile(profile, username, true);
     return user(username);
   }
+
+  // ---------------------------------------------------------------------------
+  // Work experience (current user)
+  // ---------------------------------------------------------------------------
+
+  public List<ExperienceModel> addWorkExperience(String company, // NOSONAR
+                                                 String position,
+                                                 String skills,
+                                                 String startDate,
+                                                 String endDate,
+                                                 Boolean isCurrent,
+                                                 String description) {
+    if (StringUtils.isBlank(company)) {
+      throw new IllegalArgumentException("'company' is mandatory to add a work experience.");
+    }
+    String username = getCurrentUserName();
+    Profile profile = identityManager.getProfile(identityManager.getOrCreateUserIdentity(username));
+    List<Map<String, Object>> experiences = mutableExperiences(profile);
+
+    // No id is set: the storage layer assigns a fresh DB sequence id
+    // (SEQ_SOC_EXPERIENCE_ID) to the new experience.
+    Map<String, Object> experience = new HashMap<>();
+    experience.put(Profile.EXPERIENCES_COMPANY, company);
+    applyExperienceFields(experience, position, skills, startDate, endDate, isCurrent, description);
+    experiences.add(experience);
+
+    return saveExperiences(username, profile, experiences);
+  }
+
+  public List<ExperienceModel> updateWorkExperience(String experienceId, // NOSONAR
+                                                    String company,
+                                                    String position,
+                                                    String skills,
+                                                    String startDate,
+                                                    String endDate,
+                                                    Boolean isCurrent,
+                                                    String description) throws ObjectNotFoundException {
+    if (StringUtils.isBlank(experienceId)) {
+      throw new IllegalArgumentException("'experience_id' is mandatory. Call get_my_user_information first to get the experience_id.");
+    }
+    String username = getCurrentUserName();
+    Profile profile = identityManager.getProfile(identityManager.getOrCreateUserIdentity(username));
+    List<Map<String, Object>> experiences = mutableExperiences(profile);
+    Map<String, Object> experience = findExperience(experiences, experienceId);
+
+    // Patch only the supplied fields, leaving omitted ones untouched.
+    if (company != null) {
+      experience.put(Profile.EXPERIENCES_COMPANY, company);
+    }
+    applyExperienceFields(experience, position, skills, startDate, endDate, isCurrent, description);
+
+    return saveExperiences(username, profile, experiences);
+  }
+
+  public List<ExperienceModel> removeWorkExperience(String experienceId) throws ObjectNotFoundException {
+    if (StringUtils.isBlank(experienceId)) {
+      throw new IllegalArgumentException("'experience_id' is mandatory. Call get_my_user_information first to get the experience_id.");
+    }
+    String username = getCurrentUserName();
+    Profile profile = identityManager.getProfile(identityManager.getOrCreateUserIdentity(username));
+    List<Map<String, Object>> experiences = mutableExperiences(profile);
+    // findExperience throws ObjectNotFoundException if the id is unknown
+    Map<String, Object> experience = findExperience(experiences, experienceId);
+    experiences.remove(experience);
+
+    return saveExperiences(username, profile, experiences);
+  }
+
+  // ---------------------------------------------------------------------------
+  // Profile field visibility (current user)
+  // ---------------------------------------------------------------------------
+
+  public ProfileFieldVisibilityModel setProfileFieldVisibility(String fieldName, Boolean hidden) {
+    if (StringUtils.isBlank(fieldName)) {
+      throw new IllegalArgumentException("'field_name' is mandatory.");
+    }
+    List<ProfilePropertySetting> toggleable = toggleableSettings();
+    ProfilePropertySetting setting = toggleable.stream()
+                                               .filter(s -> fieldName.equals(s.getPropertyName()))
+                                               .findFirst()
+                                               .orElse(null);
+    if (setting == null) {
+      // Distinguish a field that exists but can't be hidden from a plain unknown name.
+      ProfilePropertySetting existing = profilePropertyService.getProfileSettingByName(fieldName);
+      if (existing != null) {
+        throw new IllegalArgumentException("The '%s' field can't be hidden.".formatted(fieldName));
+      }
+      String validNames = toggleable.stream().map(ProfilePropertySetting::getPropertyName).collect(Collectors.joining(", "));
+      throw new IllegalArgumentException("Unknown field '%s'. Toggleable fields are: %s. Call get_profile_field_visibility to see them.".formatted(fieldName,
+                                                                                                                                                 validNames));
+    }
+    long myUserIdentityId = Long.parseLong(me().getId());
+    if (Boolean.TRUE.equals(hidden)) {
+      profilePropertyService.hidePropertySetting(myUserIdentityId, setting.getId());
+    } else {
+      profilePropertyService.showPropertySetting(myUserIdentityId, setting.getId());
+    }
+    return getProfileFieldVisibility();
+  }
+
+  public ProfileFieldVisibilityModel getProfileFieldVisibility() {
+    long myUserIdentityId = Long.parseLong(me().getId());
+    List<Long> hiddenIds = profilePropertyService.getHiddenProfilePropertyIds(myUserIdentityId);
+    List<ToggleableField> toggleableFields = toggleableSettings().stream()
+                                                                 .map(s -> new ToggleableField(s.getPropertyName(),
+                                                                                               hiddenIds.contains(s.getId())))
+                                                                 .toList();
+    List<String> hiddenFields = toggleableFields.stream()
+                                                .filter(ToggleableField::hidden)
+                                                .map(ToggleableField::name)
+                                                .toList();
+    return new ProfileFieldVisibilityModel(hiddenFields, toggleableFields);
+  }
+
+  /**
+   * All profile property settings whose visibility the user can toggle: hiddenable
+   * ({@code isPropertySettingHiddenable} already excludes the un-hiddenable list,
+   * child properties and non-hiddenable flags) and not in the explicit
+   * un-hiddenable list.
+   */
+  private List<ProfilePropertySetting> toggleableSettings() {
+    List<String> unhiddenable = profilePropertyService.getUnhiddenableProfileProperties();
+    return profilePropertyService.getPropertySettings()
+                                 .stream()
+                                 .filter(s -> profilePropertyService.isPropertySettingHiddenable(s.getId())
+                                              && !unhiddenable.contains(s.getPropertyName()))
+                                 .toList();
+  }
+
+  // ---------------------------------------------------------------------------
+  // Online presence
+  // ---------------------------------------------------------------------------
 
   @SuppressWarnings("deprecation") // UserStateModel.getLastActivity has no non-deprecated replacement yet
   public OnlineStatusModel getUserOnlineStatus(String username) {
@@ -401,6 +548,111 @@ public class UserMcpTool implements McpToolPlugin {
     }
     profile.setProperty(propertyName, value);
     return true;
+  }
+
+  /**
+   * {@code Profile.CONTACT_URLS} is stored as a {@code List<Map<String,String>>}
+   * where each entry maps the url to itself (key == value == url), matching how
+   * the social REST layer and storage persist urls. Accepts a comma-separated
+   * list of urls; an empty (but non-null) value clears the urls.
+   */
+  private boolean setUrlsIfPresent(Profile profile, String urls) {
+    if (urls == null) {
+      return false;
+    }
+    List<Map<String, String>> urlList = new ArrayList<>();
+    for (String url : urls.split(",")) {
+      String trimmed = url.trim();
+      if (!trimmed.isEmpty()) {
+        Map<String, String> urlMap = new HashMap<>();
+        urlMap.put(trimmed, trimmed);
+        urlList.add(urlMap);
+      }
+    }
+    profile.setProperty(Profile.CONTACT_URLS, urlList);
+    return true;
+  }
+
+  @SuppressWarnings("unchecked")
+  private List<Map<String, Object>> mutableExperiences(Profile profile) {
+    List<Map<String, Object>> experiences = new ArrayList<>();
+    Object raw = profile.getProperty(Profile.EXPERIENCES);
+    if (raw instanceof List<?> list) {
+      for (Object item : list) {
+        if (item instanceof Map<?, ?> map) {
+          experiences.add(new HashMap<>((Map<String, Object>) map));
+        }
+      }
+    }
+    return experiences;
+  }
+
+  private Map<String, Object> findExperience(List<Map<String, Object>> experiences,
+                                             String experienceId) throws ObjectNotFoundException {
+    return experiences.stream()
+                      .filter(e -> experienceId.equals(String.valueOf(e.get(Profile.EXPERIENCES_ID))))
+                      .findFirst()
+                      .orElseThrow(() -> new ObjectNotFoundException("No work experience found with experience_id '%s'. Call get_my_user_information to list your experiences and their experience_id.".formatted(experienceId)));
+  }
+
+  private void applyExperienceFields(Map<String, Object> experience, // NOSONAR
+                                     String position,
+                                     String skills,
+                                     String startDate,
+                                     String endDate,
+                                     Boolean isCurrent,
+                                     String description) {
+    if (position != null) {
+      experience.put(Profile.EXPERIENCES_POSITION, position);
+    }
+    if (skills != null) {
+      experience.put(Profile.EXPERIENCES_SKILLS, skills);
+    }
+    if (description != null) {
+      experience.put(Profile.EXPERIENCES_DESCRIPTION, description);
+    }
+    if (startDate != null) {
+      experience.put(Profile.EXPERIENCES_START_DATE, normalizeExperienceDate(startDate, "start_date"));
+    }
+    if (endDate != null) {
+      experience.put(Profile.EXPERIENCES_END_DATE, normalizeExperienceDate(endDate, "end_date"));
+    }
+    if (Boolean.TRUE.equals(isCurrent)) {
+      // The platform derives "is current" from the absence of an end date, so
+      // an ongoing experience must not carry one.
+      experience.remove(Profile.EXPERIENCES_END_DATE);
+      experience.put(Profile.EXPERIENCES_IS_CURRENT, Boolean.TRUE);
+    } else if (Boolean.FALSE.equals(isCurrent)) {
+      experience.put(Profile.EXPERIENCES_IS_CURRENT, Boolean.FALSE);
+    }
+  }
+
+  /**
+   * Work-experience dates are persisted in a {@code VARCHAR(10)} column, i.e. as
+   * an ISO local date ({@code yyyy-MM-dd}). We accept an ISO local date or a full
+   * ISO date-time and normalize it to {@code yyyy-MM-dd}.
+   */
+  private String normalizeExperienceDate(String date, String fieldName) {
+    if (StringUtils.isBlank(date)) {
+      return null;
+    }
+    try {
+      return LocalDate.parse(date.trim()).toString();
+    } catch (DateTimeParseException e) {
+      try {
+        return OffsetDateTime.parse(date.trim()).toLocalDate().toString();
+      } catch (DateTimeParseException e2) {
+        throw new IllegalArgumentException("Invalid '%s' value '%s'. Provide the date in ISO format yyyy-MM-dd (e.g. 2024-01-15).".formatted(fieldName, date));
+      }
+    }
+  }
+
+  private List<ExperienceModel> saveExperiences(String username, Profile profile, List<Map<String, Object>> experiences) {
+    profile.setProperty(Profile.EXPERIENCES, experiences);
+    identityManager.updateProfile(profile, username, true);
+    // Re-read to reflect storage-generated ids and derived isCurrent values.
+    Profile updated = identityManager.getProfile(identityManager.getOrCreateUserIdentity(username));
+    return buildExperiences(updated);
   }
 
 }
