@@ -42,6 +42,7 @@ import org.exoplatform.social.core.jpa.search.ProfileSearchConnector;
 import io.meeds.kernel.test.AbstractSpringTest;
 import io.meeds.kernel.test.KernelExtension;
 import io.meeds.spring.AvailableIntegration;
+import io.meeds.web.security.service.OtpService;
 
 @SpringBootTest(classes = IntegrationTestBase.Config.class, webEnvironment = SpringBootTest.WebEnvironment.MOCK)
 @ExtendWith({ SpringExtension.class, KernelExtension.class })
@@ -57,6 +58,9 @@ public abstract class IntegrationTestBase extends AbstractSpringTest {
 
   @MockitoBean
   protected UserStateService        userStateService;
+
+  @MockitoBean
+  protected OtpService              otpService;
 
   @BeforeEach
   protected void beginRequest() {
