@@ -48,7 +48,7 @@
     <tag>HEAD</tag>
   </scm>
   <properties>
-    <addon.meeds.auth-server.version>7.3.x-SNAPSHOT</addon.meeds.auth-server.version>
+    <addon.meeds.auth-server.version>7.3.0-M06</addon.meeds.auth-server.version>
 
     <!-- Sonar properties -->
     <sonar.organization>meeds-io</sonar.organization>
