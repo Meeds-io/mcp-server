@@ -40,6 +40,7 @@ import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
 
 import org.apache.commons.lang3.StringUtils;
+import org.apache.commons.lang3.Strings;
 import org.cometd.bayeux.MarkedReference;
 import org.cometd.bayeux.server.ServerChannel;
 import org.cometd.bayeux.server.ServerMessage.Mutable;
@@ -271,7 +272,7 @@ public class McpToolApprovalService {
     @Override
     @SneakyThrows
     public boolean onMessage(ServerSession from, ServerChannel channel, Mutable message) {
-      if (!StringUtils.equals(channel.getId(), COMETD_CHANNEL)
+      if (!Strings.CS.equals(channel.getId(), COMETD_CHANNEL)
           || message.getData() == null) {
         return false;
       }

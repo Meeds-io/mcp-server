@@ -33,6 +33,7 @@ import java.util.stream.Collectors;
 
 import org.springframework.ai.mcp.server.common.autoconfigure.properties.McpServerProperties;
 import org.springframework.ai.mcp.server.common.autoconfigure.properties.McpServerStreamableHttpProperties;
+import org.springframework.ai.mcp.server.webmvc.transport.WebMvcStreamableServerTransportProvider;
 import org.springframework.ai.tool.ToolCallback;
 import org.springframework.ai.tool.ToolCallbackProvider;
 import org.springframework.beans.factory.NoSuchBeanDefinitionException;
@@ -50,10 +51,9 @@ import org.springframework.security.core.Authentication;
 import org.springframework.security.core.GrantedAuthority;
 import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.security.web.SecurityFilterChain;
+import org.springframework.util.Assert;
 import org.springframework.web.servlet.function.RouterFunction;
 import org.springframework.web.servlet.function.ServerResponse;
-
-import com.fasterxml.jackson.databind.ObjectMapper;
 
 import org.exoplatform.portal.config.UserACL;
 
@@ -66,13 +66,12 @@ import io.meeds.mcp.server.service.McpToolApprovalService;
 import io.meeds.mcp.server.service.McpToolCallbackProviderService;
 import io.meeds.mcp.server.web.McpBearerAuthenticationEntryPoint;
 
-import io.modelcontextprotocol.json.jackson.JacksonMcpJsonMapper;
+import io.modelcontextprotocol.json.jackson3.JacksonMcpJsonMapper;
 import io.modelcontextprotocol.server.McpAsyncServer;
 import io.modelcontextprotocol.server.McpNotificationHandler;
 import io.modelcontextprotocol.server.McpRequestHandler;
 import io.modelcontextprotocol.server.McpServerFeatures;
 import io.modelcontextprotocol.server.McpSyncServer;
-import io.modelcontextprotocol.server.transport.WebMvcStreamableServerTransportProvider;
 import io.modelcontextprotocol.spec.DefaultMcpStreamableServerSessionFactory;
 import io.modelcontextprotocol.spec.McpSchema;
 import io.modelcontextprotocol.spec.McpSchema.Tool;
@@ -82,6 +81,7 @@ import io.modelcontextprotocol.spec.McpStreamableServerTransportProvider;
 import lombok.SneakyThrows;
 import lombok.extern.slf4j.Slf4j;
 import reactor.core.publisher.Mono;
+import tools.jackson.databind.json.JsonMapper;
 
 @Configuration
 @EnableConfigurationProperties({
@@ -101,7 +101,7 @@ public class McpServiceIntegrationTestConfiguration {
                                              McpInternalOAuthClientService aiOAuthService,
                                              McpServerOauthOpaqueTokenIntrospector opaqueTokenIntrospector,
                                              @Qualifier("mcpServerAuthenticationEntryPoint")
-                                             McpBearerAuthenticationEntryPoint authenticationEntryPoint) throws Exception {
+                                             McpBearerAuthenticationEntryPoint authenticationEntryPoint) {
     return http.securityMatcher("/**")
                .csrf(csrf -> csrf.disable())
                .cors(Customizer.withDefaults())
@@ -140,12 +140,11 @@ public class McpServiceIntegrationTestConfiguration {
 
   @Bean
   public CustomMcpStreamableServerTransportProvider mcpStreamableServerTransportProvider(ApplicationContext applicationContext,
-                                                                                         @Qualifier("mcpServerObjectMapper")
-                                                                                         ObjectMapper objectMapper,
+                                                                                         JsonMapper jsonMapper,
                                                                                          McpServerStreamableHttpProperties serverProperties) {
     return new CustomMcpStreamableServerTransportProvider(applicationContext,
                                                           WebMvcStreamableServerTransportProvider.builder()
-                                                                                                 .jsonMapper(new JacksonMcpJsonMapper(objectMapper))
+                                                                                                 .jsonMapper(new JacksonMcpJsonMapper(jsonMapper))
                                                                                                  .mcpEndpoint(serverProperties.getMcpEndpoint())
                                                                                                  .keepAliveInterval(serverProperties.getKeepAliveInterval())
                                                                                                  .disallowDelete(serverProperties.isDisallowDelete())
@@ -248,6 +247,10 @@ public class McpServiceIntegrationTestConfiguration {
                                                                            this.initRequestHandler.handle(initializeRequest));
     }
 
+    public void clearToolsCache() {
+      toolsCache.clear();
+    }
+
     private Map<String, McpNotificationHandler> notificationHandlers(DefaultMcpStreamableServerSessionFactory sessionFactory) {
       return getField(sessionFactory, "notificationHandlers");
     }
@@ -277,6 +280,7 @@ public class McpServiceIntegrationTestConfiguration {
 
     private McpRequestHandler<McpSchema.ListToolsResult> toolsListRequestHandler() {
       return (exchange, params) -> {
+        Assert.notNull(getMcpServerToolService(), "Mcp Server Tool Service shouldn't be null");
         Authentication authentication = SecurityContextHolder.getContext().getAuthentication();
         int key = authentication.getAuthorities()
                                 .stream()
@@ -292,7 +296,8 @@ public class McpServiceIntegrationTestConfiguration {
                                       .stream()
                                       .filter(t -> isToolEligible(t.name(), authentication))
                                       .toList();
-          return Mono.just(new McpSchema.ListToolsResult(tools, null));
+          return Mono.just(McpSchema.ListToolsResult.builder(tools)
+                                                    .build());
         });
       };
     }
@@ -333,7 +338,8 @@ public class McpServiceIntegrationTestConfiguration {
 
     private McpServerToolService getMcpServerToolService() {
       if (mcpServerToolService == null) {
-        mcpServerToolService = applicationContext.getBean(McpServerToolService.class);
+        this.mcpServerToolService = applicationContext.getBean(McpServerToolService.class);
+        this.mcpServerToolService.addToolUpdateListener(n -> this.clearToolsCache());
       }
       return mcpServerToolService;
     }

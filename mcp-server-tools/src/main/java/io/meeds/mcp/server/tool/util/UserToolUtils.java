@@ -28,6 +28,7 @@ import java.util.concurrent.ConcurrentHashMap;
 
 import org.apache.commons.collections4.CollectionUtils;
 import org.apache.commons.lang3.StringUtils;
+import org.apache.commons.lang3.Strings;
 import org.apache.commons.lang3.math.NumberUtils;
 
 import org.exoplatform.commons.utils.CommonsUtils;
@@ -85,7 +86,7 @@ public class UserToolUtils {
 
       org.exoplatform.services.security.Identity viewerUserAclIdentity = userAcl.getUserIdentity(viewerUsername);
       boolean isAdmin = userAcl.isAdministrator(viewerUserAclIdentity);
-      boolean isCurrentUser = StringUtils.equals(viewerUsername, profile.getIdentity().getRemoteId());
+      boolean isCurrentUser = Strings.CS.equals(viewerUsername, profile.getIdentity().getRemoteId());
       boolean canViewProperties = isAdmin || isCurrentUser;
       if (canViewProperties || isProfilePropertyVisible(profilePropertyService, Profile.FIRST_NAME)) {
         userModel.setFirstName((String) profile.getProperty(Profile.FIRST_NAME));

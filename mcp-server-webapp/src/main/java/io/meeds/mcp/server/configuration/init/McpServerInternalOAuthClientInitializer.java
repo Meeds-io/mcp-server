@@ -24,10 +24,10 @@ import static io.meeds.oauth2.server.util.EntityMapper.CLIENT_SYSTEM_SETTING;
 import java.util.Locale;
 
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.boot.autoconfigure.security.oauth2.server.servlet.OAuth2AuthorizationServerProperties;
-import org.springframework.boot.autoconfigure.security.oauth2.server.servlet.OAuth2AuthorizationServerProperties.Client;
-import org.springframework.boot.autoconfigure.security.oauth2.server.servlet.OAuth2AuthorizationServerProperties.Registration;
 import org.springframework.boot.context.properties.PropertyMapper;
+import org.springframework.boot.security.oauth2.server.authorization.autoconfigure.servlet.OAuth2AuthorizationServerProperties;
+import org.springframework.boot.security.oauth2.server.authorization.autoconfigure.servlet.OAuth2AuthorizationServerProperties.Client;
+import org.springframework.boot.security.oauth2.server.authorization.autoconfigure.servlet.OAuth2AuthorizationServerProperties.Registration;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.security.oauth2.core.AuthorizationGrantType;
 import org.springframework.security.oauth2.core.ClientAuthenticationMethod;
@@ -76,7 +76,7 @@ public class McpServerInternalOAuthClientInitializer {
 
   private RegisteredClient getRegisteredClient(Client client) {
     Registration registration = client.getRegistration();
-    PropertyMapper map = PropertyMapper.get().alwaysApplyingWhenNonNull();
+    PropertyMapper map = PropertyMapper.get();
     String clientId = registration.getClientId();
 
     RegisteredClient.Builder builder = RegisteredClient.withId(clientId);
@@ -85,16 +85,26 @@ public class McpServerInternalOAuthClientInitializer {
     map.from(registration::getClientName).to(builder::clientName);
     registration.getClientAuthenticationMethods()
                 .forEach(clientAuthenticationMethod -> map.from(clientAuthenticationMethod)
+                                                          .whenHasText()
                                                           .as(ClientAuthenticationMethod::new)
                                                           .to(builder::clientAuthenticationMethod));
     registration.getAuthorizationGrantTypes()
                 .forEach(authorizationGrantType -> map.from(authorizationGrantType)
+                                                      .whenHasText()
                                                       .as(AuthorizationGrantType::new)
                                                       .to(builder::authorizationGrantType));
-    registration.getRedirectUris().forEach(redirectUri -> map.from(redirectUri).to(builder::redirectUri));
+    registration.getRedirectUris()
+                .forEach(redirectUri -> map.from(redirectUri)
+                                           .whenHasText()
+                                           .to(builder::redirectUri));
     registration.getPostLogoutRedirectUris()
-                .forEach(redirectUri -> map.from(redirectUri).to(builder::postLogoutRedirectUri));
-    registration.getScopes().forEach(scope -> map.from(scope).to(builder::scope));
+                .forEach(redirectUri -> map.from(redirectUri)
+                                           .whenHasText()
+                                           .to(builder::postLogoutRedirectUri));
+    registration.getScopes()
+                .forEach(scope -> map.from(scope)
+                                     .whenHasText()
+                                     .to(builder::scope));
     builder.clientSettings(getClientSettings(client, map));
     builder.tokenSettings(getTokenSettings(client, map));
     return builder.build();

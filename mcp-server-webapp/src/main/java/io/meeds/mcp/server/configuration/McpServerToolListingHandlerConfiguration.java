@@ -30,8 +30,8 @@ import java.util.stream.Collectors;
 
 import org.springframework.ai.mcp.server.common.autoconfigure.properties.McpServerProperties;
 import org.springframework.ai.mcp.server.common.autoconfigure.properties.McpServerStreamableHttpProperties;
+import org.springframework.ai.mcp.server.webmvc.transport.WebMvcStreamableServerTransportProvider;
 import org.springframework.beans.factory.NoSuchBeanDefinitionException;
-import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
 import org.springframework.context.ApplicationContext;
 import org.springframework.context.annotation.Bean;
@@ -39,19 +39,17 @@ import org.springframework.context.annotation.Configuration;
 import org.springframework.security.core.Authentication;
 import org.springframework.security.core.GrantedAuthority;
 import org.springframework.security.core.context.SecurityContextHolder;
+import org.springframework.util.Assert;
 import org.springframework.web.servlet.function.RouterFunction;
 import org.springframework.web.servlet.function.ServerResponse;
 
-import com.fasterxml.jackson.databind.ObjectMapper;
-
 import io.meeds.mcp.server.service.McpServerToolService;
 
-import io.modelcontextprotocol.json.jackson.JacksonMcpJsonMapper;
+import io.modelcontextprotocol.json.jackson3.JacksonMcpJsonMapper;
 import io.modelcontextprotocol.server.McpAsyncServer;
 import io.modelcontextprotocol.server.McpNotificationHandler;
 import io.modelcontextprotocol.server.McpRequestHandler;
 import io.modelcontextprotocol.server.McpSyncServer;
-import io.modelcontextprotocol.server.transport.WebMvcStreamableServerTransportProvider;
 import io.modelcontextprotocol.spec.DefaultMcpStreamableServerSessionFactory;
 import io.modelcontextprotocol.spec.McpSchema;
 import io.modelcontextprotocol.spec.McpSchema.Tool;
@@ -61,6 +59,7 @@ import io.modelcontextprotocol.spec.McpStreamableServerTransportProvider;
 import lombok.SneakyThrows;
 import lombok.extern.slf4j.Slf4j;
 import reactor.core.publisher.Mono;
+import tools.jackson.databind.json.JsonMapper;
 
 /**
  * Custom configuration to allow overriding MCP Tools Listing Handler. This
@@ -76,12 +75,11 @@ public class McpServerToolListingHandlerConfiguration {
 
   @Bean
   public CustomMcpStreamableServerTransportProvider mcpStreamableServerTransportProvider(ApplicationContext applicationContext,
-                                                                                         @Qualifier("mcpServerObjectMapper")
-                                                                                         ObjectMapper objectMapper,
+                                                                                         JsonMapper jsonMapper,
                                                                                          McpServerStreamableHttpProperties serverProperties) {
     return new CustomMcpStreamableServerTransportProvider(applicationContext,
                                                           WebMvcStreamableServerTransportProvider.builder()
-                                                                                                 .jsonMapper(new JacksonMcpJsonMapper(objectMapper))
+                                                                                                 .jsonMapper(new JacksonMcpJsonMapper(jsonMapper))
                                                                                                  .mcpEndpoint(serverProperties.getMcpEndpoint())
                                                                                                  .keepAliveInterval(serverProperties.getKeepAliveInterval())
                                                                                                  .disallowDelete(serverProperties.isDisallowDelete())
@@ -173,8 +171,7 @@ public class McpServerToolListingHandlerConfiguration {
 
     @Override
     public McpStreamableServerSession.McpStreamableServerSessionInit startSession(McpSchema.InitializeRequest initializeRequest) {
-      return new McpStreamableServerSession.McpStreamableServerSessionInit(
-                                                                           new McpStreamableServerSession(UUID.randomUUID()
+      return new McpStreamableServerSession.McpStreamableServerSessionInit(new McpStreamableServerSession(UUID.randomUUID()
                                                                                                               .toString(),
                                                                                                           initializeRequest.capabilities(),
                                                                                                           initializeRequest.clientInfo(),
@@ -182,6 +179,10 @@ public class McpServerToolListingHandlerConfiguration {
                                                                                                           requestHandlers,
                                                                                                           notificationHandlers),
                                                                            this.initRequestHandler.handle(initializeRequest));
+    }
+
+    public void clearToolsCache() {
+      toolsCache.clear();
     }
 
     private Map<String, McpNotificationHandler> notificationHandlers(DefaultMcpStreamableServerSessionFactory sessionFactory) {
@@ -213,6 +214,7 @@ public class McpServerToolListingHandlerConfiguration {
 
     private McpRequestHandler<McpSchema.ListToolsResult> toolsListRequestHandler() {
       return (exchange, params) -> {
+        Assert.notNull(getMcpServerToolService(), "Mcp Server Tool Service shouldn't be null");
         Authentication authentication = SecurityContextHolder.getContext().getAuthentication();
         int key = authentication.getAuthorities()
                                 .stream()
@@ -224,11 +226,11 @@ public class McpServerToolListingHandlerConfiguration {
                                 .hashCode();
         return toolsCache.computeIfAbsent(key, k -> {
           List<Tool> listTools = listTools();
-          List<Tool> tools = listTools
-                                      .stream()
+          List<Tool> tools = listTools.stream()
                                       .filter(t -> isToolEligible(t.name(), authentication))
                                       .toList();
-          return Mono.just(new McpSchema.ListToolsResult(tools, null));
+          return Mono.just(McpSchema.ListToolsResult.builder(tools)
+                                                    .build());
         });
       };
     }
@@ -268,10 +270,11 @@ public class McpServerToolListingHandlerConfiguration {
     }
 
     private McpServerToolService getMcpServerToolService() {
-      if (mcpServerToolService == null) {
-        mcpServerToolService = applicationContext.getBean(McpServerToolService.class);
+      if (this.mcpServerToolService == null) {
+        this.mcpServerToolService = applicationContext.getBean(McpServerToolService.class);
+        this.mcpServerToolService.addToolUpdateListener(n -> this.clearToolsCache());
       }
-      return mcpServerToolService;
+      return this.mcpServerToolService;
     }
   }
 }

@@ -78,7 +78,7 @@ public class McpServerSecurityConfiguration {
   @Order(1)
   SecurityFilterChain mcpSecurityFilterChain(HttpSecurity http,
                                              McpServerOauthOpaqueTokenIntrospector opaqueTokenIntrospector,
-                                             McpBearerAuthenticationEntryPoint authenticationEntryPoint) throws Exception {
+                                             McpBearerAuthenticationEntryPoint authenticationEntryPoint) {
     return http.securityMatcher("/**")
                .csrf(csrf -> csrf.disable())
                .cors(Customizer.withDefaults())

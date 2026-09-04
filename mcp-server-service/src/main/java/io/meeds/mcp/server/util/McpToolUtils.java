@@ -33,6 +33,7 @@ import java.util.UUID;
 
 import org.apache.commons.io.IOUtils;
 import org.apache.commons.lang3.StringUtils;
+import org.apache.commons.lang3.Strings;
 import org.commonmark.node.Node;
 import org.commonmark.parser.Parser;
 import org.commonmark.renderer.html.HtmlRenderer;
@@ -213,7 +214,7 @@ public class McpToolUtils {
     } else if (SecurityContextHolder.getContext() != null
                && SecurityContextHolder.getContext().getAuthentication() != null) {
       String authenticatedUser = SecurityContextHolder.getContext().getAuthentication().getName();
-      if (!StringUtils.equals(MCP_OAUTH2_CLIENT_CREDENTIALS_REGISTRATION_ID, authenticatedUser)) {
+      if (!Strings.CS.equals(MCP_OAUTH2_CLIENT_CREDENTIALS_REGISTRATION_ID, authenticatedUser)) {
         return authenticatedUser;
       } else if (RequestContextHolder.getRequestAttributes() instanceof ServletRequestAttributes servletRequestAttributes) {
         HttpServletRequest request = servletRequestAttributes.getRequest();
@@ -221,7 +222,7 @@ public class McpToolUtils {
         // OAuth mechanism
         String userName = request.getHeader(TOOL_CONTEXT_USER_NAME_PARAM);
         String contextId = request.getHeader(TOOL_CONTEXT_ID_PARAM);
-        if (StringUtils.equals(contextId, TOOL_CONTEXT_ID)
+        if (Strings.CS.equals(contextId, TOOL_CONTEXT_ID)
             && StringUtils.isNotBlank(userName)) {
           return userName;
         }
@@ -232,12 +233,12 @@ public class McpToolUtils {
 
   public static String markdownToHtml(String markdown) {
     if (StringUtils.isBlank(markdown)
-        || StringUtils.containsAny(markdown,
-                                   "<ul>",
-                                   "<li>",
-                                   "<div>",
-                                   "<p>",
-                                   "<img ")) {
+        || Strings.CS.containsAny(markdown,
+                                  "<ul>",
+                                  "<li>",
+                                  "<div>",
+                                  "<p>",
+                                  "<img ")) {
       return markdown;
     }
     try {

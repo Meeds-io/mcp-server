@@ -37,6 +37,7 @@ import java.util.stream.Stream;
 import org.apache.commons.collections4.CollectionUtils;
 import org.apache.commons.lang3.ArrayUtils;
 import org.apache.commons.lang3.StringUtils;
+import org.apache.commons.lang3.Strings;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 
@@ -798,7 +799,7 @@ public class ActivityMcpTool implements McpToolPlugin {
       if (entry != null) {
         if (StringUtils.isBlank(entry.getValue())) {
           entry.setValue("");
-        } else if (StringUtils.equals(entry.getValue(), "-")) {
+        } else if (Strings.CS.equals(entry.getValue(), "-")) {
           entry.setValue(null);
         }
       }
