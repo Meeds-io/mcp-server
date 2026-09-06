@@ -27,7 +27,13 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 import java.util.Date;
 import java.util.List;
 
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
+import org.springframework.mock.web.MockHttpServletRequest;
+import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
+import org.springframework.security.core.context.SecurityContextHolder;
+import org.springframework.web.context.request.RequestContextHolder;
+import org.springframework.web.context.request.ServletRequestAttributes;
 
 import org.exoplatform.commons.utils.CommonsUtils;
 import org.exoplatform.services.organization.OrganizationService;
@@ -39,7 +45,90 @@ import io.meeds.mcp.server.model.ToolDefinitionMethods;
 
 class McpToolUtilsTest {
 
-  private static final String TOOL_NAME = "alpha_tool";
+  private static final String TOOL_NAME       = "alpha_tool";
+
+  private static final String CONVERSATION_ID = "conv-42";
+
+  private static final String USERNAME        = "john";
+
+  @AfterEach
+  void tearDown() {
+    RequestContextHolder.resetRequestAttributes();
+    SecurityContextHolder.clearContext();
+    ConversationState.setCurrent(null);
+  }
+
+  @Test
+  void getCurrentConversationId_internalClientWithContextId_returnsHeader() {// NOSONAR
+    authenticateAs(McpToolUtils.MCP_OAUTH2_CLIENT_CREDENTIALS_REGISTRATION_ID);
+    bindRequest(McpToolUtils.TOOL_CONTEXT_ID, CONVERSATION_ID, USERNAME);
+
+    assertEquals(CONVERSATION_ID, McpToolUtils.getCurrentConversationId());
+  }
+
+  @Test
+  void getCurrentConversationId_wrongContextId_returnsNull() {// NOSONAR
+    authenticateAs(McpToolUtils.MCP_OAUTH2_CLIENT_CREDENTIALS_REGISTRATION_ID);
+    bindRequest("forged-context-id", CONVERSATION_ID, USERNAME);
+
+    assertNull(McpToolUtils.getCurrentConversationId());
+  }
+
+  @Test
+  void getCurrentConversationId_externalOauthUser_returnsNullEvenWithHeaders() {// NOSONAR
+    // An external MCP client authenticates as the end user, not as the
+    // internal client-credentials registration: its headers are never trusted
+    authenticateAs(USERNAME);
+    bindRequest(McpToolUtils.TOOL_CONTEXT_ID, CONVERSATION_ID, USERNAME);
+
+    assertNull(McpToolUtils.getCurrentConversationId());
+  }
+
+  @Test
+  void getCurrentConversationId_blankHeaderOrNoRequest_returnsNull() {// NOSONAR
+    authenticateAs(McpToolUtils.MCP_OAUTH2_CLIENT_CREDENTIALS_REGISTRATION_ID);
+    assertNull(McpToolUtils.getCurrentConversationId());
+
+    bindRequest(McpToolUtils.TOOL_CONTEXT_ID, "   ", USERNAME);
+    assertNull(McpToolUtils.getCurrentConversationId());
+  }
+
+  @Test
+  void getCurrentUserName_internalClientWithContextId_returnsHeader() {// NOSONAR
+    authenticateAs(McpToolUtils.MCP_OAUTH2_CLIENT_CREDENTIALS_REGISTRATION_ID);
+    bindRequest(McpToolUtils.TOOL_CONTEXT_ID, CONVERSATION_ID, USERNAME);
+
+    assertEquals(USERNAME, McpToolUtils.getCurrentUserName());
+  }
+
+  @Test
+  void getCurrentUserName_wrongContextId_returnsNull() {// NOSONAR
+    authenticateAs(McpToolUtils.MCP_OAUTH2_CLIENT_CREDENTIALS_REGISTRATION_ID);
+    bindRequest("forged-context-id", CONVERSATION_ID, USERNAME);
+
+    assertNull(McpToolUtils.getCurrentUserName());
+  }
+
+  @Test
+  void getCurrentUserName_externalOauthUser_returnsPrincipal() {// NOSONAR
+    authenticateAs(USERNAME);
+    bindRequest(McpToolUtils.TOOL_CONTEXT_ID, CONVERSATION_ID, "someone-else");
+
+    assertEquals(USERNAME, McpToolUtils.getCurrentUserName());
+  }
+
+  private static void authenticateAs(String principal) {
+    SecurityContextHolder.getContext()
+                         .setAuthentication(new UsernamePasswordAuthenticationToken(principal, "N/A", List.of()));
+  }
+
+  private static void bindRequest(String contextId, String conversationId, String userName) {
+    MockHttpServletRequest request = new MockHttpServletRequest();
+    request.addHeader(McpToolUtils.TOOL_CONTEXT_ID_PARAM, contextId);
+    request.addHeader(McpToolUtils.TOOL_CONTEXT_CONVERSATION_ID_PARAM, conversationId);
+    request.addHeader(McpToolUtils.TOOL_CONTEXT_USER_NAME_PARAM, userName);
+    RequestContextHolder.setRequestAttributes(new ServletRequestAttributes(request));
+  }
 
   @Test
   void fromJsonString_blank_returnsNull() {// NOSONAR

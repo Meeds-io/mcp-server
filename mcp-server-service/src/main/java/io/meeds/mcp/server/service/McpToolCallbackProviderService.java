@@ -21,6 +21,7 @@ package io.meeds.mcp.server.service;
 import static io.meeds.mcp.server.util.McpServerUtils.getMimeType;
 import static io.meeds.mcp.server.util.McpServerUtils.toAsyncToolSpecification;
 import static io.meeds.mcp.server.util.McpServerUtils.toSyncToolSpecification;
+import static io.meeds.mcp.server.util.McpToolUtils.getCurrentConversationId;
 import static io.meeds.mcp.server.util.McpToolUtils.getCurrentUserName;
 import static io.meeds.mcp.server.util.McpToolUtils.getMethodToolFieldValue;
 import static io.meeds.mcp.server.util.McpToolUtils.toCamelCase;
@@ -38,6 +39,7 @@ import java.util.stream.Collectors;
 import java.util.stream.Stream;
 
 import org.apache.commons.lang3.ObjectUtils;
+import org.apache.commons.lang3.StringUtils;
 import org.springframework.ai.chat.model.ToolContext;
 import org.springframework.ai.tool.ToolCallback;
 import org.springframework.ai.tool.ToolCallbackProvider;
@@ -55,8 +57,6 @@ import org.springframework.security.core.Authentication;
 import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.util.MimeType;
 import org.springframework.util.ReflectionUtils;
-import org.springframework.web.context.request.RequestContextHolder;
-import org.springframework.web.context.request.ServletRequestAttributes;
 
 import org.exoplatform.commons.exception.ObjectNotFoundException;
 import org.exoplatform.portal.config.UserACL;
@@ -75,7 +75,6 @@ import io.modelcontextprotocol.server.McpAsyncServer;
 import io.modelcontextprotocol.server.McpServerFeatures.AsyncToolSpecification;
 import io.modelcontextprotocol.server.McpServerFeatures.SyncToolSpecification;
 import io.modelcontextprotocol.server.McpSyncServer;
-import jakarta.servlet.http.HttpServletRequest;
 import lombok.AllArgsConstructor;
 import lombok.SneakyThrows;
 import lombok.extern.slf4j.Slf4j;
@@ -188,10 +187,11 @@ public class McpToolCallbackProviderService implements ToolCallbackProvider {
 
   public static class MethodToolCallbackWrapper implements ToolCallback {
 
-    private static final String          LLM_ERROR_EXPLANATION              =
-                                                               "Error calling Tool '%s'. Please check the allowed Tool input types. The original input was: %s.";
+    private static final String          LLM_ERROR_EXPLANATION            =
+                                                             "Error calling Tool '%s'. Please check the allowed Tool input types. The original input was: %s.";
 
-    private static final String          TOOL_CONTEXT_CONVERSATION_ID_PARAM = "conversationId";
+    private static final String          LLM_NO_CONVERSATION_EXPLANATION  =
+                                                             "Tool '%s' requires the user's approval, which can only be requested from a Meeds AI chat conversation, and this call carries no conversation. As LLM, tell the user that this tool can't be executed from here.";
 
     private final McpServerToolService   mcpServerToolService;
 
@@ -250,7 +250,7 @@ public class McpToolCallbackProviderService implements ToolCallbackProvider {
     private String call(String toolInput, ToolContext toolContext, Identity userIdentity) throws Exception {
       Authentication authentication = SecurityContextHolder.getContext().getAuthentication();
       String id = UUID.randomUUID().toString();
-      String conversationId = getConversationId(toolContext);
+      String conversationId = getCurrentConversationId();
       ConversationState.setCurrent(new ConversationState(userIdentity));
       UserToolExecutionBuilder executionBuilder = UserToolExecution.builder()
                                                                    .id(id)
@@ -263,6 +263,11 @@ public class McpToolCallbackProviderService implements ToolCallbackProvider {
         if (!mcpServerToolService.isAllowedTool(toolMethod.getName(), authentication)) {
           throw new IllegalAccessException("Tool '%s' execution isn't allowed switch selected scopes".formatted(toolMethod.getName()));
         } else if (mcpServerToolService.isRequireApproval(toolMethod.getName(), authentication)) {
+          if (StringUtils.isBlank(conversationId)) {
+            // The approval card lives in the chat conversation: without one,
+            // nobody could ever answer and the request would only time out
+            throw new IllegalStateException(LLM_NO_CONVERSATION_EXPLANATION.formatted(toolMethod.getName()));
+          }
           mcpToolApprovalService.traceToolExecution(executionBuilder.toolExecutionType(UserToolRequestType.APPROVAL_REQUEST)
                                                                     .build());
           boolean approved = mcpToolApprovalService.requestApproval(id,
@@ -328,23 +333,6 @@ public class McpToolCallbackProviderService implements ToolCallbackProvider {
         }
       } finally {
         ConversationState.setCurrent(null);
-      }
-    }
-
-    // Resolve the conversationId in-band from the ToolContext (thread-safe),
-    // falling back to the request header for backward compatibility
-    private String getConversationId(ToolContext toolContext) {
-      if (toolContext != null && toolContext.getContext() != null) {
-        Object conversationId = toolContext.getContext().get(TOOL_CONTEXT_CONVERSATION_ID_PARAM);
-        if (conversationId instanceof String conversationIdValue && !conversationIdValue.isBlank()) {
-          return conversationIdValue;
-        }
-      }
-      if (RequestContextHolder.getRequestAttributes() instanceof ServletRequestAttributes servletRequestAttributes) {
-        HttpServletRequest request = servletRequestAttributes.getRequest();
-        return request.getHeader(TOOL_CONTEXT_CONVERSATION_ID_PARAM);
-      } else {
-        return null;
       }
     }
 

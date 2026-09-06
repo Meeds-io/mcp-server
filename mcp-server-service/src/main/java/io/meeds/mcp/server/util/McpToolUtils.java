@@ -70,6 +70,8 @@ public class McpToolUtils {
 
   public static final String        TOOL_CONTEXT_ID_PARAM                         = "contextId";
 
+  public static final String        TOOL_CONTEXT_CONVERSATION_ID_PARAM            = "conversationId";
+
   public static final String        TOOL_CONTEXT_ID                               = UUID.randomUUID().toString();
 
   public static final String        TOOL_READ_SCOPE                               = "mcp.tools.read";
@@ -207,6 +209,16 @@ public class McpToolUtils {
     return field.get(toolCallback);
   }
 
+  /**
+   * Resolves the user on behalf of whom the current Tool is executed: the
+   * kernel {@link ConversationState} identity when set, else the authenticated
+   * principal, else, for the internal client-credentials call only, the
+   * {@link #TOOL_CONTEXT_USER_NAME_PARAM} request header. That header is
+   * trusted under the gate of {@link #getInternalToolCallRequest()} and
+   * nowhere else.
+   *
+   * @return the user name, or null when no user can be resolved
+   */
   public static String getCurrentUserName() {
     if (ConversationState.getCurrent() != null
         && ConversationState.getCurrent().getIdentity() != null) {
@@ -216,19 +228,58 @@ public class McpToolUtils {
       String authenticatedUser = SecurityContextHolder.getContext().getAuthentication().getName();
       if (!Strings.CS.equals(MCP_OAUTH2_CLIENT_CREDENTIALS_REGISTRATION_ID, authenticatedUser)) {
         return authenticatedUser;
-      } else if (RequestContextHolder.getRequestAttributes() instanceof ServletRequestAttributes servletRequestAttributes) {
-        HttpServletRequest request = servletRequestAttributes.getRequest();
+      } else {
         // Coming from internaly authenticated call using 'client_credentials'
         // OAuth mechanism
-        String userName = request.getHeader(TOOL_CONTEXT_USER_NAME_PARAM);
-        String contextId = request.getHeader(TOOL_CONTEXT_ID_PARAM);
-        if (Strings.CS.equals(contextId, TOOL_CONTEXT_ID)
-            && StringUtils.isNotBlank(userName)) {
+        HttpServletRequest request = getInternalToolCallRequest();
+        String userName = request == null ? null : request.getHeader(TOOL_CONTEXT_USER_NAME_PARAM);
+        if (StringUtils.isNotBlank(userName)) {
           return userName;
         }
       }
     }
     return null;
+  }
+
+  /**
+   * Resolves the AI chat conversation in which the current Tool is executed.
+   * The id travels in the {@link #TOOL_CONTEXT_CONVERSATION_ID_PARAM} request
+   * header set by the internal MCP client and is trusted under exactly the
+   * same gate as the user name ({@link #getInternalToolCallRequest()}): any
+   * other caller, an external OAuth MCP client for instance, gets null
+   * whatever it sends, so it can never choose the conversation its Tool
+   * executions are recorded in.
+   *
+   * @return the conversation id, or null when the call isn't the internal
+   *         client's or carries no conversation
+   */
+  public static String getCurrentConversationId() {
+    HttpServletRequest request = getInternalToolCallRequest();
+    return request == null ? null : StringUtils.trimToNull(request.getHeader(TOOL_CONTEXT_CONVERSATION_ID_PARAM));
+  }
+
+  /**
+   * Returns the current servlet request only when it is the internal
+   * client-credentials call (principal
+   * {@link #MCP_OAUTH2_CLIENT_CREDENTIALS_REGISTRATION_ID}) carrying a
+   * {@link #TOOL_CONTEXT_ID_PARAM} header equal to the JVM-private
+   * {@link #TOOL_CONTEXT_ID}. That is the only caller whose context headers
+   * (user name, conversation id) are trusted.
+   *
+   * @return the request, or null for any other caller or outside a request
+   */
+  private static HttpServletRequest getInternalToolCallRequest() {
+    if (SecurityContextHolder.getContext() == null
+        || SecurityContextHolder.getContext().getAuthentication() == null
+        || !Strings.CS.equals(MCP_OAUTH2_CLIENT_CREDENTIALS_REGISTRATION_ID,
+                              SecurityContextHolder.getContext().getAuthentication().getName())) {
+      return null;
+    } else if (RequestContextHolder.getRequestAttributes() instanceof ServletRequestAttributes servletRequestAttributes) {
+      HttpServletRequest request = servletRequestAttributes.getRequest();
+      return Strings.CS.equals(request.getHeader(TOOL_CONTEXT_ID_PARAM), TOOL_CONTEXT_ID) ? request : null;
+    } else {
+      return null;
+    }
   }
 
   public static String markdownToHtml(String markdown) {
