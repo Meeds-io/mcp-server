@@ -20,10 +20,13 @@ package io.meeds.mcp.server.tool;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNotEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
+import java.time.OffsetDateTime;
+import java.time.temporal.ChronoUnit;
 import java.util.List;
 import java.util.UUID;
 
@@ -55,7 +58,7 @@ class ActivityMcpToolTest extends IntegrationTestBase {
 
   @Test
   void createGetUpdateAndDeleteActivity() throws Exception { // NOSONAR
-    ActivityModel created = activityMcpTool.createActivity(null, "Initial **activity** content");
+    ActivityModel created = activityMcpTool.createActivity(null, "Initial **activity** content", null);
 
     assertNotNull(created);
     assertTrue(created.id() > 0);
@@ -65,7 +68,7 @@ class ActivityMcpToolTest extends IntegrationTestBase {
     assertNotNull(loaded);
     assertEquals(created.id(), loaded.id());
 
-    ActivityModel updated = activityMcpTool.updateActivity(created.id(), "Updated activity content");
+    ActivityModel updated = activityMcpTool.updateActivity(created.id(), "Updated activity content", null);
 
     assertNotNull(updated);
     assertEquals(created.id(), updated.id());
@@ -80,7 +83,7 @@ class ActivityMcpToolTest extends IntegrationTestBase {
   void createActivityInSpace() throws Exception {
     SpaceModel space = createTestSpace();
 
-    ActivityModel activity = activityMcpTool.createActivity(space.getSpaceId(), "Space activity content");
+    ActivityModel activity = activityMcpTool.createActivity(space.getSpaceId(), "Space activity content", null);
 
     assertNotNull(activity);
     assertEquals(space.getSpaceId(), activity.space().getSpaceId());
@@ -89,7 +92,7 @@ class ActivityMcpToolTest extends IntegrationTestBase {
   @Test
   void createActivityWithBlankContent() {
     assertThrows(IllegalArgumentException.class,
-                 () -> activityMcpTool.createActivity(null, " "));
+                 () -> activityMcpTool.createActivity(null, " ", null));
   }
 
   // 1x1 transparent PNG
@@ -117,7 +120,7 @@ class ActivityMcpToolTest extends IntegrationTestBase {
 
   @Test
   void attachImageToExistingActivity() throws Exception {
-    ActivityModel activity = activityMcpTool.createActivity(null, "Activity that will get an image");
+    ActivityModel activity = activityMcpTool.createActivity(null, "Activity that will get an image", null);
 
     ActivityModel updated = activityMcpTool.attachImageToActivity(activity.id(), null, PNG_1PX, null, null, "dot");
 
@@ -127,14 +130,14 @@ class ActivityMcpToolTest extends IntegrationTestBase {
 
   @Test
   void attachImageWithBothSourcesFails() throws Exception {
-    ActivityModel activity = activityMcpTool.createActivity(null, "Activity for a conflicting attach");
+    ActivityModel activity = activityMcpTool.createActivity(null, "Activity for a conflicting attach", null);
     assertThrows(IllegalArgumentException.class,
                  () -> activityMcpTool.attachImageToActivity(activity.id(), "https://8.8.8.8/x.png", PNG_1PX, null, null, null));
   }
 
   @Test
   void attachImageWithAttachmentIdButNoTypeFails() throws Exception {
-    ActivityModel activity = activityMcpTool.createActivity(null, "Activity for an incomplete ref");
+    ActivityModel activity = activityMcpTool.createActivity(null, "Activity for an incomplete ref", null);
     assertThrows(IllegalArgumentException.class,
                  () -> activityMcpTool.attachImageToActivity(activity.id(), null, null, null, "12345", null));
   }
@@ -145,8 +148,8 @@ class ActivityMcpToolTest extends IntegrationTestBase {
     // carries no image: the ACL-checked lookup succeeds, finds nothing, and the
     // tool reports it clearly (proves the attachment source path is exercised as
     // the user; production references an attachment committed in an earlier request)
-    ActivityModel source = activityMcpTool.createActivity(null, "Activity with no attachment");
-    ActivityModel target = activityMcpTool.createActivity(null, "Target reusing an attachment");
+    ActivityModel source = activityMcpTool.createActivity(null, "Activity with no attachment", null);
+    ActivityModel target = activityMcpTool.createActivity(null, "Target reusing an attachment", null);
 
     assertThrows(ObjectNotFoundException.class,
                  () -> activityMcpTool.attachImageToActivity(target.id(),
@@ -164,7 +167,7 @@ class ActivityMcpToolTest extends IntegrationTestBase {
 
   @Test
   void commentsLifecycle() throws Exception { // NOSONAR
-    ActivityModel activity = activityMcpTool.createActivity(null, "Activity with comments");
+    ActivityModel activity = activityMcpTool.createActivity(null, "Activity with comments", null);
 
     ActivityCommentModel comment = activityMcpTool.createActivityComment(activity.id(), "First comment");
 
@@ -190,7 +193,7 @@ class ActivityMcpToolTest extends IntegrationTestBase {
 
   @Test
   void likeUnlikeAndListLikers() throws Exception { // NOSONAR
-    ActivityModel activity = activityMcpTool.createActivity(null, "Activity to like");
+    ActivityModel activity = activityMcpTool.createActivity(null, "Activity to like", null);
 
     activityMcpTool.likeTheActivity(activity.id());
 
@@ -204,7 +207,7 @@ class ActivityMcpToolTest extends IntegrationTestBase {
 
   @Test
   void pinAndUnpinActivity() throws Exception { // NOSONAR
-    ActivityModel activity = activityMcpTool.createActivity(null, "Activity to pin");
+    ActivityModel activity = activityMcpTool.createActivity(null, "Activity to pin", null);
 
     activityMcpTool.pinActivity(activity.id());
     activityMcpTool.unpinActivity(activity.id());
@@ -212,7 +215,7 @@ class ActivityMcpToolTest extends IntegrationTestBase {
 
   @Test
   void searchActivitiesFallsBackToGetActivitiesWhenNoFilter() throws Exception { // NOSONAR
-    activityMcpTool.createActivity(null, "Search fallback activity " + UUID.randomUUID());
+    activityMcpTool.createActivity(null, "Search fallback activity " + UUID.randomUUID(), null);
 
     List<ActivityModel> activities = activityMcpTool.searchActivities(null, null, false, 0, 10);
 
@@ -222,7 +225,7 @@ class ActivityMcpToolTest extends IntegrationTestBase {
   @Test
   void searchActivitiesByQuery() throws Exception { // NOSONAR
     String marker = "mcp-search-" + UUID.randomUUID();
-    activityMcpTool.createActivity(null, marker);
+    activityMcpTool.createActivity(null, marker, null);
 
     List<ActivityModel> activities = activityMcpTool.searchActivities(marker, null, false, 0, 10);
 
@@ -238,7 +241,7 @@ class ActivityMcpToolTest extends IntegrationTestBase {
 
   @Test
   void getActivities() throws Exception { // NOSONAR
-    activityMcpTool.createActivity(null, "Activity list item");
+    activityMcpTool.createActivity(null, "Activity list item", null);
 
     List<ActivityModel> activities = activityMcpTool.getActivities(null, 0, 10);
 
@@ -247,7 +250,7 @@ class ActivityMcpToolTest extends IntegrationTestBase {
 
   @Test
   void getActivitiesSinceDays() throws Exception { // NOSONAR
-    activityMcpTool.createActivity(null, "Recent activity");
+    activityMcpTool.createActivity(null, "Recent activity", null);
 
     List<ActivityModel> activities = activityMcpTool.getActivitiesSinceDays(null, 1L);
 
@@ -256,7 +259,7 @@ class ActivityMcpToolTest extends IntegrationTestBase {
 
   @Test
   void shareActivityToSpace() throws Exception {
-    ActivityModel activity = activityMcpTool.createActivity(null, "Activity to share");
+    ActivityModel activity = activityMcpTool.createActivity(null, "Activity to share", null);
     SpaceModel space = createTestSpace();
 
     ActivityModel shared = activityMcpTool.shareActivityToSpace(activity.id(), space.getSpaceId());
@@ -266,14 +269,14 @@ class ActivityMcpToolTest extends IntegrationTestBase {
 
   @Test
   void createActivityCommentWithImageRequiresAnImage() throws Exception {
-    ActivityModel activity = activityMcpTool.createActivity(null, "Activity to comment on");
+    ActivityModel activity = activityMcpTool.createActivity(null, "Activity to comment on", null);
     assertThrows(IllegalArgumentException.class,
                  () -> activityMcpTool.createActivityCommentWithImage(activity.id(), "no image", null, null, null, null, null));
   }
 
   @Test
   void createActivityCommentWithImageFromBase64() throws Exception {
-    ActivityModel activity = activityMcpTool.createActivity(null, "Activity to comment on with an image");
+    ActivityModel activity = activityMcpTool.createActivity(null, "Activity to comment on with an image", null);
 
     ActivityCommentModel comment = activityMcpTool.createActivityCommentWithImage(activity.id(),
                                                                                   "look at this",
@@ -288,7 +291,7 @@ class ActivityMcpToolTest extends IntegrationTestBase {
 
   @Test
   void attachImageToExistingComment() throws Exception {
-    ActivityModel activity = activityMcpTool.createActivity(null, "Activity with a comment to decorate");
+    ActivityModel activity = activityMcpTool.createActivity(null, "Activity with a comment to decorate", null);
     ActivityCommentModel comment = activityMcpTool.createActivityComment(activity.id(), "plain comment");
 
     ActivityCommentModel updated = activityMcpTool.attachImageToComment(comment.id(), null, PNG_1PX, null, null, "dot");
@@ -299,7 +302,7 @@ class ActivityMcpToolTest extends IntegrationTestBase {
 
   @Test
   void attachImageToCommentFailsForNonComment() throws Exception {
-    ActivityModel activity = activityMcpTool.createActivity(null, "This is an activity, not a comment");
+    ActivityModel activity = activityMcpTool.createActivity(null, "This is an activity, not a comment", null);
     assertThrows(ObjectNotFoundException.class,
                  () -> activityMcpTool.attachImageToComment(activity.id(), null, PNG_1PX, null, null, null));
   }
@@ -314,7 +317,7 @@ class ActivityMcpToolTest extends IntegrationTestBase {
 
   @Test
   void getActivityAttachmentsIsEmptyWhenNoImage() throws Exception {
-    ActivityModel activity = activityMcpTool.createActivity(null, "no image here");
+    ActivityModel activity = activityMcpTool.createActivity(null, "no image here", null);
 
     List<AttachmentModel> attachments = activityMcpTool.getActivityAttachments(activity.id());
 
@@ -324,7 +327,7 @@ class ActivityMcpToolTest extends IntegrationTestBase {
 
   @Test
   void getCommentAttachmentsIsEmptyWhenNoImage() throws Exception {
-    ActivityModel activity = activityMcpTool.createActivity(null, "activity for a plain comment");
+    ActivityModel activity = activityMcpTool.createActivity(null, "activity for a plain comment", null);
     ActivityCommentModel comment = activityMcpTool.createActivityComment(activity.id(), "plain comment");
 
     List<AttachmentModel> attachments = activityMcpTool.getCommentAttachments(comment.id());
@@ -335,7 +338,7 @@ class ActivityMcpToolTest extends IntegrationTestBase {
 
   @Test
   void removeImageFromActivityWithNoAttachmentFails() throws Exception {
-    ActivityModel activity = activityMcpTool.createActivity(null, "nothing to remove");
+    ActivityModel activity = activityMcpTool.createActivity(null, "nothing to remove", null);
 
     assertThrows(ObjectNotFoundException.class,
                  () -> activityMcpTool.removeImageFromActivity(activity.id(), null));
@@ -349,7 +352,7 @@ class ActivityMcpToolTest extends IntegrationTestBase {
 
   @Test
   void removeImageFromCommentFailsForNonComment() throws Exception {
-    ActivityModel activity = activityMcpTool.createActivity(null, "an activity, not a comment");
+    ActivityModel activity = activityMcpTool.createActivity(null, "an activity, not a comment", null);
 
     assertThrows(ObjectNotFoundException.class,
                  () -> activityMcpTool.removeImageFromComment(activity.id(), null));
@@ -366,6 +369,138 @@ class ActivityMcpToolTest extends IntegrationTestBase {
                                     Registration.OPEN,
                                     List.of(),
                                     null);
+  }
+
+
+  private String futureIso(long daysAhead) {
+    return OffsetDateTime.now().plusDays(daysAhead).truncatedTo(ChronoUnit.MINUTES).toString();
+  }
+
+  @Test
+  void createScheduledActivityIsNotPublishedYet() throws Exception {
+    String when = futureIso(2);
+    ActivityModel scheduled = activityMcpTool.createActivity(null, "A post for later", when);
+
+    assertNotNull(scheduled);
+    assertTrue(scheduled.id() > 0);
+    // the publication time round-trips, marking the post as not yet published
+    assertNotNull(scheduled.publicationStartTime());
+    // a scheduled post stays hidden from streams until it is published
+    assertTrue(scheduled.hidden());
+
+    activityMcpTool.deleteActivity(scheduled.id());
+  }
+
+  @Test
+  void createActivityWithoutScheduleIsPublishedImmediately() throws Exception {
+    ActivityModel posted = activityMcpTool.createActivity(null, "A post for right now", null);
+
+    assertNotNull(posted.publicationStartTime() == null ? "null" : "set");
+    assertFalse(posted.hidden());
+
+    activityMcpTool.deleteActivity(posted.id());
+  }
+
+  @Test
+  void createScheduledActivityRejectsAPastTime() {
+    String past = OffsetDateTime.now().minusDays(1).truncatedTo(ChronoUnit.MINUTES).toString();
+
+    assertThrows(IllegalArgumentException.class,
+                 () -> activityMcpTool.createActivity(null, "Too late", past));
+  }
+
+  @Test
+  void createScheduledActivityRejectsAnUnparseableTime() {
+    assertThrows(IllegalArgumentException.class,
+                 () -> activityMcpTool.createActivity(null, "Bad date", "next tuesday-ish"));
+  }
+
+  @Test
+  void rescheduleAScheduledActivityWithoutChangingItsContent() throws Exception {
+    ActivityModel scheduled = activityMcpTool.createActivity(null, "Original text", futureIso(2));
+    String firstTime = scheduled.publicationStartTime();
+
+    ActivityModel rescheduled = activityMcpTool.updateActivity(scheduled.id(), null, futureIso(5));
+
+    assertEquals(scheduled.id(), rescheduled.id());
+    assertNotNull(rescheduled.publicationStartTime());
+    assertNotEquals(firstTime, rescheduled.publicationStartTime());
+    // the body is untouched when html_content is omitted
+    assertTrue(rescheduled.content().contains("Original"));
+
+    activityMcpTool.deleteActivity(scheduled.id());
+  }
+
+  @Test
+  void updateActivityRejectsSchedulingAnAlreadyPublishedPost() throws Exception {
+    ActivityModel posted = activityMcpTool.createActivity(null, "Already out", null);
+
+    assertThrows(IllegalArgumentException.class,
+                 () -> activityMcpTool.updateActivity(posted.id(), null, futureIso(3)));
+
+    activityMcpTool.deleteActivity(posted.id());
+  }
+
+  @Test
+  void updateActivityRequiresSomethingToChange() throws Exception {
+    ActivityModel posted = activityMcpTool.createActivity(null, "Unchanged", null);
+
+    assertThrows(IllegalArgumentException.class,
+                 () -> activityMcpTool.updateActivity(posted.id(), null, null));
+
+    activityMcpTool.deleteActivity(posted.id());
+  }
+
+  @Test
+  void getScheduledActivitiesListsOnlyPendingScheduledPosts() throws Exception {
+    ActivityModel posted = activityMcpTool.createActivity(null, "Published post", null);
+    ActivityModel scheduled = activityMcpTool.createActivity(null, "Scheduled post", futureIso(2));
+
+    List<ActivityModel> pending = activityMcpTool.getScheduledActivities(null, 0, 20);
+
+    assertNotNull(pending);
+    assertTrue(pending.stream().anyMatch(a -> a.id() == scheduled.id()));
+    assertFalse(pending.stream().anyMatch(a -> a.id() == posted.id()));
+
+    activityMcpTool.deleteActivity(scheduled.id());
+    activityMcpTool.deleteActivity(posted.id());
+  }
+
+  @Test
+  void publishScheduledActivityNowMakesItVisible() throws Exception {
+    ActivityModel scheduled = activityMcpTool.createActivity(null, "Publish me early", futureIso(4));
+
+    ActivityModel published = activityMcpTool.publishScheduledActivityNow(scheduled.id());
+
+    assertEquals(scheduled.id(), published.id());
+    // publication clears the schedule and unhides the activity
+    assertFalse(published.hidden());
+    assertTrue(activityMcpTool.getScheduledActivities(null, 0, 20)
+                              .stream()
+                              .noneMatch(a -> a.id() == scheduled.id()));
+
+    activityMcpTool.deleteActivity(scheduled.id());
+  }
+
+  @Test
+  void publishScheduledActivityNowRejectsAnAlreadyPublishedPost() throws Exception {
+    ActivityModel posted = activityMcpTool.createActivity(null, "Nothing to publish", null);
+
+    assertThrows(IllegalArgumentException.class,
+                 () -> activityMcpTool.publishScheduledActivityNow(posted.id()));
+
+    activityMcpTool.deleteActivity(posted.id());
+  }
+
+  @Test
+  void deletingAScheduledActivityCancelsIt() throws Exception {
+    ActivityModel scheduled = activityMcpTool.createActivity(null, "Cancel me", futureIso(2));
+
+    activityMcpTool.deleteActivity(scheduled.id());
+
+    assertTrue(activityMcpTool.getScheduledActivities(null, 0, 20)
+                              .stream()
+                              .noneMatch(a -> a.id() == scheduled.id()));
   }
 
 }
