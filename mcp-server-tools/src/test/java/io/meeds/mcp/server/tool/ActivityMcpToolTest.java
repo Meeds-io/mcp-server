@@ -215,12 +215,14 @@ class ActivityMcpToolTest extends IntegrationTestBase {
     ActivityCommentModel stored = activityMcpTool.getActivityComment(reply.id());
     assertEquals(parent.id(), stored.parentCommentId());
     assertEquals(activity.id(), stored.activityId());
-    // and the parent is the only top-level comment: the reply is not a stray
-    // top-level comment on the post (get_activity_comments lists top-level
-    // comments only, replies are read with get_activity_comment)
-    List<ActivityCommentModel> topLevel = activityMcpTool.getActivityComments(activity.id(), 0, 10);
-    assertEquals(1, topLevel.size());
-    assertEquals(parent.id(), topLevel.getFirst().id());
+    // and the thread shows the reply under its parent, not as a stray
+    // top-level comment on the post
+    List<ActivityCommentModel> thread = activityMcpTool.getActivityComments(activity.id(), 0, 10);
+    assertEquals(2, thread.size(), "The reply is part of the thread the assistant reads");
+    assertEquals(parent.id(), thread.get(0).id());
+    assertNull(thread.get(0).parentCommentId());
+    assertEquals(reply.id(), thread.get(1).id());
+    assertEquals(parent.id(), thread.get(1).parentCommentId());
   }
 
   @Test
@@ -234,6 +236,57 @@ class ActivityMcpToolTest extends IntegrationTestBase {
     // Social threads one level deep, as the stream's Reply action does: a reply
     // stored under a reply would never be displayed
     assertEquals(parent.id(), replyToReply.parentCommentId());
+    // so the thread is the top-level comment followed by both replies, each
+    // naming the top-level comment as its parent
+    List<ActivityCommentModel> thread = activityMcpTool.getActivityComments(activity.id(), 0, 10);
+    assertEquals(List.of(parent.id(), reply.id(), replyToReply.id()), thread.stream().map(ActivityCommentModel::id).toList());
+    assertEquals(parent.id(), thread.get(1).parentCommentId());
+    assertEquals(parent.id(), thread.get(2).parentCommentId());
+  }
+
+  @Test
+  void getActivityCommentsKeepsAReplyRightAfterItsParentNotInPostingOrder() throws Exception {
+    ActivityModel activity = activityMcpTool.createActivity(null, "Activity with two discussions", null);
+    ActivityCommentModel first = activityMcpTool.createActivityComment(activity.id(), "First question", null);
+    nextMillisecond();
+    ActivityCommentModel second = activityMcpTool.createActivityComment(activity.id(), "Second question", null);
+    nextMillisecond();
+    // the answer to the first question is posted after the second question
+    ActivityCommentModel lateReply = activityMcpTool.createActivityComment(activity.id(), "Answer to the first", first.id());
+
+    List<ActivityCommentModel> thread = activityMcpTool.getActivityComments(activity.id(), 0, 10);
+
+    // thread order, not posting order: the reply follows the comment it
+    // answers, so the model reads each discussion as one block
+    assertEquals(List.of(first.id(), lateReply.id(), second.id()), thread.stream().map(ActivityCommentModel::id).toList());
+    assertEquals(first.id(), thread.get(1).parentCommentId());
+    assertNull(thread.get(2).parentCommentId());
+  }
+
+  @Test
+  void getActivityCommentsPagesTopLevelCommentsAndCarriesTheirReplies() throws Exception {
+    ActivityModel activity = activityMcpTool.createActivity(null, "Activity with a paged thread", null);
+    ActivityCommentModel first = activityMcpTool.createActivityComment(activity.id(), "First question", null);
+    nextMillisecond();
+    ActivityCommentModel firstReplyA = activityMcpTool.createActivityComment(activity.id(), "First answer", first.id());
+    nextMillisecond();
+    ActivityCommentModel firstReplyB = activityMcpTool.createActivityComment(activity.id(), "Second answer", first.id());
+    nextMillisecond();
+    ActivityCommentModel second = activityMcpTool.createActivityComment(activity.id(), "Second question", null);
+    nextMillisecond();
+    ActivityCommentModel secondReply = activityMcpTool.createActivityComment(activity.id(), "Its answer", second.id());
+
+    // limit counts top-level comments: a page of one comment brings its replies
+    List<ActivityCommentModel> firstPage = activityMcpTool.getActivityComments(activity.id(), 0, 1);
+    assertEquals(List.of(first.id(), firstReplyA.id(), firstReplyB.id()),
+                 firstPage.stream().map(ActivityCommentModel::id).toList());
+
+    // offset counts top-level comments too: the next page is the second
+    // discussion, none of the first one's replies leak into it
+    List<ActivityCommentModel> secondPage = activityMcpTool.getActivityComments(activity.id(), 1, 1);
+    assertEquals(List.of(second.id(), secondReply.id()), secondPage.stream().map(ActivityCommentModel::id).toList());
+
+    assertTrue(activityMcpTool.getActivityComments(activity.id(), 2, 1).isEmpty());
   }
 
   @Test
@@ -585,6 +638,21 @@ class ActivityMcpToolTest extends IntegrationTestBase {
     assertTrue(activityMcpTool.getScheduledActivities(null, 0, 20)
                               .stream()
                               .noneMatch(a -> a.id() == scheduled.id()));
+  }
+
+  /**
+   * Social stamps a comment's posted time with a millisecond {@code Date} at
+   * save and orders a thread by it, so two comments posted in the same
+   * millisecond have no defined order. Waits for the next millisecond so the
+   * ordering assertions are deterministic.
+   *
+   * @throws InterruptedException when the wait is interrupted
+   */
+  private static void nextMillisecond() throws InterruptedException {
+    long now = System.currentTimeMillis();
+    while (System.currentTimeMillis() == now) {
+      Thread.sleep(1);
+    }
   }
 
 }
