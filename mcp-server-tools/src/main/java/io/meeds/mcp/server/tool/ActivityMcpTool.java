@@ -601,8 +601,29 @@ public class ActivityMcpTool implements McpToolPlugin {
                                   .toList();
   }
 
-  public ActivityCommentModel createActivityComment(long activityId, String comment) throws IllegalAccessException,
-                                                                                     ObjectNotFoundException {
+  /**
+   * Posts a comment on an activity as the current user. With a
+   * {@code parentCommentId} the comment is posted as a threaded reply to that
+   * comment, exactly as the "Reply" action of the activity stream does; without
+   * one it is a top-level comment, as before this parameter existed. The ACL
+   * check is the activity's own view check in both cases: a reply is a comment
+   * of the same activity and inherits its visibility, so no second check is
+   * needed and none is added.
+   *
+   * @param activityId      identifier of the activity to comment on
+   * @param comment         comment text
+   * @param parentCommentId identifier of the comment to reply to, or null for a
+   *                        top-level comment
+   * @return the created comment
+   * @throws IllegalAccessException  when the activity isn't viewable by the
+   *                                 current user
+   * @throws ObjectNotFoundException when the activity or the parent comment
+   *                                 doesn't exist
+   */
+  public ActivityCommentModel createActivityComment(long activityId,
+                                                    String comment,
+                                                    Long parentCommentId) throws IllegalAccessException,
+                                                                          ObjectNotFoundException {
     org.exoplatform.services.security.Identity authenticatedUserIdentity = getCurrentUserAclIdentity();
     ExoSocialActivity activity = activityManager.getActivity(String.valueOf(activityId));
     if (activity == null) {
@@ -610,6 +631,7 @@ public class ActivityMcpTool implements McpToolPlugin {
     } else if (!activityManager.isActivityViewable(activity, authenticatedUserIdentity)) {
       throw new IllegalAccessException(ACTIVITY_ACCESS_DENIED.formatted(activityId));
     }
+    ExoSocialActivity parentComment = getParentComment(activityId, parentCommentId);
 
     String authenticatedUser = authenticatedUserIdentity.getUserId();
     Identity currentUserIdentity = identityManager.getOrCreateUserIdentity(authenticatedUser);
@@ -618,10 +640,69 @@ public class ActivityMcpTool implements McpToolPlugin {
     commentActivity.setTitle(comment);
     commentActivity.setPosterId(currentUserIdentity.getId());
     commentActivity.setUserId(currentUserIdentity.getId());
+    if (parentComment != null) {
+      // Social threads one level deep: the stream's Reply action answers a reply
+      // under the reply's own parent, and the comments drawer only lists the
+      // sub-comments of a top-level comment. Follow it, or the reply is stored
+      // under a reply and never displayed.
+      commentActivity.setParentCommentId(StringUtils.defaultIfBlank(parentComment.getParentCommentId(),
+                                                                    parentComment.getId()));
+    }
     activityManager.saveComment(activity, commentActivity);
     return toActivityCommentModel(commentActivity.getId());
   }
 
+  /**
+   * Resolves the comment a reply answers and checks it belongs to the activity
+   * the reply is posted on. Social performs no such check: the storage attaches
+   * the new comment under whatever parent id it is given, so a parent from
+   * another activity would silently thread the reply into a stream the caller
+   * never named. The two objects exist and are visible; what is wrong is the
+   * pair of parameters, hence an {@link IllegalArgumentException} (400) with the
+   * tool that reveals the right activity id, not a 404 that would make the
+   * model believe the comment doesn't exist.
+   *
+   * @param activityId      identifier of the activity being commented on
+   * @param parentCommentId identifier of the comment to reply to, may be null
+   * @return the parent comment, or null when no parent was given
+   * @throws ObjectNotFoundException when no comment has the given id
+   */
+  private ExoSocialActivity getParentComment(long activityId, Long parentCommentId) throws ObjectNotFoundException {
+    if (parentCommentId == null) {
+      return null;
+    }
+    ExoSocialActivity parentComment = activityManager.getActivity(COMMENT_ID_PREFIX + parentCommentId);
+    if (parentComment == null || !parentComment.isComment()) {
+      throw new ObjectNotFoundException("No activity comment found with id '%s'. Use get_activity_comments to list comment ids.".formatted(parentCommentId));
+    } else if (!StringUtils.equals(parentComment.getParentId(), String.valueOf(activityId))) {
+      throw new IllegalArgumentException(("Comment with id '%s' isn't a comment of activity '%s' but of activity '%s'. "
+          + "Use get_activity_comment to read the comment's activity_id and pass that activity_id.").formatted(parentCommentId,
+                                                                                                             activityId,
+                                                                                                             parentComment.getParentId()));
+    }
+    return parentComment;
+  }
+
+  /**
+   * Posts a top-level comment carrying an image, as the current user. The
+   * comment is created through {@link #createActivityComment} without a parent,
+   * then the image is attached to it; when the attachment fails the comment is
+   * deleted again so nothing half-posted remains.
+   *
+   * @param activityId           identifier of the activity to comment on
+   * @param comment              comment text
+   * @param imageUrl             URL of the image to attach, may be null
+   * @param imageBase64          base64 content of the image to attach, may be null
+   * @param attachmentObjectType type of the object an existing attachment is
+   *                             copied from, may be null
+   * @param attachmentObjectId   identifier of the object an existing attachment
+   *                             is copied from, may be null
+   * @param altText              alternative text of the image, may be null
+   * @return the created comment
+   * @throws IllegalAccessException  when the activity isn't viewable by the
+   *                                 current user
+   * @throws ObjectNotFoundException when the activity doesn't exist
+   */
   public ActivityCommentModel createActivityCommentWithImage(long activityId,
                                                              String comment,
                                                              String imageUrl,
@@ -634,7 +715,7 @@ public class ActivityMcpTool implements McpToolPlugin {
       throw new IllegalArgumentException("Provide an image via image_url, image_base64 or attachment_object_id. To comment without an image, use create_activity_comment.");
     }
     String uploadId = resolveImageUploadId(imageUrl, imageBase64, attachmentObjectType, attachmentObjectId);
-    ActivityCommentModel model = createActivityComment(activityId, comment);
+    ActivityCommentModel model = createActivityComment(activityId, comment, null);
     // a comment is itself an activity; its attachment uses object type "activity" with the
     // comment's *prefixed* id ("comment<id>"), which is the metadata object id the comment renders from
     String commentActivityId = COMMENT_ID_PREFIX + model.id();
