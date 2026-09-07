@@ -848,7 +848,7 @@
     {
       "name": "create_activity_comment",
       "title": "Post an activity comment",
-      "description": "Add a new activity's comment to an activity.",
+      "description": "Add a new activity's comment to an activity. Pass parent_comment_id to post it as a threaded reply to an existing comment of that activity instead of a top-level comment.",
       "input_schema": {
         "type": "object",
         "properties": {
@@ -857,6 +857,10 @@
           },
           "comment": {
             "type": "string"
+          },
+          "parent_comment_id": {
+            "type": "integer",
+            "description": "Optional identifier of the comment to reply to. The comment must belong to activity_id (get_activity_comment returns a comment's activity_id and parent_comment_id). Omit to post a top-level comment. A reply to a reply is threaded under the same top-level comment, as the Reply action of the activity stream does."
           }
         },
         "required": [
