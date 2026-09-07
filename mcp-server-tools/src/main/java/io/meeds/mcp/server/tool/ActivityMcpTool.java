@@ -582,6 +582,29 @@ public class ActivityMcpTool implements McpToolPlugin {
     activityManager.unpinActivity(activity.getId());
   }
 
+  /**
+   * Reads the discussion under an activity as the current user: its top-level
+   * comments and the replies threaded under them, in thread order. Social
+   * places every reply right after the comment it answers and the reply
+   * carries that comment as {@code parentCommentId}, so a flat list keeps the
+   * thread structure visible; a top-level comment has no
+   * {@code parentCommentId}. Social threads one level deep, so a reply is
+   * always the child of a top-level comment.
+   * <p>
+   * {@code offset} and {@code limit} page the top-level comments only: each
+   * page carries the replies of the comments it holds, so the number of rows
+   * returned can exceed {@code limit}.
+   *
+   * @param activityId identifier of the activity (post) whose thread is read
+   * @param offset index of the first top-level comment, defaults to
+   *          {@link #DEFAULT_OFFSET}
+   * @param limit number of top-level comments per page, defaults to
+   *          {@link #DEFAULT_LIMIT}
+   * @return the comments of the page with their replies, in thread order
+   * @throws IllegalAccessException when the current user can't view the
+   *           activity
+   * @throws ObjectNotFoundException when no activity has that identifier
+   */
   public List<ActivityCommentModel> getActivityComments(long activityId,
                                                         Integer offset,
                                                         Integer limit) throws IllegalAccessException, ObjectNotFoundException {
@@ -592,7 +615,9 @@ public class ActivityMcpTool implements McpToolPlugin {
     } else if (!activityManager.isActivityViewable(activity, authenticatedUserIdentity)) {
       throw new IllegalAccessException(ACTIVITY_ACCESS_DENIED.formatted(activityId));
     }
-    ExoSocialActivity[] comments = activityManager.getCommentsWithListAccess(activity)
+    // loadSubComments = true: the replies of the page's comments come along,
+    // each one right after its parent (Social's CommentComparator)
+    ExoSocialActivity[] comments = activityManager.getCommentsWithListAccess(activity, true)
                                                   .load(getInteger(offset, DEFAULT_OFFSET), getInteger(limit, DEFAULT_LIMIT));
     return comments == null ? Collections.emptyList() :
                             Stream.of(comments)

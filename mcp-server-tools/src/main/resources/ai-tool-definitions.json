@@ -669,7 +669,7 @@
     {
       "name": "get_activity_comment",
       "title": "Get an activity comment",
-      "description": "Get a specific comment on an activity.",
+      "description": "Get a specific comment on an activity. A reply carries `parent_comment_id`, the comment it answers; read the whole thread with `get_activity_comments` and the comment's `activity_id`.",
       "input_schema": {
         "type": "object",
         "properties": {
@@ -820,7 +820,7 @@
     {
       "name": "get_activity_comments",
       "title": "Get activity comments",
-      "description": "Retrieve a paginated list of comments for an activity (Also Known As 'post').",
+      "description": "Read the discussion under an activity (Also Known As 'post'): its comments and the replies to them, as a flat paginated list in thread order. A reply carries `parent_comment_id`, the comment it answers, and follows that comment in the list; a top-level comment has no `parent_comment_id`. `offset` and `limit` (default 10) count top-level comments only: each page returns those comments together with all their replies, so lower `limit` to walk a long discussion page by page.",
       "input_schema": {
         "type": "object",
         "properties": {
