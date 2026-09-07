@@ -22,6 +22,7 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -169,7 +170,7 @@ class ActivityMcpToolTest extends IntegrationTestBase {
   void commentsLifecycle() throws Exception { // NOSONAR
     ActivityModel activity = activityMcpTool.createActivity(null, "Activity with comments", null);
 
-    ActivityCommentModel comment = activityMcpTool.createActivityComment(activity.id(), "First comment");
+    ActivityCommentModel comment = activityMcpTool.createActivityComment(activity.id(), "First comment", null);
 
     assertNotNull(comment);
     assertEquals(activity.id(), comment.activityId());
@@ -189,6 +190,89 @@ class ActivityMcpToolTest extends IntegrationTestBase {
 
     assertNotNull(comments);
     assertTrue(comments.stream().anyMatch(c -> c.id() == comment.id()));
+  }
+
+  @Test
+  void createActivityCommentWithoutParentStaysTopLevel() throws Exception {
+    ActivityModel activity = activityMcpTool.createActivity(null, "Activity for a top-level comment", null);
+
+    ActivityCommentModel comment = activityMcpTool.createActivityComment(activity.id(), "Top-level comment", null);
+
+    assertEquals(activity.id(), comment.activityId());
+    assertNull(comment.parentCommentId(), "Without a parent the comment must not be threaded under anything");
+  }
+
+  @Test
+  void createActivityCommentWithParentIsThreadedUnderIt() throws Exception {
+    ActivityModel activity = activityMcpTool.createActivity(null, "Activity for a threaded reply", null);
+    ActivityCommentModel parent = activityMcpTool.createActivityComment(activity.id(), "A question", null);
+
+    ActivityCommentModel reply = activityMcpTool.createActivityComment(activity.id(), "An answer", parent.id());
+
+    assertEquals(activity.id(), reply.activityId());
+    assertEquals(parent.id(), reply.parentCommentId());
+    // the threading is what the storage holds, not what the created model says
+    ActivityCommentModel stored = activityMcpTool.getActivityComment(reply.id());
+    assertEquals(parent.id(), stored.parentCommentId());
+    assertEquals(activity.id(), stored.activityId());
+    // and the parent is the only top-level comment: the reply is not a stray
+    // top-level comment on the post (get_activity_comments lists top-level
+    // comments only, replies are read with get_activity_comment)
+    List<ActivityCommentModel> topLevel = activityMcpTool.getActivityComments(activity.id(), 0, 10);
+    assertEquals(1, topLevel.size());
+    assertEquals(parent.id(), topLevel.getFirst().id());
+  }
+
+  @Test
+  void createActivityCommentReplyingToAReplyIsThreadedUnderTheTopLevelComment() throws Exception {
+    ActivityModel activity = activityMcpTool.createActivity(null, "Activity for a reply to a reply", null);
+    ActivityCommentModel parent = activityMcpTool.createActivityComment(activity.id(), "A question", null);
+    ActivityCommentModel reply = activityMcpTool.createActivityComment(activity.id(), "An answer", parent.id());
+
+    ActivityCommentModel replyToReply = activityMcpTool.createActivityComment(activity.id(), "A follow-up", reply.id());
+
+    // Social threads one level deep, as the stream's Reply action does: a reply
+    // stored under a reply would never be displayed
+    assertEquals(parent.id(), replyToReply.parentCommentId());
+  }
+
+  @Test
+  void createActivityCommentRefusesAParentFromAnotherActivity() throws Exception {
+    ActivityModel activity = activityMcpTool.createActivity(null, "Activity owning the parent comment", null);
+    ActivityCommentModel foreignParent = activityMcpTool.createActivityComment(activity.id(), "A comment elsewhere", null);
+    ActivityModel otherActivity = activityMcpTool.createActivity(null, "Activity the reply is posted on", null);
+
+    IllegalArgumentException refused =
+                                     assertThrows(IllegalArgumentException.class,
+                                                  () -> activityMcpTool.createActivityComment(otherActivity.id(),
+                                                                                              "A misplaced reply",
+                                                                                              foreignParent.id()));
+
+    assertTrue(refused.getMessage().contains(String.valueOf(activity.id())),
+               "The message names the activity the comment actually belongs to");
+    // nothing was posted, neither threaded nor at top level
+    assertTrue(activityMcpTool.getActivityComments(otherActivity.id(), 0, 10).isEmpty());
+    assertEquals(1, activityMcpTool.getActivityComments(activity.id(), 0, 10).size());
+  }
+
+  @Test
+  void createActivityCommentRefusesAnUnknownParent() throws Exception {
+    ActivityModel activity = activityMcpTool.createActivity(null, "Activity for an unknown parent", null);
+
+    assertThrows(ObjectNotFoundException.class,
+                 () -> activityMcpTool.createActivityComment(activity.id(), "A reply to nothing", 999999999L));
+
+    assertTrue(activityMcpTool.getActivityComments(activity.id(), 0, 10).isEmpty());
+  }
+
+  @Test
+  void createActivityCommentRefusesTheActivityItselfAsParent() throws Exception {
+    ActivityModel activity = activityMcpTool.createActivity(null, "Activity passed as its own parent", null);
+
+    // an activity id is not a comment id: the storage would resolve it, but
+    // threading a comment under a post is not a reply
+    assertThrows(ObjectNotFoundException.class,
+                 () -> activityMcpTool.createActivityComment(activity.id(), "A reply to the post", activity.id()));
   }
 
   @Test
@@ -292,7 +376,7 @@ class ActivityMcpToolTest extends IntegrationTestBase {
   @Test
   void attachImageToExistingComment() throws Exception {
     ActivityModel activity = activityMcpTool.createActivity(null, "Activity with a comment to decorate", null);
-    ActivityCommentModel comment = activityMcpTool.createActivityComment(activity.id(), "plain comment");
+    ActivityCommentModel comment = activityMcpTool.createActivityComment(activity.id(), "plain comment", null);
 
     ActivityCommentModel updated = activityMcpTool.attachImageToComment(comment.id(), null, PNG_1PX, null, null, "dot");
 
@@ -328,7 +412,7 @@ class ActivityMcpToolTest extends IntegrationTestBase {
   @Test
   void getCommentAttachmentsIsEmptyWhenNoImage() throws Exception {
     ActivityModel activity = activityMcpTool.createActivity(null, "activity for a plain comment", null);
-    ActivityCommentModel comment = activityMcpTool.createActivityComment(activity.id(), "plain comment");
+    ActivityCommentModel comment = activityMcpTool.createActivityComment(activity.id(), "plain comment", null);
 
     List<AttachmentModel> attachments = activityMcpTool.getCommentAttachments(comment.id());
 
