@@ -18,6 +18,11 @@
  */
 package io.meeds.mcp.server.security;
 
+import static io.meeds.mcp.server.util.McpToolUtils.MCP_OAUTH2_CLIENT_CREDENTIALS_REGISTRATION_ID;
+import static io.meeds.mcp.server.util.McpToolUtils.TOOL_CONTEXT_CONVERSATION_ID_PARAM;
+import static io.meeds.mcp.server.util.McpToolUtils.TOOL_CONTEXT_ID;
+import static io.meeds.mcp.server.util.McpToolUtils.TOOL_CONTEXT_ID_PARAM;
+import static io.meeds.mcp.server.util.McpToolUtils.TOOL_CONTEXT_USER_NAME_PARAM;
 import static io.meeds.mcp.server.util.McpToolUtils.TOOL_READ_SCOPE;
 import static io.meeds.mcp.server.util.McpToolUtils.TOOL_WRITE_APPROVE_SCOPE;
 import static io.meeds.mcp.server.util.McpToolUtils.TOOL_WRITE_SCOPE;
@@ -70,6 +75,7 @@ import org.springframework.security.oauth2.server.authorization.settings.TokenSe
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.MvcResult;
+import org.springframework.test.web.servlet.request.MockHttpServletRequestBuilder;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -113,6 +119,8 @@ class McpServerOAuthIntegrationTest extends McpServiceIntegrationTestSupport {
 
   private static final String                   SUB_PARAM               = "sub";
 
+  private static final String                   CLIENT_ID_PARAM         = "client_id";
+
   private static final String                   ACTIVE_PARAM            = "active";
 
   private static final String                   ACCEPT_HEADER_VALUE     = "application/json, text/event-stream";
@@ -124,6 +132,10 @@ class McpServerOAuthIntegrationTest extends McpServiceIntegrationTestSupport {
   private static final String                   TEST_WRITE_TOOL_NAME    = "test_write_tool";
 
   private static final String                   IS_ERROR_FALSE_MESSAGE  = "\"isError\":false";
+
+  private static final String                   IS_ERROR_TRUE_MESSAGE   = "\"isError\":true";
+
+  private static final String                   TEST_APPROVAL_TOOL_METHOD = "testApprovalTool";
 
   private static final String                   MCP_SESSION_ID_HEADER   = "Mcp-Session-Id";
 
@@ -177,9 +189,15 @@ class McpServerOAuthIntegrationTest extends McpServiceIntegrationTestSupport {
   @MockitoBean
   private McpServerOauthOpaqueTokenIntrospector opaqueTokenIntrospector;
 
+  private static final String                   NO_CONVERSATION_MESSAGE = "requires the user's approval";
+
   private String                                currentScopes;
 
   private String                                currentToken;
+
+  private String                                currentPrincipal;
+
+  private String                                currentClientId;
 
   @BeforeEach
   @Override
@@ -188,6 +206,8 @@ class McpServerOAuthIntegrationTest extends McpServiceIntegrationTestSupport {
     mcpServerToolService.enableMcpServer();
     this.currentScopes = null;
     this.currentToken = null;
+    this.currentPrincipal = USERNAME;
+    this.currentClientId = null;
 
     doNothing().when(mcpToolApprovalService).traceToolExecution(any(UserToolExecution.class));
     when(mcpToolApprovalService.requestApproval(anyString(),
@@ -199,10 +219,15 @@ class McpServerOAuthIntegrationTest extends McpServiceIntegrationTestSupport {
       assertNotNull(currentScopes);
       assertNotNull(invocation.getArgument(0));
       assertEquals(currentToken, invocation.getArgument(0), "Tokens doesn't match");
-      return new DefaultOAuth2AuthenticatedPrincipal(USERNAME,
+      assertNotNull(currentClientId);
+      // Same shape as the authorization server's introspection response: the
+      // subject is the principal, 'client_id' the client the token was issued to
+      return new DefaultOAuth2AuthenticatedPrincipal(currentPrincipal,
                                                      Map.of(
                                                             SUB_PARAM,
-                                                            USERNAME,
+                                                            currentPrincipal,
+                                                            CLIENT_ID_PARAM,
+                                                            currentClientId,
                                                             ACTIVE_PARAM,
                                                             true,
                                                             SCOPE_PARAM,
@@ -303,16 +328,80 @@ class McpServerOAuthIntegrationTest extends McpServiceIntegrationTestSupport {
   }
 
   @Test
-  @DisplayName("Write with approval scope calls approval service and executes tool")
-  void writeWithApprovalScopeCallsApprovalServiceAndExecutesTool() throws Exception {
+  @DisplayName("Write with approval scope from an external client gets an explanatory error instead of an approval nobody can answer")
+  void writeWithApprovalScopeFromExternalClientFailsFastWithoutConversation() throws Exception {
     String token = issueToken(clientWithScopes("mcp-approval-" + UUID.randomUUID(), TOOL_WRITE_APPROVE_SCOPE));
 
     String sessionId = initializeSession(token);
 
+    // callTool sends a 'conversationId' header: from an external client it is
+    // ignored, so the approval-gated tool has no conversation to be approved in
     MvcResult result = callTool(token, sessionId, TEST_APPROVAL_TOOL_NAME, "approve-me");
+
+    assertThat(result.getResponse().getContentAsString()).contains(NO_CONVERSATION_MESSAGE)
+                                                         .contains(IS_ERROR_TRUE_MESSAGE)
+                                                         .doesNotContain("approval:approve-me");
+    verify(mcpToolApprovalService, never()).requestApproval(anyString(), any(), anyString(), anyString(), anyString());
+  }
+
+  @Test
+  @DisplayName("Internal client conversation header is trusted behind the contextId gate and reaches the approval")
+  void internalClientConversationHeaderReachesApprovalBehindContextIdGate() throws Exception {
+    this.currentPrincipal = MCP_OAUTH2_CLIENT_CREDENTIALS_REGISTRATION_ID;
+    String token = issueToken(clientWithScopes(MCP_OAUTH2_CLIENT_CREDENTIALS_REGISTRATION_ID + "-" + UUID.randomUUID(),
+                                               TOOL_WRITE_APPROVE_SCOPE));
+    // The token is introspected as owned by the internal client itself
+    this.currentClientId = MCP_OAUTH2_CLIENT_CREDENTIALS_REGISTRATION_ID;
+    String sessionId = initializeSession(token);
+    String conversationId = "conv-" + UUID.randomUUID();
+
+    MvcResult result = callTool(token,
+                                sessionId,
+                                TEST_APPROVAL_TOOL_NAME,
+                                "approve-me",
+                                Map.of(TOOL_CONTEXT_ID_PARAM,
+                                       TOOL_CONTEXT_ID,
+                                       TOOL_CONTEXT_USER_NAME_PARAM,
+                                       USERNAME,
+                                       TOOL_CONTEXT_CONVERSATION_ID_PARAM,
+                                       conversationId));
 
     assertThat(result.getResponse().getContentAsString()).contains("approval:approve-me")
                                                          .contains(IS_ERROR_FALSE_MESSAGE);
+    verify(mcpToolApprovalService).requestApproval(anyString(),
+                                                   eq(conversationId),
+                                                   eq(TEST_APPROVAL_TOOL_METHOD),
+                                                   anyString(),
+                                                   eq(USERNAME));
+  }
+
+  @Test
+  @DisplayName("A user token whose subject is the internal client id cannot impersonate through the context headers")
+  void userTokenNamedLikeInternalClientCannotImpersonateThroughContextHeaders() throws Exception {
+    // The subject is the user login for a user grant, and nothing reserves the
+    // login 'mcp-internal'. The gate must bind to the OAuth client that owns
+    // the token, which here is an ordinary external client.
+    this.currentPrincipal = MCP_OAUTH2_CLIENT_CREDENTIALS_REGISTRATION_ID;
+    String token = issueToken(clientWithScopes("mcp-lookalike-" + UUID.randomUUID(), TOOL_WRITE_APPROVE_SCOPE));
+    assertThat(currentClientId).isNotEqualTo(MCP_OAUTH2_CLIENT_CREDENTIALS_REGISTRATION_ID);
+    String sessionId = initializeSession(token);
+    String conversationId = "conv-" + UUID.randomUUID();
+
+    MvcResult result = callTool(token,
+                                sessionId,
+                                TEST_APPROVAL_TOOL_NAME,
+                                "approve-me",
+                                Map.of(TOOL_CONTEXT_ID_PARAM,
+                                       TOOL_CONTEXT_ID,
+                                       TOOL_CONTEXT_USER_NAME_PARAM,
+                                       USERNAME,
+                                       TOOL_CONTEXT_CONVERSATION_ID_PARAM,
+                                       conversationId));
+
+    assertThat(result.getResponse().getContentAsString()).contains(NO_CONVERSATION_MESSAGE)
+                                                         .contains(IS_ERROR_TRUE_MESSAGE)
+                                                         .doesNotContain("approval:approve-me");
+    verify(mcpToolApprovalService, never()).requestApproval(anyString(), any(), anyString(), anyString(), anyString());
   }
 
   @Test
@@ -332,12 +421,14 @@ class McpServerOAuthIntegrationTest extends McpServiceIntegrationTestSupport {
 
     MvcResult result = callTool(token, sessionId, TEST_WRITE_TOOL_NAME, MESSAGE);
 
+    // The tool now requires an approval, which an external client can't get
     assertThat(result.getResponse().getContentAsString())
-                                                         .contains(WRITE_MESSAGE)
-                                                         .contains(IS_ERROR_FALSE_MESSAGE);
+                                                         .contains(NO_CONVERSATION_MESSAGE)
+                                                         .contains(IS_ERROR_TRUE_MESSAGE)
+                                                         .doesNotContain(WRITE_MESSAGE);
 
-    verify(mcpToolApprovalService).requestApproval(anyString(),
-                                                   anyString(),
+    verify(mcpToolApprovalService, never()).requestApproval(anyString(),
+                                                   any(),
                                                    eq("testWriteTool"),
                                                    anyString(),
                                                    eq(USERNAME));
@@ -396,11 +487,23 @@ class McpServerOAuthIntegrationTest extends McpServiceIntegrationTestSupport {
   }
 
   private MvcResult callTool(String token, String sessionId, String toolName, String message) throws Exception {
-    return mvc.perform(post(MCP_ENDPOINT)
-                                         .header(AUTHORIZATION, bearer(token))
-                                         .header(MCP_SESSION_ID_HEADER, sessionId)
-                                         .header("conversationId", "test-conversation-" + UUID.randomUUID())
-                                         .header(HttpHeaders.ACCEPT, ACCEPT_HEADER_VALUE)
+    return callTool(token,
+                    sessionId,
+                    toolName,
+                    message,
+                    Map.of(TOOL_CONTEXT_CONVERSATION_ID_PARAM, "test-conversation-" + UUID.randomUUID()));
+  }
+
+  private MvcResult callTool(String token,
+                             String sessionId,
+                             String toolName,
+                             String message,
+                             Map<String, String> contextHeaders) throws Exception {
+    MockHttpServletRequestBuilder request = post(MCP_ENDPOINT).header(AUTHORIZATION, bearer(token))
+                                                             .header(MCP_SESSION_ID_HEADER, sessionId)
+                                                             .header(HttpHeaders.ACCEPT, ACCEPT_HEADER_VALUE);
+    contextHeaders.forEach(request::header);
+    return mvc.perform(request
                                          .contentType(APPLICATION_JSON)
                                          .content("""
                                              {
@@ -463,6 +566,7 @@ class McpServerOAuthIntegrationTest extends McpServiceIntegrationTestSupport {
 
   private String issueToken(RegisteredClient client) throws Exception {
     this.currentScopes = String.join(" ", client.getScopes());
+    this.currentClientId = client.getClientId();
     log.info(">> Setting Current Scopes: {}", currentScopes);
 
     MvcResult result = mvc.perform(post(TOKEN_ENDPOINT).contentType(APPLICATION_FORM_URLENCODED_VALUE)
