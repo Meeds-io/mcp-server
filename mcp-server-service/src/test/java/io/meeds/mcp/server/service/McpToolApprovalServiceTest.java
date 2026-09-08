@@ -287,7 +287,7 @@ class McpToolApprovalServiceTest {
 
     ArgumentCaptor<String> messages = ArgumentCaptor.forClass(String.class);
     verify(continuationService, atLeastOnce()).sendMessage(eq(USERNAME), eq(COMETD_CHANNEL), messages.capture());
-    assertThat(messages.getAllValues()).allMatch(message -> message.contains("\"conversationId\":\"\""));
+    assertThat(messages.getAllValues()).allMatch(sentMessage -> sentMessage.contains("\"conversationId\":\"\""));
   }
 
   @Test

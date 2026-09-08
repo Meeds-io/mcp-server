@@ -29,7 +29,6 @@ import java.util.Calendar;
 import java.util.Collections;
 import java.util.Date;
 import java.util.List;
-import java.util.Map;
 import java.util.TimeZone;
 import java.util.UUID;
 
@@ -232,9 +231,9 @@ public class McpToolUtils {
         && ConversationState.getCurrent().getIdentity() != null) {
       return ConversationState.getCurrent().getIdentity().getUserId();
     }
-    Authentication authentication = SecurityContextHolder.getContext() == null ? null :
-                                                                                SecurityContextHolder.getContext()
-                                                                                                     .getAuthentication();
+    // SecurityContextHolder.getContext() never returns null: every strategy
+    // creates an empty context when none is bound to the thread
+    Authentication authentication = SecurityContextHolder.getContext().getAuthentication();
     if (authentication == null) {
       return null;
     } else if (isInternalClientAuthentication(authentication)) {
@@ -277,8 +276,7 @@ public class McpToolUtils {
    * @return the request, or null for any other caller or outside a request
    */
   private static HttpServletRequest getInternalToolCallRequest() {
-    if (SecurityContextHolder.getContext() == null
-        || !isInternalClientAuthentication(SecurityContextHolder.getContext().getAuthentication())) {
+    if (!isInternalClientAuthentication(SecurityContextHolder.getContext().getAuthentication())) {
       return null;
     } else if (RequestContextHolder.getRequestAttributes() instanceof ServletRequestAttributes servletRequestAttributes) {
       HttpServletRequest request = servletRequestAttributes.getRequest();
@@ -306,8 +304,9 @@ public class McpToolUtils {
     if (!(authentication instanceof BearerTokenAuthentication bearerTokenAuthentication)) {
       return false;
     }
-    Map<String, Object> tokenAttributes = bearerTokenAuthentication.getTokenAttributes();
-    Object clientId = tokenAttributes == null ? null : tokenAttributes.get(OAuth2TokenIntrospectionClaimNames.CLIENT_ID);
+    // getTokenAttributes() is never null: an unmodifiable copy of the
+    // principal attributes, built by every constructor
+    Object clientId = bearerTokenAuthentication.getTokenAttributes().get(OAuth2TokenIntrospectionClaimNames.CLIENT_ID);
     return clientId instanceof String clientIdValue
            && Strings.CS.equals(MCP_OAUTH2_CLIENT_CREDENTIALS_REGISTRATION_ID, clientIdValue);
   }
