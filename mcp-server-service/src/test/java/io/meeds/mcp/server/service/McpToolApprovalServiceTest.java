@@ -274,6 +274,37 @@ class McpToolApprovalServiceTest {
                                                      USERNAME)).isInstanceOf(UserToolTimeoutException.class);
   }
 
+  @Test
+  @SneakyThrows
+  void requestApprovalWithoutConversationTimesOutInsteadOfFailing() {
+    // A null conversation id (or tool name) must reach the UI as an empty
+    // string, not blow up the request in Map.of
+    assertThatThrownBy(() -> service.requestApproval(REQUEST_ID,
+                                                     null,
+                                                     null,
+                                                     "{}",
+                                                     USERNAME)).isInstanceOf(UserToolTimeoutException.class);
+
+    ArgumentCaptor<String> messages = ArgumentCaptor.forClass(String.class);
+    verify(continuationService, atLeastOnce()).sendMessage(eq(USERNAME), eq(COMETD_CHANNEL), messages.capture());
+    assertThat(messages.getAllValues()).allMatch(sentMessage -> sentMessage.contains("\"conversationId\":\"\""));
+  }
+
+  @Test
+  @SneakyThrows
+  void requestApprovalWithoutConversationStillDeliversTheAnswer() {
+    when(continuationBayeux.isSubscribed(USERNAME, WS_CLIENT_ID)).thenReturn(true);
+
+    Future<Boolean> future = CompletableFuture.supplyAsync(() -> service.requestApproval(REQUEST_ID,
+                                                                                         null,
+                                                                                         "tool",
+                                                                                         "{}",
+                                                                                         USERNAME));
+    awaitRequestRegistered(REQUEST_ID);
+    service.receiveAnswer(REQUEST_ID, WS_CLIENT_ID, false);
+    assertThat(future.get(1, TimeUnit.SECONDS)).isFalse();
+  }
+
   private UserToolApprovalRequest putRequestAndAnswer(String id, String username) {
     UserToolApprovalRequest request = new UserToolApprovalRequest(username);
     UserToolApprovalAnswer answer = new UserToolApprovalAnswer(username);
