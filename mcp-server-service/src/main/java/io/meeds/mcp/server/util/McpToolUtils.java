@@ -23,11 +23,13 @@ import java.io.InputStream;
 import java.lang.reflect.Field;
 import java.net.URL;
 import java.nio.charset.StandardCharsets;
+import java.security.MessageDigest;
 import java.util.Base64;
 import java.util.Calendar;
 import java.util.Collections;
 import java.util.Date;
 import java.util.List;
+import java.util.Map;
 import java.util.TimeZone;
 import java.util.UUID;
 
@@ -38,7 +40,10 @@ import org.commonmark.node.Node;
 import org.commonmark.parser.Parser;
 import org.commonmark.renderer.html.HtmlRenderer;
 import org.springframework.ai.tool.method.MethodToolCallback;
+import org.springframework.security.core.Authentication;
 import org.springframework.security.core.context.SecurityContextHolder;
+import org.springframework.security.oauth2.core.OAuth2TokenIntrospectionClaimNames;
+import org.springframework.security.oauth2.server.resource.authentication.BearerTokenAuthentication;
 import org.springframework.web.context.request.RequestContextHolder;
 import org.springframework.web.context.request.ServletRequestAttributes;
 
@@ -211,11 +216,14 @@ public class McpToolUtils {
 
   /**
    * Resolves the user on behalf of whom the current Tool is executed: the
-   * kernel {@link ConversationState} identity when set, else the authenticated
-   * principal, else, for the internal client-credentials call only, the
-   * {@link #TOOL_CONTEXT_USER_NAME_PARAM} request header. That header is
-   * trusted under the gate of {@link #getInternalToolCallRequest()} and
-   * nowhere else.
+   * kernel {@link ConversationState} identity when set, else, for the internal
+   * client-credentials call only, the {@link #TOOL_CONTEXT_USER_NAME_PARAM}
+   * request header, else the authenticated principal. The header is trusted
+   * under the gate of {@link #getInternalToolCallRequest()} and nowhere else;
+   * the internal call is recognized by the OAuth client that owns the token
+   * ({@link #isInternalClientAuthentication(Authentication)}), never by the
+   * token subject, so a user whose login happens to be the internal client id
+   * is just that user.
    *
    * @return the user name, or null when no user can be resolved
    */
@@ -223,22 +231,21 @@ public class McpToolUtils {
     if (ConversationState.getCurrent() != null
         && ConversationState.getCurrent().getIdentity() != null) {
       return ConversationState.getCurrent().getIdentity().getUserId();
-    } else if (SecurityContextHolder.getContext() != null
-               && SecurityContextHolder.getContext().getAuthentication() != null) {
-      String authenticatedUser = SecurityContextHolder.getContext().getAuthentication().getName();
-      if (!Strings.CS.equals(MCP_OAUTH2_CLIENT_CREDENTIALS_REGISTRATION_ID, authenticatedUser)) {
-        return authenticatedUser;
-      } else {
-        // Coming from internaly authenticated call using 'client_credentials'
-        // OAuth mechanism
-        HttpServletRequest request = getInternalToolCallRequest();
-        String userName = request == null ? null : request.getHeader(TOOL_CONTEXT_USER_NAME_PARAM);
-        if (StringUtils.isNotBlank(userName)) {
-          return userName;
-        }
-      }
     }
-    return null;
+    Authentication authentication = SecurityContextHolder.getContext() == null ? null :
+                                                                                SecurityContextHolder.getContext()
+                                                                                                     .getAuthentication();
+    if (authentication == null) {
+      return null;
+    } else if (isInternalClientAuthentication(authentication)) {
+      // Coming from internally authenticated call using 'client_credentials'
+      // OAuth mechanism: the end user is carried in the request header
+      HttpServletRequest request = getInternalToolCallRequest();
+      String userName = request == null ? null : request.getHeader(TOOL_CONTEXT_USER_NAME_PARAM);
+      return StringUtils.isBlank(userName) ? null : userName;
+    } else {
+      return authentication.getName();
+    }
   }
 
   /**
@@ -260,8 +267,9 @@ public class McpToolUtils {
 
   /**
    * Returns the current servlet request only when it is the internal
-   * client-credentials call (principal
-   * {@link #MCP_OAUTH2_CLIENT_CREDENTIALS_REGISTRATION_ID}) carrying a
+   * client-credentials call (a bearer token owned by the OAuth client
+   * {@link #MCP_OAUTH2_CLIENT_CREDENTIALS_REGISTRATION_ID}, see
+   * {@link #isInternalClientAuthentication(Authentication)}) carrying a
    * {@link #TOOL_CONTEXT_ID_PARAM} header equal to the JVM-private
    * {@link #TOOL_CONTEXT_ID}. That is the only caller whose context headers
    * (user name, conversation id) are trusted.
@@ -270,16 +278,53 @@ public class McpToolUtils {
    */
   private static HttpServletRequest getInternalToolCallRequest() {
     if (SecurityContextHolder.getContext() == null
-        || SecurityContextHolder.getContext().getAuthentication() == null
-        || !Strings.CS.equals(MCP_OAUTH2_CLIENT_CREDENTIALS_REGISTRATION_ID,
-                              SecurityContextHolder.getContext().getAuthentication().getName())) {
+        || !isInternalClientAuthentication(SecurityContextHolder.getContext().getAuthentication())) {
       return null;
     } else if (RequestContextHolder.getRequestAttributes() instanceof ServletRequestAttributes servletRequestAttributes) {
       HttpServletRequest request = servletRequestAttributes.getRequest();
-      return Strings.CS.equals(request.getHeader(TOOL_CONTEXT_ID_PARAM), TOOL_CONTEXT_ID) ? request : null;
+      return isInternalToolContextId(request.getHeader(TOOL_CONTEXT_ID_PARAM)) ? request : null;
     } else {
       return null;
     }
+  }
+
+  /**
+   * Tells whether the authentication is the internal client-credentials call:
+   * a bearer token whose introspection attributes name
+   * {@link #MCP_OAUTH2_CLIENT_CREDENTIALS_REGISTRATION_ID} as the owning OAuth
+   * client ({@link OAuth2TokenIntrospectionClaimNames#CLIENT_ID}, set by the
+   * authorization server from the registered client the token was issued to).
+   * The token subject is deliberately not consulted: it is the client id for a
+   * client-credentials grant but the user login for a user grant, so a user
+   * whose login is the internal client id would otherwise enter the internal
+   * path with an ordinary user token.
+   *
+   * @param authentication the current {@link Authentication}, may be null
+   * @return true when the token belongs to the internal client, else false
+   */
+  private static boolean isInternalClientAuthentication(Authentication authentication) {
+    if (!(authentication instanceof BearerTokenAuthentication bearerTokenAuthentication)) {
+      return false;
+    }
+    Map<String, Object> tokenAttributes = bearerTokenAuthentication.getTokenAttributes();
+    Object clientId = tokenAttributes == null ? null : tokenAttributes.get(OAuth2TokenIntrospectionClaimNames.CLIENT_ID);
+    return clientId instanceof String clientIdValue
+           && Strings.CS.equals(MCP_OAUTH2_CLIENT_CREDENTIALS_REGISTRATION_ID, clientIdValue);
+  }
+
+  /**
+   * Compares the received {@link #TOOL_CONTEXT_ID_PARAM} header with the
+   * JVM-private {@link #TOOL_CONTEXT_ID} in constant time: the id is the
+   * trust anchor of the internal call, so its comparison must not leak, byte
+   * by byte, how much of it a caller got right.
+   *
+   * @param contextId the header value, may be null
+   * @return true when it equals {@link #TOOL_CONTEXT_ID}, else false
+   */
+  private static boolean isInternalToolContextId(String contextId) {
+    return contextId != null
+           && MessageDigest.isEqual(contextId.getBytes(StandardCharsets.UTF_8),
+                                    TOOL_CONTEXT_ID.getBytes(StandardCharsets.UTF_8));
   }
 
   public static String markdownToHtml(String markdown) {

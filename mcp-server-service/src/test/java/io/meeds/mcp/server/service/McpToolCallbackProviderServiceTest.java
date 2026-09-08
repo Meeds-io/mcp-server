@@ -33,7 +33,9 @@ import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
+import java.time.Instant;
 import java.util.List;
+import java.util.Map;
 
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
@@ -44,8 +46,13 @@ import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.ai.tool.ToolCallback;
 import org.springframework.context.ApplicationContext;
 import org.springframework.mock.web.MockHttpServletRequest;
-import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
+import org.springframework.security.core.GrantedAuthority;
+import org.springframework.security.core.authority.SimpleGrantedAuthority;
 import org.springframework.security.core.context.SecurityContextHolder;
+import org.springframework.security.oauth2.core.DefaultOAuth2AuthenticatedPrincipal;
+import org.springframework.security.oauth2.core.OAuth2AccessToken;
+import org.springframework.security.oauth2.core.OAuth2TokenIntrospectionClaimNames;
+import org.springframework.security.oauth2.server.resource.authentication.BearerTokenAuthentication;
 import org.springframework.web.context.request.RequestContextHolder;
 import org.springframework.web.context.request.ServletRequestAttributes;
 
@@ -108,10 +115,21 @@ class McpToolCallbackProviderServiceTest {
                                                  List.of(new GreetingToolPlugin()));
     toolCallback = service.getToolCallbacks()[0];
 
-    SecurityContextHolder.getContext()
-                         .setAuthentication(new UsernamePasswordAuthenticationToken(MCP_OAUTH2_CLIENT_CREDENTIALS_REGISTRATION_ID,
-                                                                                    "N/A",
-                                                                                    List.of()));
+    // The internal call is a bearer token OWNED by the internal client: the
+    // gate reads the introspected 'client_id', not the token subject
+    List<GrantedAuthority> authorities = List.of(new SimpleGrantedAuthority("SCOPE_mcp.tools.writeWithApproval"));
+    DefaultOAuth2AuthenticatedPrincipal principal =
+                                                  new DefaultOAuth2AuthenticatedPrincipal(MCP_OAUTH2_CLIENT_CREDENTIALS_REGISTRATION_ID,
+                                                                                          Map.of(OAuth2TokenIntrospectionClaimNames.SUB,
+                                                                                                 MCP_OAUTH2_CLIENT_CREDENTIALS_REGISTRATION_ID,
+                                                                                                 OAuth2TokenIntrospectionClaimNames.CLIENT_ID,
+                                                                                                 MCP_OAUTH2_CLIENT_CREDENTIALS_REGISTRATION_ID),
+                                                                                          authorities);
+    OAuth2AccessToken accessToken = new OAuth2AccessToken(OAuth2AccessToken.TokenType.BEARER,
+                                                          "internal-token",
+                                                          Instant.now(),
+                                                          Instant.now().plusSeconds(60));
+    SecurityContextHolder.getContext().setAuthentication(new BearerTokenAuthentication(principal, accessToken, authorities));
     ConversationState.setCurrent(new ConversationState(new Identity(USERNAME)));
     lenient().when(userAcl.getUserIdentity(USERNAME)).thenReturn(new Identity(USERNAME));
     lenient().when(mcpServerToolService.isAllowedTool(eq(TOOL_METHOD), any())).thenReturn(true);

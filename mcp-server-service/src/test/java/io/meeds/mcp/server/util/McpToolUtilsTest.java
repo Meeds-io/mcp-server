@@ -24,14 +24,22 @@ import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
+import java.time.Instant;
 import java.util.Date;
 import java.util.List;
+import java.util.Map;
 
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.mock.web.MockHttpServletRequest;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
+import org.springframework.security.core.GrantedAuthority;
+import org.springframework.security.core.authority.SimpleGrantedAuthority;
 import org.springframework.security.core.context.SecurityContextHolder;
+import org.springframework.security.oauth2.core.DefaultOAuth2AuthenticatedPrincipal;
+import org.springframework.security.oauth2.core.OAuth2AccessToken;
+import org.springframework.security.oauth2.core.OAuth2TokenIntrospectionClaimNames;
+import org.springframework.security.oauth2.server.resource.authentication.BearerTokenAuthentication;
 import org.springframework.web.context.request.RequestContextHolder;
 import org.springframework.web.context.request.ServletRequestAttributes;
 
@@ -51,6 +59,8 @@ class McpToolUtilsTest {
 
   private static final String USERNAME        = "john";
 
+  private static final String EXTERNAL_CLIENT_ID = "claude-desktop";
+
   @AfterEach
   void tearDown() {
     RequestContextHolder.resetRequestAttributes();
@@ -60,7 +70,7 @@ class McpToolUtilsTest {
 
   @Test
   void getCurrentConversationId_internalClientWithContextId_returnsHeader() {// NOSONAR
-    authenticateAs(McpToolUtils.MCP_OAUTH2_CLIENT_CREDENTIALS_REGISTRATION_ID);
+    authenticateAsInternalClient();
     bindRequest(McpToolUtils.TOOL_CONTEXT_ID, CONVERSATION_ID, USERNAME);
 
     assertEquals(CONVERSATION_ID, McpToolUtils.getCurrentConversationId());
@@ -68,7 +78,7 @@ class McpToolUtilsTest {
 
   @Test
   void getCurrentConversationId_wrongContextId_returnsNull() {// NOSONAR
-    authenticateAs(McpToolUtils.MCP_OAUTH2_CLIENT_CREDENTIALS_REGISTRATION_ID);
+    authenticateAsInternalClient();
     bindRequest("forged-context-id", CONVERSATION_ID, USERNAME);
 
     assertNull(McpToolUtils.getCurrentConversationId());
@@ -86,7 +96,7 @@ class McpToolUtilsTest {
 
   @Test
   void getCurrentConversationId_blankHeaderOrNoRequest_returnsNull() {// NOSONAR
-    authenticateAs(McpToolUtils.MCP_OAUTH2_CLIENT_CREDENTIALS_REGISTRATION_ID);
+    authenticateAsInternalClient();
     assertNull(McpToolUtils.getCurrentConversationId());
 
     bindRequest(McpToolUtils.TOOL_CONTEXT_ID, "   ", USERNAME);
@@ -95,7 +105,7 @@ class McpToolUtilsTest {
 
   @Test
   void getCurrentUserName_internalClientWithContextId_returnsHeader() {// NOSONAR
-    authenticateAs(McpToolUtils.MCP_OAUTH2_CLIENT_CREDENTIALS_REGISTRATION_ID);
+    authenticateAsInternalClient();
     bindRequest(McpToolUtils.TOOL_CONTEXT_ID, CONVERSATION_ID, USERNAME);
 
     assertEquals(USERNAME, McpToolUtils.getCurrentUserName());
@@ -103,7 +113,7 @@ class McpToolUtilsTest {
 
   @Test
   void getCurrentUserName_wrongContextId_returnsNull() {// NOSONAR
-    authenticateAs(McpToolUtils.MCP_OAUTH2_CLIENT_CREDENTIALS_REGISTRATION_ID);
+    authenticateAsInternalClient();
     bindRequest("forged-context-id", CONVERSATION_ID, USERNAME);
 
     assertNull(McpToolUtils.getCurrentUserName());
@@ -117,14 +127,86 @@ class McpToolUtilsTest {
     assertEquals(USERNAME, McpToolUtils.getCurrentUserName());
   }
 
+  @Test
+  void getCurrentConversationId_userTokenWhoseLoginIsTheInternalClientId_returnsNull() {// NOSONAR
+    // The token subject is the user login, and nothing reserves the login
+    // 'mcp-internal': only the OAuth client that owns the token identifies the
+    // internal call. Even with the real contextId, this is not that client.
+    authenticateAsBearer(McpToolUtils.MCP_OAUTH2_CLIENT_CREDENTIALS_REGISTRATION_ID, EXTERNAL_CLIENT_ID);
+    bindRequest(McpToolUtils.TOOL_CONTEXT_ID, CONVERSATION_ID, "someone-else");
+
+    assertNull(McpToolUtils.getCurrentConversationId());
+  }
+
+  @Test
+  void getCurrentUserName_userTokenWhoseLoginIsTheInternalClientId_isThatUserNotTheHeader() {// NOSONAR
+    authenticateAsBearer(McpToolUtils.MCP_OAUTH2_CLIENT_CREDENTIALS_REGISTRATION_ID, EXTERNAL_CLIENT_ID);
+    bindRequest(McpToolUtils.TOOL_CONTEXT_ID, CONVERSATION_ID, "someone-else");
+
+    assertEquals(McpToolUtils.MCP_OAUTH2_CLIENT_CREDENTIALS_REGISTRATION_ID, McpToolUtils.getCurrentUserName());
+  }
+
+  @Test
+  void getCurrentConversationId_nonBearerAuthenticationNamedLikeInternalClient_returnsNull() {// NOSONAR
+    // No token attributes at all: there is no client to bind the call to, so
+    // this is an ordinary principal that happens to bear that name
+    authenticateAs(McpToolUtils.MCP_OAUTH2_CLIENT_CREDENTIALS_REGISTRATION_ID);
+    bindRequest(McpToolUtils.TOOL_CONTEXT_ID, CONVERSATION_ID, USERNAME);
+
+    assertNull(McpToolUtils.getCurrentConversationId());
+    assertEquals(McpToolUtils.MCP_OAUTH2_CLIENT_CREDENTIALS_REGISTRATION_ID, McpToolUtils.getCurrentUserName());
+  }
+
+  @Test
+  void getCurrentConversationId_missingContextIdHeader_returnsNull() {// NOSONAR
+    authenticateAsInternalClient();
+    bindRequest(null, CONVERSATION_ID, USERNAME);
+
+    assertNull(McpToolUtils.getCurrentConversationId());
+    assertNull(McpToolUtils.getCurrentUserName());
+  }
+
   private static void authenticateAs(String principal) {
     SecurityContextHolder.getContext()
                          .setAuthentication(new UsernamePasswordAuthenticationToken(principal, "N/A", List.of()));
   }
 
+  /**
+   * Authenticates as the internal client-credentials call: a bearer token
+   * whose subject and owning client are both the internal registration id, as
+   * the authorization server issues it for that grant.
+   */
+  private static void authenticateAsInternalClient() {
+    authenticateAsBearer(McpToolUtils.MCP_OAUTH2_CLIENT_CREDENTIALS_REGISTRATION_ID,
+                         McpToolUtils.MCP_OAUTH2_CLIENT_CREDENTIALS_REGISTRATION_ID);
+  }
+
+  /**
+   * Authenticates with an introspected bearer token, the shape the resource
+   * server builds from the introspection response: the subject is the
+   * principal name, the owning OAuth client is the 'client_id' attribute.
+   */
+  private static void authenticateAsBearer(String principalName, String clientId) {
+    List<GrantedAuthority> authorities = List.of(new SimpleGrantedAuthority("SCOPE_" + McpToolUtils.TOOL_WRITE_APPROVE_SCOPE));
+    DefaultOAuth2AuthenticatedPrincipal principal =
+                                                  new DefaultOAuth2AuthenticatedPrincipal(principalName,
+                                                                                          Map.of(OAuth2TokenIntrospectionClaimNames.SUB,
+                                                                                                 principalName,
+                                                                                                 OAuth2TokenIntrospectionClaimNames.CLIENT_ID,
+                                                                                                 clientId),
+                                                                                          authorities);
+    OAuth2AccessToken accessToken = new OAuth2AccessToken(OAuth2AccessToken.TokenType.BEARER,
+                                                          "token-" + principalName,
+                                                          Instant.now(),
+                                                          Instant.now().plusSeconds(60));
+    SecurityContextHolder.getContext().setAuthentication(new BearerTokenAuthentication(principal, accessToken, authorities));
+  }
+
   private static void bindRequest(String contextId, String conversationId, String userName) {
     MockHttpServletRequest request = new MockHttpServletRequest();
-    request.addHeader(McpToolUtils.TOOL_CONTEXT_ID_PARAM, contextId);
+    if (contextId != null) {
+      request.addHeader(McpToolUtils.TOOL_CONTEXT_ID_PARAM, contextId);
+    }
     request.addHeader(McpToolUtils.TOOL_CONTEXT_CONVERSATION_ID_PARAM, conversationId);
     request.addHeader(McpToolUtils.TOOL_CONTEXT_USER_NAME_PARAM, userName);
     RequestContextHolder.setRequestAttributes(new ServletRequestAttributes(request));
