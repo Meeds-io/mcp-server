@@ -39,7 +39,7 @@ Adding a tool requires **two** things that must stay in sync, or the tool is sil
 
 **Argument binding:** JSON `input_schema` properties are snake_case; `MethodToolCallbackWrapper` converts incoming args snake_case → camelCase before invoking the method, and binds them to method parameters **by name** — which only works because of the `-parameters` compiler flag. Without it, args bind to null.
 
-**Tool definitions are cached in eXo Settings**, not read fresh from JSON each boot. `McpServerToolService` persists a base64 blob under key `AI_AGENT_TOOL_DEFINITIONS_v13` (context `AI_AGENT`). Saved (admin-edited) definitions win over the JSON on the classpath. To force re-import of the JSON (e.g. after editing schemas/titles), set `meeds.mcp.tools.forceReimport=true` — **or bump the `v13` suffix** in `TOOLS_KEY` when the shape changes. Live edits go through `updateToolDefinition()` which re-registers the tool on the running MCP server and broadcasts `ai-agent-tool-updated`.
+**Tool definitions are cached in eXo Settings**, not read fresh from JSON each boot. `McpServerToolService` persists a base64 blob under key `AI_AGENT_TOOL_DEFINITIONS_v17` (context `AI_AGENT`). Saved (admin-edited) definitions win over the JSON on the classpath. To force re-import of the JSON (e.g. after editing schemas/titles), set `meeds.mcp.tools.forceReimport=true` — **or bump the `v17` suffix** in `TOOLS_KEY` when the shape changes. Live edits go through `updateToolDefinition()` which re-registers the tool on the running MCP server and broadcasts `ai-agent-tool-updated`.
 
 ## Security & auth model
 
