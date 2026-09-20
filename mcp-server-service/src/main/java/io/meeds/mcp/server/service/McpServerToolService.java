@@ -96,6 +96,9 @@ public class McpServerToolService {
   @Autowired
   private ListenerService                   listenerService;
 
+  @Autowired
+  private McpServerAudienceService          audienceService;
+
   @Value("${meeds.mcp.tools.forceReimport:false}")
   @Setter
   private boolean                           forceReimport;
@@ -167,34 +170,46 @@ public class McpServerToolService {
   }
 
   /**
-   * Second enforcement point of the MCP access gate, behind the token
-   * introspector: tells whether the authenticated caller may execute, or even
-   * see, one given tool.
+   * Tells whether the authenticated caller may execute, or even see, one given
+   * tool: the MCP server must be globally on, and the token must carry a scope
+   * matching the tool's read or write nature.
    * <p>
-   * The first condition used to read the global {@code mcp.server} flag alone,
-   * which meant every authenticated user of the platform. It now asks the
-   * per-user question instead — {@code ExoFeatureService.isFeatureActiveForUser}
-   * checks that same global flag first, then delegates to
-   * {@code McpServerFeaturePlugin}, so the global off switch keeps denying
-   * exactly what it denied before and the audience narrows it further.
+   * The per-user <em>audience</em> is deliberately not asked here. It is
+   * enforced at the door — {@code McpServerOauthOpaqueTokenIntrospector}
+   * refuses an out-of-audience subject — and only there, which is sufficient:
+   * one filter chain covers every path under {@code /mcp}, every bearer token
+   * is introspected on every request (nothing persists an authentication in
+   * the HTTP session, and the introspector does not cache), and every MCP verb
+   * — {@code initialize}, {@code tools/list}, {@code tools/call}, the SSE
+   * stream, {@code DELETE} — is a handler that runs after that chain. There is
+   * no in-JVM path to a tool callback that skips it, so a second audience check
+   * here could only repeat a verdict already given, and asking it per user had
+   * made the {@code tools/list} cache per user too.
    * <p>
-   * The internal client is exempt from both, as it has always been: EVA calls
-   * its tools through the internal client-credentials grant, and that must keep
-   * working while MCP is globally off and whatever audience an administrator
-   * configures — an audience lists humans, and the internal client is not one.
-   * The exemption is recognized by the OAuth client that owns the token
+   * A null authentication is refused first: it is not the internal client, and
+   * the scope checks below dereference it.
+   * <p>
+   * The internal client is exempt from the global flag, as it has always been:
+   * EVA calls its tools through the internal client-credentials grant, and
+   * that must keep working while MCP is globally off — the flag says no
+   * <em>external</em> client may connect, not that the in-product assistant
+   * loses its tools. The exemption is recognized by the OAuth client that owns
+   * the token
    * ({@link McpToolUtils#isInternalClientAuthentication(Authentication)}) and
-   * no longer by the token subject, which is the user login on a user grant:
-   * a user whose login happened to equal the internal client id used to be
-   * exempt here, and is not any more.
+   * not by the token subject, which is the user login on a user grant: a user
+   * whose login happened to equal the internal client id used to be exempt
+   * here, and is not any more.
    *
    * @param toolDefinition the tool being listed or called
-   * @param authentication the current OAuth authentication
+   * @param authentication the current OAuth authentication, may be null
    * @return true when the caller may use the tool
    */
   public boolean isAllowedTool(SimpleToolDefinition toolDefinition, Authentication authentication) {
+    if (authentication == null) {
+      return false;
+    }
     // Verify that the call is internal call, else return Not Allowed
-    if (!McpToolUtils.isInternalClientAuthentication(authentication) && !isMcpServerEnabledForUser(authentication)) {
+    if (!McpToolUtils.isInternalClientAuthentication(authentication) && !isMcpServerEnabled()) {
       return false;
     }
     boolean canRead = CollectionUtils.isNotEmpty(authentication.getAuthorities())
@@ -295,34 +310,40 @@ public class McpServerToolService {
   }
 
   /**
-   * Resolves the user behind an OAuth authentication and answers the per-user
-   * question for them. The user is the token subject, which the authorization
-   * server sets to the platform login on a user grant.
-   *
-   * @param authentication the current OAuth authentication, may be null
-   * @return true when MCP is globally on and that user is in the audience
-   */
-  private boolean isMcpServerEnabledForUser(Authentication authentication) {
-    return authentication != null && isMcpServerEnabledForUser(authentication.getName());
-  }
-
-  /**
-   * Answers the per-user MCP question: is MCP globally on <em>and</em> is this
-   * user in its audience? Both halves come from
-   * {@code ExoFeatureService.isFeatureActiveForUser}, which checks the global
-   * flag itself before delegating to {@code McpServerFeaturePlugin}.
+   * Answers the per-user MCP question — is MCP globally on <em>and</em> is
+   * this user in its audience? — for the places that ask it: the door
+   * ({@code McpServerOauthOpaqueTokenIntrospector}) and the token endpoint
+   * ({@code McpServerOAuthAccessTokenAudienceProvider}). Both ask this one
+   * method so that they cannot drift apart.
    * <p>
-   * Deliberately not memoised, unlike {@link #isMcpServerEnabled()}: the
-   * answer depends on the user and on an audience an administrator may change
-   * at any moment, and on a security input a stale <em>wide</em> answer is a
-   * hole rather than an inconvenience.
+   * Both halves are asked of this service's own collaborators, deliberately
+   * not of {@code ExoFeatureService.isFeatureActiveForUser}. That API resolves
+   * the audience through whatever {@code FeaturePlugin} is registered under
+   * the feature name, and on a registry miss — no plugin registered, or not
+   * yet — {@code ExoFeatureServiceImpl} falls back to the
+   * {@code exo.feature.mcp.server.permissions} property, which is unset on
+   * nearly every deployment and then reads as <em>everybody</em>. A miss would
+   * open the gate rather than close it, and an enforcement point must not fail
+   * open. {@code McpServerFeaturePlugin} stays registered all the same, as the
+   * read side of the same question
+   * ({@code GET /portal/rest/v1/features/mcp.server}), not as the gate.
+   * <p>
+   * The global flag is read through {@code ExoFeatureService.isActiveFeature}
+   * and not through {@link #isMcpServerEnabled()}, whose node-local memo would
+   * make the gate staler than the audience across a cluster. Neither half is
+   * memoised: the answer depends on the user and on an audience an
+   * administrator may change at any moment, and on a security input a stale
+   * <em>wide</em> answer is a hole rather than an inconvenience.
    *
    * @param username the platform login of the end user, may be null or blank
-   * @return true when that user may use the MCP server
+   * @return true when that user may use the MCP server; false when the flag is
+   *         off, when the user is outside the audience, or when no user was
+   *         given
    */
   public boolean isMcpServerEnabledForUser(String username) {
     return StringUtils.isNotBlank(username)
-           && featureService.isFeatureActiveForUser(MCP_SERVER_FEATURE, username);
+           && featureService.isActiveFeature(MCP_SERVER_FEATURE)
+           && audienceService.isUserInAudience(username);
   }
 
   /**

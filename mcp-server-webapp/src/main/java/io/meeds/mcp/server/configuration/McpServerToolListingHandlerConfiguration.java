@@ -184,17 +184,16 @@ public class McpServerToolListingHandlerConfiguration {
     }
 
     /**
-     * Identity of a cached {@code tools/list} answer: the caller and the
-     * scopes their token carries, the two inputs {@code isToolEligible}
-     * actually reads.
+     * Identity of a cached {@code tools/list} answer: the scopes the caller's
+     * token carries, the one input {@code isToolEligible} reads besides the
+     * tool itself. Kept as a record of compared fields rather than a folded
+     * {@code int} hash of the list, so that two scope lists that happen to
+     * hash alike cannot share an entry.
      *
-     * @param username the authenticated caller, the token subject or the
-     *                 internal client id
-     * @param scopes   the caller's {@code SCOPE_*} authorities, sorted and
-     *                 deduplicated so that two equivalent tokens share an
-     *                 entry
+     * @param scopes the caller's {@code SCOPE_*} authorities, sorted and
+     *               deduplicated so that two equivalent tokens share an entry
      */
-    private record ToolsCacheKey(String username, List<String> scopes) {
+    private record ToolsCacheKey(List<String> scopes) {
     }
 
     private Map<String, McpNotificationHandler> notificationHandlers(DefaultMcpStreamableServerSessionFactory sessionFactory) {
@@ -228,13 +227,16 @@ public class McpServerToolListingHandlerConfiguration {
       return (exchange, params) -> {
         Assert.notNull(getMcpServerToolService(), "Mcp Server Tool Service shouldn't be null");
         Authentication authentication = SecurityContextHolder.getContext().getAuthentication();
-        // The caller is part of the key, not only its scopes: isAllowedTool
-        // asks the per-user MCP question (the audience), so two callers with
-        // the same scopes no longer necessarily see the same list. Kept as
-        // compared fields rather than a folded hash, so that a hash collision
-        // cannot serve one caller's tool list to another
-        ToolsCacheKey key = new ToolsCacheKey(authentication.getName(),
-                                              authentication.getAuthorities()
+        // The key holds the scopes and not the caller, on an invariant this
+        // cache depends on: the door (McpServerOauthOpaqueTokenIntrospector)
+        // has already refused any caller outside the MCP audience before this
+        // handler runs, and isAllowedTool answers on the global flag and the
+        // scopes alone - all-or-nothing per user, never per tool - so every
+        // caller reaching this line with the same scopes sees the same list.
+        // Should the audience ever become per-tool or per-group, the caller
+        // goes back into the key, and the map then also needs an eviction
+        // policy: it only ever grows until a tool definition changes
+        ToolsCacheKey key = new ToolsCacheKey(authentication.getAuthorities()
                                                             .stream()
                                                             .map(GrantedAuthority::getAuthority)
                                                             .filter(a -> a.startsWith("SCOPE_"))
