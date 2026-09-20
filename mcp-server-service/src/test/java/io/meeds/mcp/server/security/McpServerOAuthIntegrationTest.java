@@ -47,6 +47,7 @@ import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 import java.util.Arrays;
 import java.util.Base64;
+import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 
@@ -83,6 +84,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import io.meeds.mcp.server.model.UserToolExecution;
 import io.meeds.mcp.server.plugin.McpServerOauthOpaqueTokenIntrospector;
 import io.meeds.mcp.server.plugin.McpToolPlugin;
+import io.meeds.mcp.server.service.McpServerAudienceService;
 import io.meeds.mcp.server.service.McpServerToolService;
 import io.meeds.mcp.server.service.McpToolApprovalService;
 import io.meeds.mcp.server.test.McpServiceIntegrationTestSupport;
@@ -182,6 +184,9 @@ class McpServerOAuthIntegrationTest extends McpServiceIntegrationTestSupport {
 
   @Autowired
   private McpServerToolService                  mcpServerToolService;
+
+  @Autowired
+  private McpServerAudienceService              mcpServerAudienceService;
 
   @MockitoBean
   private McpToolApprovalService                mcpToolApprovalService;
@@ -382,26 +387,75 @@ class McpServerOAuthIntegrationTest extends McpServiceIntegrationTestSupport {
     // login 'mcp-internal'. The gate must bind to the OAuth client that owns
     // the token, which here is an ordinary external client.
     this.currentPrincipal = MCP_OAUTH2_CLIENT_CREDENTIALS_REGISTRATION_ID;
-    String token = issueToken(clientWithScopes("mcp-lookalike-" + UUID.randomUUID(), TOOL_WRITE_APPROVE_SCOPE));
-    assertThat(currentClientId).isNotEqualTo(MCP_OAUTH2_CLIENT_CREDENTIALS_REGISTRATION_ID);
+    // That login must be inside the MCP audience for this case to be reachable
+    // at all: the access gate would otherwise refuse the call first, and the
+    // trust-boundary assertion below would pass for the wrong reason. Named as
+    // a bare username, which is one of the audience's expression forms.
+    mcpServerAudienceService.savePermissions(List.of(McpServerAudienceService.DEFAULT_PERMISSION,
+                                                     MCP_OAUTH2_CLIENT_CREDENTIALS_REGISTRATION_ID));
+    try {
+      String token = issueToken(clientWithScopes("mcp-lookalike-" + UUID.randomUUID(), TOOL_WRITE_APPROVE_SCOPE));
+      assertThat(currentClientId).isNotEqualTo(MCP_OAUTH2_CLIENT_CREDENTIALS_REGISTRATION_ID);
+      String sessionId = initializeSession(token);
+      String conversationId = "conv-" + UUID.randomUUID();
+
+      MvcResult result = callTool(token,
+                                  sessionId,
+                                  TEST_APPROVAL_TOOL_NAME,
+                                  "approve-me",
+                                  Map.of(TOOL_CONTEXT_ID_PARAM,
+                                         TOOL_CONTEXT_ID,
+                                         TOOL_CONTEXT_USER_NAME_PARAM,
+                                         USERNAME,
+                                         TOOL_CONTEXT_CONVERSATION_ID_PARAM,
+                                         conversationId));
+
+      assertThat(result.getResponse().getContentAsString()).contains(NO_CONVERSATION_MESSAGE)
+                                                           .contains(IS_ERROR_TRUE_MESSAGE)
+                                                           .doesNotContain("approval:approve-me");
+      verify(mcpToolApprovalService, never()).requestApproval(anyString(), any(), anyString(), anyString(), anyString());
+    } finally {
+      mcpServerAudienceService.savePermissions(List.of(McpServerAudienceService.DEFAULT_PERMISSION));
+    }
+  }
+
+  @Test
+  @DisplayName("A user outside the MCP audience cannot call a tool")
+  void userOutsideTheMcpAudienceCannotCallATool() throws Exception {
+    mcpServerAudienceService.savePermissions(List.of("*:/platform/no-such-group"));
+    try {
+      String token = issueToken(clientWithScopes("mcp-out-of-audience-" + UUID.randomUUID(), TOOL_READ_SCOPE));
+      String sessionId = initializeSession(token);
+
+      MvcResult result = callTool(token, sessionId, TEST_READ_TOOL_NAME, MESSAGE, Map.of());
+
+      assertThat(result.getResponse().getContentAsString()).contains(IS_ERROR_TRUE_MESSAGE)
+                                                           .doesNotContain("read:" + MESSAGE);
+    } finally {
+      mcpServerAudienceService.savePermissions(List.of(McpServerAudienceService.DEFAULT_PERMISSION));
+    }
+  }
+
+  @Test
+  @DisplayName("Narrowing the audience takes effect without a restart")
+  void audienceChangeTakesEffectWithoutARestart() throws Exception {
+    String token = issueToken(clientWithScopes("mcp-audience-change-" + UUID.randomUUID(), TOOL_READ_SCOPE));
     String sessionId = initializeSession(token);
-    String conversationId = "conv-" + UUID.randomUUID();
 
-    MvcResult result = callTool(token,
-                                sessionId,
-                                TEST_APPROVAL_TOOL_NAME,
-                                "approve-me",
-                                Map.of(TOOL_CONTEXT_ID_PARAM,
-                                       TOOL_CONTEXT_ID,
-                                       TOOL_CONTEXT_USER_NAME_PARAM,
-                                       USERNAME,
-                                       TOOL_CONTEXT_CONVERSATION_ID_PARAM,
-                                       conversationId));
+    assertThat(callTool(token, sessionId, TEST_READ_TOOL_NAME, MESSAGE, Map.of()).getResponse()
+                                                                                .getContentAsString()).contains("read:"
+                                                                                                                + MESSAGE);
 
-    assertThat(result.getResponse().getContentAsString()).contains(NO_CONVERSATION_MESSAGE)
-                                                         .contains(IS_ERROR_TRUE_MESSAGE)
-                                                         .doesNotContain("approval:approve-me");
-    verify(mcpToolApprovalService, never()).requestApproval(anyString(), any(), anyString(), anyString(), anyString());
+    mcpServerAudienceService.savePermissions(List.of("*:/platform/no-such-group"));
+    try {
+      // Same session, same token, next request: the new audience decides
+      assertThat(callTool(token, sessionId, TEST_READ_TOOL_NAME, MESSAGE, Map.of()).getResponse()
+                                                                                  .getContentAsString()).contains(IS_ERROR_TRUE_MESSAGE)
+                                                                                                        .doesNotContain("read:"
+                                                                                                            + MESSAGE);
+    } finally {
+      mcpServerAudienceService.savePermissions(List.of(McpServerAudienceService.DEFAULT_PERMISSION));
+    }
   }
 
   @Test
