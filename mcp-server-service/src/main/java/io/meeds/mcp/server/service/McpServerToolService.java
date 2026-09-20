@@ -319,14 +319,19 @@ public class McpServerToolService {
    * Both halves are asked of this service's own collaborators, deliberately
    * not of {@code ExoFeatureService.isFeatureActiveForUser}. That API resolves
    * the audience through whatever {@code FeaturePlugin} is registered under
-   * the feature name, and on a registry miss — no plugin registered, or not
-   * yet — {@code ExoFeatureServiceImpl} falls back to the
-   * {@code exo.feature.mcp.server.permissions} property, which is unset on
-   * nearly every deployment and then reads as <em>everybody</em>. A miss would
-   * open the gate rather than close it, and an enforcement point must not fail
-   * open. {@code McpServerFeaturePlugin} stays registered all the same, as the
-   * read side of the same question
-   * ({@code GET /portal/rest/v1/features/mcp.server}), not as the gate.
+   * the feature name, and on a registry miss {@code ExoFeatureServiceImpl}
+   * falls back to the {@code exo.feature.mcp.server.permissions} property,
+   * which is unset on nearly every deployment and then reads as
+   * <em>everybody</em>. A miss would open the gate rather than close it, and
+   * an enforcement point must not fail open.
+   * <p>
+   * No {@code FeaturePlugin} is registered for {@code mcp.server} at all: the
+   * one this addon once shipped answered a question nobody asked and was
+   * removed. The consequence to know is that a future caller of
+   * {@code ExoFeatureService.isFeatureActiveForUser("mcp.server", user)} would
+   * get that property fallback — <em>everybody</em> on a deployment that never
+   * set the property, whatever audience an administrator saved. Nothing calls
+   * it today; do not reintroduce it as a shortcut for this method.
    * <p>
    * The global flag is read through {@code ExoFeatureService.isActiveFeature}
    * and not through {@link #isMcpServerEnabled()}, whose node-local memo would
