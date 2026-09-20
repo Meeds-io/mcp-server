@@ -19,6 +19,7 @@
 package io.meeds.mcp.server.service;
 
 import static io.meeds.mcp.server.util.McpToolUtils.MCP_OAUTH2_CLIENT_CREDENTIALS_REGISTRATION_ID;
+import static io.meeds.mcp.server.util.McpToolUtils.MCP_SERVER_FEATURE;
 import static io.meeds.mcp.server.service.McpServerToolService.READ_SCOPE_AUTHORITY;
 import static io.meeds.mcp.server.service.McpServerToolService.WRITE_APPROVE_SCOPE_AUTHORITY;
 import static io.meeds.mcp.server.service.McpServerToolService.WRITE_SCOPE_AUTHORITY;
@@ -45,6 +46,7 @@ import java.util.List;
 import java.util.Map;
 
 import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.junit.jupiter.api.io.TempDir;
@@ -112,6 +114,9 @@ class McpToolServerServiceTest {
   @Mock
   private ExoFeatureService             featureService;
 
+  @Mock
+  private McpServerAudienceService      audienceService;
+
   @Spy
   @InjectMocks
   private McpServerToolService          mcpServerToolService;
@@ -119,7 +124,6 @@ class McpToolServerServiceTest {
   @BeforeEach
   void init() {
     lenient().when(featureService.isActiveFeature(any())).thenReturn(true);
-    lenient().when(featureService.isFeatureActiveForUser(any(), any())).thenReturn(true);
     lenient().when(authentication.getName()).thenReturn(USERNAME);
   }
 
@@ -223,10 +227,9 @@ class McpToolServerServiceTest {
     SimpleToolDefinition toolDefinition = mock(SimpleToolDefinition.class);
 
     doReturn(toolDefinition).when(mcpServerToolService).getToolDefinitionByMethodName(TOOL_NAME);
-    // ExoFeatureServiceImpl.isFeatureActiveForUser checks the global flag
-    // before it ever asks the audience, so a globally disabled MCP server
-    // answers false here for everybody
-    when(featureService.isFeatureActiveForUser(any(), any())).thenReturn(false);
+    // The tool level reads the global flag: a globally disabled MCP server
+    // answers false here for every external caller
+    when(featureService.isActiveFeature(any())).thenReturn(false);
 
     boolean result = mcpServerToolService.isAllowedTool(TOOL_NAME, authentication);
 
@@ -245,16 +248,62 @@ class McpToolServerServiceTest {
   }
 
   @Test
-  void shouldNotAllowWhenNoUserCanBeResolved() {
+  @DisplayName("The tool level never asks the audience: the door has already answered it")
+  void shouldNotAskTheAudienceAtTheToolLevel() {
     SimpleToolDefinition toolDefinition = mock(SimpleToolDefinition.class);
+    when(toolDefinition.isRequireApproval()).thenReturn(false);
 
     doReturn(toolDefinition).when(mcpServerToolService).getToolDefinitionByMethodName(TOOL_NAME);
-    when(authentication.getName()).thenReturn("");
+    when(authentication.getAuthorities()).thenAnswer(invocation -> List.of(new SimpleGrantedAuthority(READ_SCOPE_AUTHORITY)));
+    // An audience that excludes this very user. A caller who reached the tool
+    // has crossed the door, which is where the audience refuses, so it is not
+    // asked again here - and must not be, or tools/list becomes per user
+    lenient().when(audienceService.isUserInAudience(any())).thenReturn(false);
 
-    boolean result = mcpServerToolService.isAllowedTool(TOOL_NAME, authentication);
-
-    assertFalse(result);
+    assertTrue(mcpServerToolService.isAllowedTool(TOOL_NAME, authentication));
+    verify(audienceService, never()).isUserInAudience(any());
     verify(featureService, never()).isFeatureActiveForUser(any(), any());
+  }
+
+  @Test
+  @DisplayName("The per-user question is answered by the flag and the audience service, never by the feature registry")
+  void isMcpServerEnabledForUser_asksItsOwnCollaborators() {
+    when(audienceService.isUserInAudience(USERNAME)).thenReturn(true);
+
+    assertTrue(mcpServerToolService.isMcpServerEnabledForUser(USERNAME));
+    // ExoFeatureServiceImpl.isFeatureActiveForUser answers "everybody" when no
+    // FeaturePlugin is registered under the feature name: an enforcement point
+    // cannot ride on a lookup that fails open
+    verify(featureService, never()).isFeatureActiveForUser(any(), any());
+    verify(featureService).isActiveFeature(MCP_SERVER_FEATURE);
+    verify(audienceService).isUserInAudience(USERNAME);
+  }
+
+  @Test
+  @DisplayName("A user outside the audience is refused while MCP is globally on")
+  void isMcpServerEnabledForUser_refusesAUserOutsideTheAudience() {
+    when(audienceService.isUserInAudience(USERNAME)).thenReturn(false);
+
+    assertFalse(mcpServerToolService.isMcpServerEnabledForUser(USERNAME));
+  }
+
+  @Test
+  @DisplayName("A globally disabled MCP server refuses every user whatever the audience says")
+  void isMcpServerEnabledForUser_refusesEveryoneWhenMcpServerIsDisabled() {
+    when(featureService.isActiveFeature(any())).thenReturn(false);
+    lenient().when(audienceService.isUserInAudience(USERNAME)).thenReturn(true);
+
+    assertFalse(mcpServerToolService.isMcpServerEnabledForUser(USERNAME));
+  }
+
+  @Test
+  @DisplayName("A blank login is refused without asking the flag or the audience")
+  void isMcpServerEnabledForUser_refusesABlankUsername() {
+    assertFalse(mcpServerToolService.isMcpServerEnabledForUser(""));
+    assertFalse(mcpServerToolService.isMcpServerEnabledForUser(null));
+
+    verify(featureService, never()).isActiveFeature(any());
+    verify(audienceService, never()).isUserInAudience(any());
   }
 
   @Test
@@ -270,28 +319,29 @@ class McpToolServerServiceTest {
     boolean result = mcpServerToolService.isAllowedTool(toolDefinition, internalAuthentication);
 
     assertTrue(result);
-    // Neither the global flag nor the audience is consulted for the internal
-    // client: the exemption is decided before either is asked
+    // The global flag is not consulted for the internal client: the exemption
+    // is decided before it is asked
     verify(featureService, never()).isActiveFeature(any());
-    verify(featureService, never()).isFeatureActiveForUser(any(), any());
   }
 
   @Test
-  void shouldAllowInternalClientWhenAudienceExcludesEveryHuman() {
+  @DisplayName("The internal client keeps its tools while MCP is globally off; a user token does not")
+  void shouldAllowInternalClientAndRefuseAUserWhenMcpServerIsGloballyOff() {
     SimpleToolDefinition toolDefinition = mock(SimpleToolDefinition.class);
 
-    // An audience lists humans; the internal client is not one of them, so
-    // emptying the audience must not take EVA's tools away
+    // The flag off means no external client may connect; EVA's tool calling
+    // rides the internal client, which is not an external client
     Authentication internalAuthentication =
                                           internalClientAuthentication(MCP_OAUTH2_CLIENT_CREDENTIALS_REGISTRATION_ID,
                                                                        READ_SCOPE_AUTHORITY);
-    when(featureService.isFeatureActiveForUser(any(), any())).thenReturn(false);
+    when(featureService.isActiveFeature(any())).thenReturn(false);
 
     assertTrue(mcpServerToolService.isAllowedTool(toolDefinition, internalAuthentication));
     assertFalse(mcpServerToolService.isAllowedTool(toolDefinition, authentication));
   }
 
   @Test
+  @DisplayName("A user token whose subject is the internal client id is not exempt from the global flag")
   void shouldNotExemptAUserTokenWhoseSubjectIsTheInternalClientId() {
     SimpleToolDefinition toolDefinition = mock(SimpleToolDefinition.class);
 
@@ -301,7 +351,7 @@ class McpToolServerServiceTest {
     Authentication userAuthentication = internalClientAuthentication("some-external-client",
                                                                       READ_SCOPE_AUTHORITY,
                                                                       MCP_OAUTH2_CLIENT_CREDENTIALS_REGISTRATION_ID);
-    when(featureService.isFeatureActiveForUser(any(), any())).thenReturn(false);
+    when(featureService.isActiveFeature(any())).thenReturn(false);
 
     boolean result = mcpServerToolService.isAllowedTool(toolDefinition, userAuthentication);
 
