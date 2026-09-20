@@ -19,6 +19,7 @@
 package io.meeds.mcp.server.service;
 
 import static io.meeds.mcp.server.util.McpToolUtils.EVENT_TOOL_UPDATED;
+import static io.meeds.mcp.server.util.McpToolUtils.MCP_SERVER_FEATURE;
 import static io.meeds.mcp.server.util.McpToolUtils.TOOL_READ_SCOPE;
 import static io.meeds.mcp.server.util.McpToolUtils.TOOL_WRITE_APPROVE_SCOPE;
 import static io.meeds.mcp.server.util.McpToolUtils.TOOL_WRITE_SCOPE;
@@ -83,8 +84,6 @@ public class McpServerToolService {
 
   private static final Scope                TOOLS_SCOPE                   = Scope.APPLICATION.id(TOOLS_KEY);
 
-  private static final String               MCP_SERVER_FEATURE            = "mcp.server";
-
   @Autowired
   private PortalContainer                   container;
 
@@ -93,9 +92,6 @@ public class McpServerToolService {
 
   @Autowired
   private ExoFeatureService                 featureService;
-
-  @Autowired
-  private McpInternalOAuthClientService     oAuthService;
 
   @Autowired
   private ListenerService                   listenerService;
@@ -111,14 +107,33 @@ public class McpServerToolService {
   @Setter
   private Map<String, SimpleToolDefinition> toolDefinitions;
 
+  /**
+   * @param methodName the Java method name implementing the tool
+   * @return the tool definition registered under that method's snake-case
+   *         name, or null when no such tool exists
+   */
   public SimpleToolDefinition getToolDefinitionByMethodName(String methodName) {
     return this.getToolDefinitions().get(toSnakeCase(methodName));
   }
 
+  /**
+   * @param toolName the MCP tool name
+   * @return the tool definition registered under that name, or null when no
+   *         such tool exists
+   */
   public SimpleToolDefinition getToolDefinition(String toolName) {
     return this.getToolDefinitions().get(toolName);
   }
 
+  /**
+   * Tells whether a tool call must be confirmed by the end user before it
+   * runs. A tool marked as requiring approval only actually asks for one when
+   * the caller holds the approval scope.
+   *
+   * @param methodName     the Java method name implementing the tool
+   * @param authentication the current OAuth authentication
+   * @return true when the call must be approved by the user first
+   */
   public boolean isRequireApproval(String methodName, Authentication authentication) {
     SimpleToolDefinition toolDefinition = getToolDefinitionByMethodName(methodName);
     return toolDefinition != null
@@ -128,6 +143,16 @@ public class McpServerToolService {
                             .anyMatch(a -> WRITE_APPROVE_SCOPE_AUTHORITY.equals(a.getAuthority()));
   }
 
+  /**
+   * Same check as {@link #isAllowedTool(SimpleToolDefinition, Authentication)},
+   * for a caller holding only a name: an MCP tool name or the Java method name
+   * behind it, tried in that order.
+   *
+   * @param toolOrMethodName the MCP tool name or its Java method name
+   * @param authentication   the current OAuth authentication
+   * @return true when the caller may use the tool, false when the tool is
+   *         unknown
+   */
   public boolean isAllowedTool(String toolOrMethodName, Authentication authentication) { // NOSONAR
     SimpleToolDefinition toolDefinition = getToolDefinitionByMethodName(toolOrMethodName);
     if (toolDefinition == null) {
@@ -141,9 +166,35 @@ public class McpServerToolService {
     }
   }
 
+  /**
+   * Second enforcement point of the MCP access gate, behind the token
+   * introspector: tells whether the authenticated caller may execute, or even
+   * see, one given tool.
+   * <p>
+   * The first condition used to read the global {@code mcp.server} flag alone,
+   * which meant every authenticated user of the platform. It now asks the
+   * per-user question instead — {@code ExoFeatureService.isFeatureActiveForUser}
+   * checks that same global flag first, then delegates to
+   * {@code McpServerFeaturePlugin}, so the global off switch keeps denying
+   * exactly what it denied before and the audience narrows it further.
+   * <p>
+   * The internal client is exempt from both, as it has always been: EVA calls
+   * its tools through the internal client-credentials grant, and that must keep
+   * working while MCP is globally off and whatever audience an administrator
+   * configures — an audience lists humans, and the internal client is not one.
+   * The exemption is recognized by the OAuth client that owns the token
+   * ({@link McpToolUtils#isInternalClientAuthentication(Authentication)}) and
+   * no longer by the token subject, which is the user login on a user grant:
+   * a user whose login happened to equal the internal client id used to be
+   * exempt here, and is not any more.
+   *
+   * @param toolDefinition the tool being listed or called
+   * @param authentication the current OAuth authentication
+   * @return true when the caller may use the tool
+   */
   public boolean isAllowedTool(SimpleToolDefinition toolDefinition, Authentication authentication) {
     // Verify that the call is internal call, else return Not Allowed
-    if (!isMcpServerEnabled() && !oAuthService.getClientRegistrationId().equals(authentication.getName())) {
+    if (!McpToolUtils.isInternalClientAuthentication(authentication) && !isMcpServerEnabledForUser(authentication)) {
       return false;
     }
     boolean canRead = CollectionUtils.isNotEmpty(authentication.getAuthorities())
@@ -162,6 +213,10 @@ public class McpServerToolService {
     return (readOnlyTool && canRead) || (!readOnlyTool && canWrite);
   }
 
+  /**
+   * @return every known tool definition by name, importing them from the
+   *         classpath on first access
+   */
   public Map<String, SimpleToolDefinition> getToolDefinitions() {
     if (MapUtils.isEmpty(toolDefinitions)) {
       this.retrieveToolDefinitions();
@@ -169,6 +224,19 @@ public class McpServerToolService {
     return toolDefinitions;
   }
 
+  /**
+   * Updates an administrable tool definition, persists the whole set and
+   * notifies listeners so that a running instance picks the change up without
+   * a restart.
+   *
+   * @param toolName        the MCP tool name
+   * @param title           the new title
+   * @param description     the new description shown to the LLM
+   * @param inputSchema     the new JSON input schema
+   * @param requireApproval whether calls must be approved by the end user
+   * @param disabled        whether the tool is withdrawn from the server
+   * @return the updated tool definition
+   */
   @Synchronized
   public ToolDefinition updateToolDefinition(String toolName,
                                              String title,
@@ -204,10 +272,21 @@ public class McpServerToolService {
     return existingToolDefinition;
   }
 
+  /**
+   * Registers a listener notified whenever a tool definition changes.
+   *
+   * @param listener the listener to add
+   */
   public void addToolUpdateListener(ToolListener listener) {
     toolListeners.add(listener);
   }
 
+  /**
+   * @return true when the MCP server is globally switched on. This is the
+   *         instance-wide on/off flag only: it says nothing about whether a
+   *         given user belongs to the MCP audience — ask
+   *         {@link #isMcpServerEnabledForUser(String)} for that.
+   */
   public boolean isMcpServerEnabled() {
     if (mcpEnabled == null) {
       mcpEnabled = featureService.isActiveFeature(MCP_SERVER_FEATURE);
@@ -215,16 +294,60 @@ public class McpServerToolService {
     return mcpEnabled;
   }
 
+  /**
+   * Resolves the user behind an OAuth authentication and answers the per-user
+   * question for them. The user is the token subject, which the authorization
+   * server sets to the platform login on a user grant.
+   *
+   * @param authentication the current OAuth authentication, never null here
+   * @return true when MCP is globally on and that user is in the audience
+   */
+  private boolean isMcpServerEnabledForUser(Authentication authentication) {
+    return isMcpServerEnabledForUser(authentication.getName());
+  }
+
+  /**
+   * Answers the per-user MCP question: is MCP globally on <em>and</em> is this
+   * user in its audience? Both halves come from
+   * {@code ExoFeatureService.isFeatureActiveForUser}, which checks the global
+   * flag itself before delegating to {@code McpServerFeaturePlugin}.
+   * <p>
+   * Deliberately not memoised, unlike {@link #isMcpServerEnabled()}: the
+   * answer depends on the user and on an audience an administrator may change
+   * at any moment, and on a security input a stale <em>wide</em> answer is a
+   * hole rather than an inconvenience.
+   *
+   * @param username the platform login of the end user, may be null or blank
+   * @return true when that user may use the MCP server
+   */
+  public boolean isMcpServerEnabledForUser(String username) {
+    return StringUtils.isNotBlank(username)
+           && featureService.isFeatureActiveForUser(MCP_SERVER_FEATURE, username);
+  }
+
+  /**
+   * Switches the MCP server on instance-wide and drops the memoised flag so
+   * the change is visible on the next request.
+   */
   public void enableMcpServer() {
     featureService.saveActiveFeature(MCP_SERVER_FEATURE, true);
     mcpEnabled = null;
   }
 
+  /**
+   * Switches the MCP server off instance-wide and drops the memoised flag so
+   * the change is visible on the next request.
+   */
   public void disableMcpServer() {
     featureService.saveActiveFeature(MCP_SERVER_FEATURE, false);
     mcpEnabled = null;
   }
 
+  /**
+   * Builds the tool registry: every {@code ai-tool-definitions.json} on the
+   * portal classpath, each entry overridden by its persisted version when one
+   * exists, then persisted back as the new reference set.
+   */
   @SneakyThrows
   private void retrieveToolDefinitions() {
     String toolsContent = getToolsContent();
@@ -257,6 +380,10 @@ public class McpServerToolService {
                                                                   ObjectUtils::firstNonNull));
   }
 
+  /**
+   * @return the persisted tool definitions as a base64 JSON string, or null
+   *         when none were persisted yet
+   */
   private String getToolsContent() {
     SettingValue<?> settingValue = settingService.get(AI_AGENT_CONTEXT,
                                                       TOOLS_SCOPE,
@@ -264,6 +391,11 @@ public class McpServerToolService {
     return settingValue == null || settingValue.getValue() == null ? null : settingValue.getValue().toString();
   }
 
+  /**
+   * Persists the tool definitions.
+   *
+   * @param content the whole set as a base64 JSON string
+   */
   private void saveToolsContent(String content) {
     settingService.set(AI_AGENT_CONTEXT,
                        TOOLS_SCOPE,

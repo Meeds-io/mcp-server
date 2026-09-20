@@ -18,6 +18,7 @@
  */
 package io.meeds.mcp.server.service;
 
+import static io.meeds.mcp.server.util.McpToolUtils.MCP_OAUTH2_CLIENT_CREDENTIALS_REGISTRATION_ID;
 import static io.meeds.mcp.server.service.McpServerToolService.READ_SCOPE_AUTHORITY;
 import static io.meeds.mcp.server.service.McpServerToolService.WRITE_APPROVE_SCOPE_AUTHORITY;
 import static io.meeds.mcp.server.service.McpServerToolService.WRITE_SCOPE_AUTHORITY;
@@ -30,6 +31,7 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.doReturn;
 import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -51,8 +53,14 @@ import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.Spy;
 import org.mockito.junit.jupiter.MockitoExtension;
+import java.time.Instant;
+
 import org.springframework.security.core.Authentication;
 import org.springframework.security.core.authority.SimpleGrantedAuthority;
+import org.springframework.security.oauth2.core.DefaultOAuth2AuthenticatedPrincipal;
+import org.springframework.security.oauth2.core.OAuth2AccessToken;
+import org.springframework.security.oauth2.core.OAuth2TokenIntrospectionClaimNames;
+import org.springframework.security.oauth2.server.resource.authentication.BearerTokenAuthentication;
 import org.springframework.test.util.ReflectionTestUtils;
 
 import org.exoplatform.commons.api.settings.ExoFeatureService;
@@ -74,6 +82,8 @@ import lombok.SneakyThrows;
 class McpToolServerServiceTest {
 
   private static final String           TOOL_NAME            = "myTool";
+
+  private static final String           USERNAME             = "john";
 
   private static final String           NEW_TITLE            = "NewTitle";
 
@@ -102,9 +112,6 @@ class McpToolServerServiceTest {
   @Mock
   private ExoFeatureService             featureService;
 
-  @Mock
-  private McpInternalOAuthClientService oAuthService;
-
   @Spy
   @InjectMocks
   private McpServerToolService          mcpServerToolService;
@@ -112,7 +119,8 @@ class McpToolServerServiceTest {
   @BeforeEach
   void init() {
     lenient().when(featureService.isActiveFeature(any())).thenReturn(true);
-    lenient().when(oAuthService.getClientRegistrationId()).thenReturn("clientId");
+    lenient().when(featureService.isFeatureActiveForUser(any(), any())).thenReturn(true);
+    lenient().when(authentication.getName()).thenReturn(USERNAME);
   }
 
   @Test
@@ -215,7 +223,10 @@ class McpToolServerServiceTest {
     SimpleToolDefinition toolDefinition = mock(SimpleToolDefinition.class);
 
     doReturn(toolDefinition).when(mcpServerToolService).getToolDefinitionByMethodName(TOOL_NAME);
-    when(featureService.isActiveFeature(any())).thenReturn(false);
+    // ExoFeatureServiceImpl.isFeatureActiveForUser checks the global flag
+    // before it ever asks the audience, so a globally disabled MCP server
+    // answers false here for everybody
+    when(featureService.isFeatureActiveForUser(any(), any())).thenReturn(false);
 
     boolean result = mcpServerToolService.isAllowedTool(TOOL_NAME, authentication);
 
@@ -223,17 +234,79 @@ class McpToolServerServiceTest {
   }
 
   @Test
+  void shouldNotAllowWhenUserIsOutsideTheMcpAudience() {
+    SimpleToolDefinition toolDefinition = mock(SimpleToolDefinition.class);
+
+    doReturn(toolDefinition).when(mcpServerToolService).getToolDefinitionByMethodName(TOOL_NAME);
+    when(featureService.isFeatureActiveForUser(any(), any())).thenReturn(false);
+
+    boolean result = mcpServerToolService.isAllowedTool(TOOL_NAME, authentication);
+
+    assertFalse(result);
+  }
+
+  @Test
+  void shouldNotAllowWhenNoUserCanBeResolved() {
+    SimpleToolDefinition toolDefinition = mock(SimpleToolDefinition.class);
+
+    doReturn(toolDefinition).when(mcpServerToolService).getToolDefinitionByMethodName(TOOL_NAME);
+    when(authentication.getName()).thenReturn("");
+
+    boolean result = mcpServerToolService.isAllowedTool(TOOL_NAME, authentication);
+
+    assertFalse(result);
+    verify(featureService, never()).isFeatureActiveForUser(any(), any());
+  }
+
+  @Test
   void shouldAllowWhenMcpServerInternalToolInvocation() {
     SimpleToolDefinition toolDefinition = mock(SimpleToolDefinition.class);
 
-    when(authentication.getAuthorities()).thenAnswer(invocation -> List.of(new SimpleGrantedAuthority(READ_SCOPE_AUTHORITY)));
-    when(featureService.isActiveFeature(any())).thenReturn(false);
-    String clientId = oAuthService.getClientRegistrationId();
-    when(authentication.getName()).thenReturn(clientId);
+    // EVA's tool calling rides the internal client and must keep working while
+    // MCP is globally off, as it always has
+    Authentication internalAuthentication =
+                                          internalClientAuthentication(MCP_OAUTH2_CLIENT_CREDENTIALS_REGISTRATION_ID,
+                                                                       READ_SCOPE_AUTHORITY);
 
-    boolean result = mcpServerToolService.isAllowedTool(toolDefinition, authentication);
+    boolean result = mcpServerToolService.isAllowedTool(toolDefinition, internalAuthentication);
 
     assertTrue(result);
+    // Neither the global flag nor the audience is consulted for the internal
+    // client: the exemption is decided before either is asked
+    verify(featureService, never()).isActiveFeature(any());
+    verify(featureService, never()).isFeatureActiveForUser(any(), any());
+  }
+
+  @Test
+  void shouldAllowInternalClientWhenAudienceExcludesEveryHuman() {
+    SimpleToolDefinition toolDefinition = mock(SimpleToolDefinition.class);
+
+    // An audience lists humans; the internal client is not one of them, so
+    // emptying the audience must not take EVA's tools away
+    Authentication internalAuthentication =
+                                          internalClientAuthentication(MCP_OAUTH2_CLIENT_CREDENTIALS_REGISTRATION_ID,
+                                                                       READ_SCOPE_AUTHORITY);
+    when(featureService.isFeatureActiveForUser(any(), any())).thenReturn(false);
+
+    assertTrue(mcpServerToolService.isAllowedTool(toolDefinition, internalAuthentication));
+    assertFalse(mcpServerToolService.isAllowedTool(toolDefinition, authentication));
+  }
+
+  @Test
+  void shouldNotExemptAUserTokenWhoseSubjectIsTheInternalClientId() {
+    SimpleToolDefinition toolDefinition = mock(SimpleToolDefinition.class);
+
+    // The subject is the user login on a user grant and nothing reserves the
+    // login 'mcp-internal'. The exemption binds to the OAuth client that owns
+    // the token, which here is an ordinary external one.
+    Authentication userAuthentication = internalClientAuthentication("some-external-client",
+                                                                      READ_SCOPE_AUTHORITY,
+                                                                      MCP_OAUTH2_CLIENT_CREDENTIALS_REGISTRATION_ID);
+    when(featureService.isFeatureActiveForUser(any(), any())).thenReturn(false);
+
+    boolean result = mcpServerToolService.isAllowedTool(toolDefinition, userAuthentication);
+
+    assertFalse(result);
   }
 
   @Test
@@ -398,6 +471,44 @@ class McpToolServerServiceTest {
     t.setRequireApproval(requireApproval);
     t.setDisabled(disabled);
     return t;
+  }
+
+  /**
+   * Builds a bearer authentication as the resource server produces it, whose
+   * subject is the owning client id — the shape of a client-credentials token.
+   *
+   * @param clientId  the OAuth client the token was issued to
+   * @param authority the scope authority the token carries
+   * @return the authentication
+   */
+  private Authentication internalClientAuthentication(String clientId, String authority) {
+    return internalClientAuthentication(clientId, authority, clientId);
+  }
+
+  /**
+   * Builds a bearer authentication whose owning client and subject are chosen
+   * independently, which is how a user token differs from the internal
+   * client's: the subject is a user login and the {@code client_id} claim
+   * names the client the token was actually issued to.
+   *
+   * @param clientId  the OAuth client the token was issued to
+   * @param authority the scope authority the token carries
+   * @param subject   the token subject
+   * @return the authentication
+   */
+  private Authentication internalClientAuthentication(String clientId, String authority, String subject) {
+    DefaultOAuth2AuthenticatedPrincipal principal =
+                                                  new DefaultOAuth2AuthenticatedPrincipal(subject,
+                                                                                          Map.of(OAuth2TokenIntrospectionClaimNames.CLIENT_ID,
+                                                                                                 clientId,
+                                                                                                 OAuth2TokenIntrospectionClaimNames.SUB,
+                                                                                                 subject),
+                                                                                          List.of(new SimpleGrantedAuthority(authority)));
+    OAuth2AccessToken accessToken = new OAuth2AccessToken(OAuth2AccessToken.TokenType.BEARER,
+                                                          "token",
+                                                          Instant.now(),
+                                                          Instant.now().plusSeconds(60));
+    return new BearerTokenAuthentication(principal, accessToken, List.of(new SimpleGrantedAuthority(authority)));
   }
 
 }
