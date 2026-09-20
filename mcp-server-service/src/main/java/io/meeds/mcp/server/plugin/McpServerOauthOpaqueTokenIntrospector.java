@@ -41,7 +41,7 @@ import org.springframework.stereotype.Component;
 
 import io.meeds.mcp.server.model.McpServerOAuthClientProperties;
 import io.meeds.mcp.server.service.McpInternalOAuthClientService;
-import io.meeds.mcp.server.service.McpServerAudienceService;
+import io.meeds.mcp.server.service.McpServerToolService;
 import io.meeds.mcp.server.util.McpToolUtils;
 import io.meeds.oauth2.server.service.OAuthClientService;
 
@@ -61,7 +61,7 @@ public class McpServerOauthOpaqueTokenIntrospector implements OpaqueTokenIntrosp
   private OAuthClientService             oAuthClientService;
 
   @Autowired
-  private McpServerAudienceService       audienceService;
+  private McpServerToolService           mcpServerToolService;
 
   @Value("${spring.security.oauth2.resourceserver.jwt.issuer-uri}")
   private String                         issuerUri;
@@ -78,8 +78,12 @@ public class McpServerOauthOpaqueTokenIntrospector implements OpaqueTokenIntrosp
    * enforcement point of the MCP access gate, and the only one that covers the
    * whole surface — {@code initialize}, {@code tools/list}, {@code tools/call}
    * and the SSE stream alike. Being here also means it is re-evaluated on
-   * every request, so narrowing the audience takes a user's access away at
-   * once instead of at the expiry of a token already issued to them.
+   * every <em>request</em>, so narrowing the audience takes a user's access
+   * away at once instead of at the expiry of a token already issued to them.
+   * One residual: an SSE stream <em>already open</em> when the audience
+   * narrows is not re-introspected, so server-to-client notifications keep
+   * flowing on it until it drops. Every new request, on that session or any
+   * other, is refused.
    *
    * @param token the opaque bearer token presented by the caller
    * @return the authenticated principal, carrying its scope authorities
@@ -222,7 +226,16 @@ public class McpServerOauthOpaqueTokenIntrospector implements OpaqueTokenIntrosp
   }
 
   /**
-   * Rejects a token whose end user is outside the MCP audience.
+   * Rejects a token whose end user may not use the MCP server.
+   * <p>
+   * Asks {@link McpServerToolService#isMcpServerEnabledForUser(String)}, the
+   * same question the second enforcement point asks, rather than the audience
+   * alone: that API checks the global {@code mcp.server} flag first and only
+   * then delegates to {@code McpServerFeaturePlugin}, so the door refuses on
+   * either half and the two enforcement points cannot drift apart. Asking
+   * {@code McpServerAudienceService} directly here would have let a token
+   * holder open a session and reach {@code initialize} on an instance where
+   * MCP is globally off, to be refused later at the tool.
    * <p>
    * The user is the token subject, which the authorization server sets to the
    * platform login on a user grant. A blank subject therefore resolves to no
@@ -244,8 +257,10 @@ public class McpServerOauthOpaqueTokenIntrospector implements OpaqueTokenIntrosp
       return;
     }
     String username = principal.getName();
-    if (!audienceService.isUserInAudience(username)) {
-      log.warn("User '{}' is not allowed to use the MCP Server", username);
+    if (!mcpServerToolService.isMcpServerEnabledForUser(username)) {
+      // debug, not warn: an administrator excluding a user is normal flow, and
+      // this runs on every request, so one excluded client would flood the log
+      log.debug("User '{}' is not allowed to use the MCP Server", username);
       throw new OAuth2AuthenticationException(new OAuth2Error(OAuth2ErrorCodes.INVALID_TOKEN,
                                                               "User is not allowed to use the MCP Server",
                                                               null));

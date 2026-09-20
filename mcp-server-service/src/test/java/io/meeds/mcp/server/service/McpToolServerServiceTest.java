@@ -234,15 +234,14 @@ class McpToolServerServiceTest {
   }
 
   @Test
-  void shouldNotAllowWhenUserIsOutsideTheMcpAudience() {
+  void shouldNotAllowWhenAuthenticationIsNull() {
     SimpleToolDefinition toolDefinition = mock(SimpleToolDefinition.class);
 
     doReturn(toolDefinition).when(mcpServerToolService).getToolDefinitionByMethodName(TOOL_NAME);
-    when(featureService.isFeatureActiveForUser(any(), any())).thenReturn(false);
 
-    boolean result = mcpServerToolService.isAllowedTool(TOOL_NAME, authentication);
-
-    assertFalse(result);
+    // No authentication is not the internal client either, so the guard must
+    // refuse before isAllowedTool dereferences it for its scope authorities
+    assertFalse(mcpServerToolService.isAllowedTool(TOOL_NAME, null));
   }
 
   @Test

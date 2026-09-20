@@ -128,8 +128,10 @@ public class McpToolUtils {
     OBJECT_MAPPER.setVisibility(VisibilityChecker.Std.defaultInstance().withFieldVisibility(JsonAutoDetect.Visibility.ANY));
   }
 
+  /**
+   * Utility class: every member is static, so it is never instantiated.
+   */
   private McpToolUtils() {
-    // Utils class
   }
 
   /**
@@ -407,6 +409,15 @@ public class McpToolUtils {
                                     TOOL_CONTEXT_ID.getBytes(StandardCharsets.UTF_8));
   }
 
+  /**
+   * Renders Markdown a tool produced into the HTML the platform's content
+   * fields expect, and leaves it untouched when it already carries HTML — a
+   * tool's output is not always Markdown, and rendering HTML twice mangles it.
+   *
+   * @param markdown the tool output, may be null or blank
+   * @return the rendered HTML, or the input unchanged when it is blank, when
+   *         it already looks like HTML, or when rendering failed
+   */
   public static String markdownToHtml(String markdown) {
     if (StringUtils.isBlank(markdown)
         || Strings.CS.containsAny(markdown,
@@ -427,6 +438,11 @@ public class McpToolUtils {
     }
   }
 
+  /**
+   * @param date an ISO-8601 date as a tool argument carries it, may be null or
+   *             blank
+   * @return the parsed date, or null when nothing was given
+   */
   public static Date toDate(String date) {
     if (StringUtils.isBlank(date)) {
       return null;
@@ -434,6 +450,12 @@ public class McpToolUtils {
     return ISO8601.parse(date).getTime();
   }
 
+  /**
+   * @param time an epoch timestamp in milliseconds, may be null or
+   *             non-positive
+   * @return the ISO-8601 representation in the current user's time zone, or
+   *         null when no usable timestamp was given
+   */
   public static String formatDate(Long time) {
     if (time == null || time <= 0) {
       return null;
@@ -441,6 +463,11 @@ public class McpToolUtils {
     return formatDate(new Date(time));
   }
 
+  /**
+   * @param date the date to render, may be null
+   * @return the ISO-8601 representation in the current user's time zone, or
+   *         null when no date was given
+   */
   public static String formatDate(Date date) {
     if (date == null) {
       return null;
@@ -451,6 +478,13 @@ public class McpToolUtils {
     return ISO8601.format(calendar);
   }
 
+  /**
+   * Reads the acting user's time zone from their platform profile, so that a
+   * date a tool returns reads the same as the one the web UI shows them.
+   *
+   * @return the user's time zone, or null when the profile carries none — the
+   *         caller then falls back to the server's default
+   */
   @SneakyThrows
   public static TimeZone getUserTimeZone() {
     OrganizationService orgService = ExoContainerContext.getService(OrganizationService.class);
