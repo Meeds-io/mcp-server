@@ -50,13 +50,29 @@ import lombok.extern.slf4j.Slf4j;
  * <p>
  * The storage idiom is the one {@code AiSettingService} established in the
  * {@code ai} addon — a {@link SettingService} entry with a property default —
- * and so is its memoisation discipline, for the reason that service's own
- * Javadoc records: a blank read is indistinguishable from an absent setting,
- * so memoising a <em>defaulted</em> value would let one failed read pin that
+ * but deliberately <b>not</b> its field memo. That service's own Javadoc
+ * records why memoising a <em>defaulted</em> read is a trap: a blank read is
+ * indistinguishable from an absent setting, so one failed read pins the
  * default for the JVM's lifetime. Here the default is the widest audience
- * there is, so pinning it would turn a transient storage failure into a
- * permanently open door. Only a value that really came back from the store is
- * memoised, and {@link #savePermissions(List)} drops the memo.
+ * there is, so that trap is a permanently open door. A field memo guarded
+ * against only that much still leaves two ways to serve a stale <em>wide</em>
+ * audience, and on a security input staleness is the whole risk:
+ * <ul>
+ * <li>a reader that has already read the store when a narrowing save lands
+ * publishes the pre-narrowing list <em>after</em> the save dropped the memo,
+ * and that value then answers every later call;</li>
+ * <li>{@code ListenerService} is an in-JVM event bus, so a save on one
+ * cluster node never invalidates the memo held by the others, which keep
+ * answering the old audience with no TTL to age it out. Reading through
+ * {@code SettingService} is only better than that where the deployment
+ * configures its cache as a clustered or invalidating one — on a local-only
+ * cache configuration a per-call read is exactly as stale as a field.</li>
+ * </ul>
+ * So the audience is read on each call instead. That is not a database hit:
+ * {@code SettingService} is itself cache-backed, and it is the very cost
+ * {@code ExoFeatureServiceImpl.isActiveFeature} already pays per call for the
+ * global flag on this same path — with the cluster-awareness that a field
+ * above that cache would have removed.
  * <p>
  * The permission-expression grammar deliberately mirrors
  * {@code ExoFeatureServiceImpl}'s own {@code exo.feature.<name>.permissions}
@@ -70,10 +86,20 @@ import lombok.extern.slf4j.Slf4j;
 public class McpServerAudienceService {
 
   /**
-   * Widest possible audience: every platform user. It is the shipped default
-   * because it is the status quo — before this gate existed, the global
-   * {@code mcp.server} flag let every authenticated user in — and an upgrade
-   * must not change anybody's access.
+   * Widest audience of <em>internal</em> users, and the shipped default: it is
+   * the value the platform's own {@code exo.feature.<name>.permissions}
+   * examples use, and it keeps MCP open to every member of
+   * {@code /platform/users} as the global flag alone did.
+   * <p>
+   * It is <b>not</b> the exact status quo, and the difference is on purpose.
+   * An <em>external</em> user — a login that carries
+   * {@code /platform/externals} and not {@code /platform/users}, which
+   * {@code PortalAuthenticationManager} admits — could open an MCP session
+   * before this gate existed, because nothing asked a per-user question at
+   * all, and cannot after it. Narrowing MCP away from external accounts is the
+   * intended reading of "who may use the MCP server"; a deployment that wants
+   * them back adds {@code *:/platform/externals} to the audience. This belongs
+   * in the addon's upgrade notes, not only here.
    */
   public static final String   DEFAULT_PERMISSION        = "*:/platform/users";
 
@@ -104,14 +130,6 @@ public class McpServerAudienceService {
    */
   @Value("#{'${exo.feature.mcp.server.permissions:" + DEFAULT_PERMISSION + "}'.split(',')}")
   private List<String>         defaultPermissions;
-
-  /**
-   * Volatile because it is written from the request thread that saves the
-   * audience and read from every other request thread evaluating the gate;
-   * without it a save is not guaranteed to be seen by a thread that already
-   * read the old value.
-   */
-  private volatile List<String> permissions;
 
   /**
    * Tells whether a user belongs to the MCP audience. This is the question
@@ -175,32 +193,27 @@ public class McpServerAudienceService {
 
   /**
    * @return the audience as stored, or the property default when nothing is
-   *         stored. The result is memoised only when it really came from the
-   *         store — see this class' Javadoc for why a defaulted read must not
-   *         be pinned.
+   *         stored. Read from {@code SettingService} on every call and never
+   *         held in a field — see this class' Javadoc for the two ways a memo
+   *         here serves a stale, and therefore too wide, audience.
    */
   public List<String> getPermissions() {
-    List<String> cached = permissions;
-    if (cached != null) {
-      return cached;
-    }
     String storedPermissions = getStoredPermissions();
     if (storedPermissions == null) {
       return defaultPermissions();
     }
-    List<String> storedAudience = Arrays.stream(StringUtils.split(storedPermissions, ","))
-                                        .map(StringUtils::trimToEmpty)
-                                        .filter(StringUtils::isNotBlank)
-                                        .toList();
-    permissions = storedAudience;
-    return storedAudience;
+    return Arrays.stream(StringUtils.split(storedPermissions, ","))
+                 .map(StringUtils::trimToEmpty)
+                 .filter(StringUtils::isNotBlank)
+                 .toList();
   }
 
   /**
-   * Replaces the audience and drops the memo, so the change takes effect on
-   * the next request rather than at the next restart. Broadcast so that any
-   * addon caching a per-user answer — the {@code ai} administration UI among
-   * them — can react.
+   * Replaces the audience. The change takes effect on the next request, on
+   * this node and on every other, because nothing above
+   * {@code SettingService} holds the previous value. Broadcast so that any
+   * addon keeping a per-user answer of its own — the {@code ai}
+   * administration UI among them — can react.
    *
    * @param audience the new list of permission expressions; null or empty
    *                 means nobody, as {@link #isUserInAudience(String)}
@@ -209,7 +222,6 @@ public class McpServerAudienceService {
   public void savePermissions(List<String> audience) {
     List<String> oldAudience = getPermissions();
     setStoredPermissions(audience);
-    this.permissions = null;
     log.info("Update MCP Server audience to {}", audience);
     listenerService.broadcast(EVENT_MCP_SERVER_AUDIENCE_UPDATED, oldAudience, audience);
   }
@@ -237,10 +249,12 @@ public class McpServerAudienceService {
     if (expression.contains(":")) {
       String[] permissionParts = expression.split(":");
       if (permissionParts.length != 2) {
-        // Refused rather than propagated: the original throws
-        // ArrayIndexOutOfBoundsException on "member:", and a malformed
-        // expression breaking the whole gate is worse than one that matches
-        // nobody. Refusing also cannot widen access.
+        // Any expression that does not split into exactly two parts, which is
+        // two divergences from the original, both narrowing: it throws
+        // ArrayIndexOutOfBoundsException on "member:", and it silently matches
+        // "a:b:c" on its first two parts. A malformed expression breaking the
+        // whole gate is worse than one that matches nobody, and refusing
+        // cannot widen access.
         log.warn("Ignoring malformed MCP audience permission expression '{}'", permissionExpression);
         return false;
       }
@@ -273,8 +287,16 @@ public class McpServerAudienceService {
 
   /**
    * @return the stored audience as a comma-separated string, or null when
-   *         nothing is stored — which is also what a failed read answers,
-   *         hence the memoisation rule of this class
+   *         nothing is stored. A <em>failed</em> read answers null too:
+   *         {@code CacheSettingServiceImpl.get} catches every exception and
+   *         returns null, so this layer cannot tell "nothing stored" from "the
+   *         store is down". The caller therefore falls back to
+   *         {@link #defaultPermissions()} — the widest audience — on every
+   *         call for as long as the failure lasts. Dropping the memo removed
+   *         the worst form of that (one failed read pinning the default for
+   *         the JVM's lifetime); the per-call residual is accepted, and is
+   *         bounded by the fact that the global {@code mcp.server} flag, read
+   *         through the same {@code SettingService}, gates the same requests.
    */
   private String getStoredPermissions() {
     SettingValue<?> settingValue = settingService.get(MCP_SERVER_CONTEXT,

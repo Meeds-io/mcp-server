@@ -299,11 +299,11 @@ public class McpServerToolService {
    * question for them. The user is the token subject, which the authorization
    * server sets to the platform login on a user grant.
    *
-   * @param authentication the current OAuth authentication, never null here
+   * @param authentication the current OAuth authentication, may be null
    * @return true when MCP is globally on and that user is in the audience
    */
   private boolean isMcpServerEnabledForUser(Authentication authentication) {
-    return isMcpServerEnabledForUser(authentication.getName());
+    return authentication != null && isMcpServerEnabledForUser(authentication.getName());
   }
 
   /**
