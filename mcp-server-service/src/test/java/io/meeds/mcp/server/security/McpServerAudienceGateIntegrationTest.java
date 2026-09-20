@@ -223,6 +223,24 @@ class McpServerAudienceGateIntegrationTest extends McpServiceIntegrationTestSupp
     assertThrows(OAuth2AuthenticationException.class, () -> introspector.introspect("token"));
   }
 
+  @Test
+  @DisplayName("Narrowing the audience takes effect on the next request, without a restart")
+  void narrowingTheAudienceTakesEffectWithoutARestart() {
+    stubIntrospection(USERNAME, clientId);
+    assertEquals(USERNAME, introspector.introspect("token").getName());
+
+    audienceService.savePermissions(List.of(EXCLUDING_GROUP));
+
+    // Same token, same introspector, next request: the door reads the audience
+    // on every call and nothing above SettingService holds the previous one,
+    // so an administrator's narrowing bites at once rather than at a restart
+    // or at the expiry of a token already issued
+    OAuth2AuthenticationException exception = assertThrows(OAuth2AuthenticationException.class,
+                                                           () -> introspector.introspect("token"));
+
+    assertEquals(ACCESS_DENIED_ERROR, exception.getError().getDescription());
+  }
+
   /**
    * Stubs the remote introspection call with the response shape the
    * authorization server produces: the subject in {@code sub}, and

@@ -74,10 +74,11 @@ public class McpServerOauthOpaqueTokenIntrospector implements OpaqueTokenIntrosp
   /**
    * Validates an opaque access token before anything under {@code /mcp} runs.
    * <p>
-   * {@link #validateMcpAudience(OAuth2AuthenticatedPrincipal)} is the first
-   * enforcement point of the MCP access gate, and the only one that covers the
-   * whole surface — {@code initialize}, {@code tools/list}, {@code tools/call}
-   * and the SSE stream alike. Being here also means it is re-evaluated on
+   * {@link #validateMcpAudience(OAuth2AuthenticatedPrincipal)} is the
+   * enforcement point of the MCP access gate on the request path, and covers
+   * the whole surface — {@code initialize}, {@code tools/list},
+   * {@code tools/call} and the SSE stream alike. Being here also means it is
+   * re-evaluated on
    * every <em>request</em>, so narrowing the audience takes a user's access
    * away at once instead of at the expiry of a token already issued to them.
    * One residual: an SSE stream <em>already open</em> when the audience
@@ -229,13 +230,15 @@ public class McpServerOauthOpaqueTokenIntrospector implements OpaqueTokenIntrosp
    * Rejects a token whose end user may not use the MCP server.
    * <p>
    * Asks {@link McpServerToolService#isMcpServerEnabledForUser(String)}, the
-   * same question the second enforcement point asks, rather than the audience
-   * alone: that API checks the global {@code mcp.server} flag first and only
-   * then delegates to {@code McpServerFeaturePlugin}, so the door refuses on
-   * either half and the two enforcement points cannot drift apart. Asking
+   * one question the token endpoint asks too, rather than the audience alone:
+   * it checks the global {@code mcp.server} flag and then the audience, so the
+   * door refuses on either half and the two places cannot drift apart. Asking
    * {@code McpServerAudienceService} directly here would have let a token
    * holder open a session and reach {@code initialize} on an instance where
-   * MCP is globally off, to be refused later at the tool.
+   * MCP is globally off. This is the only audience check on the request path:
+   * the tool level ({@code McpServerToolService.isAllowedTool}) checks the
+   * global flag and the scopes, not the audience, since every request under
+   * {@code /mcp} crosses this introspector first.
    * <p>
    * The user is the token subject, which the authorization server sets to the
    * platform login on a user grant. A blank subject therefore resolves to no

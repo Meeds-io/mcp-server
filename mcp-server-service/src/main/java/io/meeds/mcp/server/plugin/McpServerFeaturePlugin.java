@@ -48,6 +48,17 @@ import jakarta.annotation.PostConstruct;
  * checked by {@code ExoFeatureServiceImpl.isFeatureActiveForUser} before it
  * ever delegates here, so a globally disabled MCP server stays disabled for
  * everybody whatever the audience says.
+ * <p>
+ * <b>This plugin is the read side of the gate, not the gate.</b> The gate —
+ * {@code McpServerToolService.isMcpServerEnabledForUser}, asked at the door
+ * and at the token endpoint — reads {@link McpServerAudienceService} directly,
+ * because {@code ExoFeatureServiceImpl.isFeatureActiveForUser} answers
+ * <em>everybody</em> on a plugin-registry miss and an enforcement point must
+ * not fail open. What registering this plugin buys is that
+ * {@code GET /portal/rest/v1/features/mcp.server} answers per user, which the
+ * administration UI of the follow-up task (EXO-90441) needs without a new
+ * endpoint. It is not dead code, though nothing on the {@code /mcp} request
+ * path depends on it.
  */
 @Component
 public class McpServerFeaturePlugin extends FeaturePlugin {
