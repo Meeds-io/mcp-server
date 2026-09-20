@@ -277,6 +277,13 @@ class McpServerOAuthAccessTokenAudienceProviderTest {
    *
    * @param providers the audience providers to register
    * @return the customizer
+    * <p>
+   * Registers through the real {@code addProvider}, so the real comparator
+   * decides the order — the resource provider is registered first on purpose.
+   * If this test goes red after a change to that comparator, the MCP token
+   * gate has stopped refusing and the test is right: the refusal only fires
+   * while this addon's provider is consulted before the one answering from
+   * {@code resource}.
    */
   private OAuthAccessTokenCustomizerService customizerWith(OAuthAccessTokenAudienceProvider... providers) {
     OAuthAccessTokenCustomizerService customizer = new OAuthAccessTokenCustomizerService();

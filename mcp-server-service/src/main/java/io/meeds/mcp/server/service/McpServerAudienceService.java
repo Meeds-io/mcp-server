@@ -77,9 +77,14 @@ import lombok.extern.slf4j.Slf4j;
  * The permission-expression grammar deliberately mirrors
  * {@code ExoFeatureServiceImpl}'s own {@code exo.feature.<name>.permissions}
  * fallback. The audience is resolved by this service alone — no
- * {@code FeaturePlugin} is registered for the feature, so that fallback never
- * decides MCP access — and the property is read here instead, as the default
- * of {@code defaultPermissions}, so that a deployment which had narrowed MCP
+ * {@code FeaturePlugin} is registered for the feature, and nothing on the MCP
+ * request path asks {@code ExoFeatureService.isFeatureActiveForUser}, so that
+ * fallback never decides MCP access. Note which of those two facts does the
+ * work: the <em>absence</em> of a plugin is what <em>activates</em> the
+ * property fallback in {@code ExoFeatureServiceImpl}, so a caller reaching for
+ * that API would be answered "everybody" wherever the property is unset. The
+ * property is read here instead, as the default of
+ * {@code defaultPermissions}, so that a deployment which had narrowed MCP
  * access with it keeps the exact access it had.
  */
 @Service
