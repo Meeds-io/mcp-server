@@ -22,6 +22,7 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
@@ -46,7 +47,7 @@ import org.springframework.security.oauth2.server.authorization.client.Registere
 import org.springframework.security.oauth2.server.resource.introspection.SpringOpaqueTokenIntrospector;
 import org.springframework.test.util.ReflectionTestUtils;
 
-import io.meeds.mcp.server.service.McpServerAudienceService;
+import io.meeds.mcp.server.service.McpServerToolService;
 import io.meeds.mcp.server.util.McpToolUtils;
 import io.meeds.oauth2.server.service.OAuthClientService;
 
@@ -90,7 +91,7 @@ class McpServerOauthOpaqueTokenIntrospectorTest {
   private OAuthClientService                    oAuthClientService;
 
   @Mock
-  private McpServerAudienceService              audienceService;
+  private McpServerToolService                  mcpServerToolService;
 
   private McpServerOauthOpaqueTokenIntrospector introspector;
 
@@ -100,8 +101,8 @@ class McpServerOauthOpaqueTokenIntrospectorTest {
 
     ReflectionTestUtils.setField(introspector, "delegate", delegate);
     ReflectionTestUtils.setField(introspector, "oAuthClientService", oAuthClientService);
-    ReflectionTestUtils.setField(introspector, "audienceService", audienceService);
-    lenient().when(audienceService.isUserInAudience(any())).thenReturn(true);
+    ReflectionTestUtils.setField(introspector, "mcpServerToolService", mcpServerToolService);
+    lenient().when(mcpServerToolService.isMcpServerEnabledForUser(anyString())).thenReturn(true);
     ReflectionTestUtils.setField(introspector, "issuerUri", ISSUER_URI);
     ReflectionTestUtils.setField(introspector, "serverAudience", SERVER_AUDIENCE);
   }
@@ -393,7 +394,7 @@ class McpServerOauthOpaqueTokenIntrospectorTest {
 
     when(delegate.introspect(TOKEN)).thenReturn(principal);
     when(oAuthClientService.getClient(CLIENT_ID)).thenReturn(registeredClient(READ_SCOPE));
-    when(audienceService.isUserInAudience(USERNAME)).thenReturn(true);
+    when(mcpServerToolService.isMcpServerEnabledForUser(USERNAME)).thenReturn(true);
 
     OAuth2AuthenticatedPrincipal result = introspector.introspect(TOKEN);
 
@@ -414,7 +415,7 @@ class McpServerOauthOpaqueTokenIntrospectorTest {
 
     when(delegate.introspect(TOKEN)).thenReturn(principal);
     when(oAuthClientService.getClient(CLIENT_ID)).thenReturn(registeredClient(READ_SCOPE));
-    when(audienceService.isUserInAudience(USERNAME)).thenReturn(false);
+    when(mcpServerToolService.isMcpServerEnabledForUser(USERNAME)).thenReturn(false);
 
     OAuth2AuthenticationException exception = assertThrows(OAuth2AuthenticationException.class,
                                                            () -> introspector.introspect(TOKEN));
@@ -445,8 +446,9 @@ class McpServerOauthOpaqueTokenIntrospectorTest {
 
     assertEquals(1, result.getAuthorities().size());
     // Not merely allowed despite an excluding audience: never asked at all, so
-    // no audience an administrator can configure reaches EVA's tool calling
-    verify(audienceService, never()).isUserInAudience(any());
+    // neither the global flag nor an audience an administrator can configure
+    // reaches EVA's tool calling
+    verify(mcpServerToolService, never()).isMcpServerEnabledForUser(anyString());
   }
 
   @Test
@@ -471,7 +473,7 @@ class McpServerOauthOpaqueTokenIntrospectorTest {
 
     when(delegate.introspect(TOKEN)).thenReturn(principal);
     when(oAuthClientService.getClient(CLIENT_ID)).thenReturn(registeredClient(READ_SCOPE));
-    when(audienceService.isUserInAudience(McpToolUtils.MCP_OAUTH2_CLIENT_CREDENTIALS_REGISTRATION_ID)).thenReturn(false);
+    when(mcpServerToolService.isMcpServerEnabledForUser(McpToolUtils.MCP_OAUTH2_CLIENT_CREDENTIALS_REGISTRATION_ID)).thenReturn(false);
 
     OAuth2AuthenticationException exception = assertThrows(OAuth2AuthenticationException.class,
                                                            () -> introspector.introspect(TOKEN));

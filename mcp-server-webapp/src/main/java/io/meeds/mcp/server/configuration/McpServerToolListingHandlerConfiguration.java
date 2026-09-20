@@ -20,13 +20,11 @@ package io.meeds.mcp.server.configuration;
 
 import java.lang.reflect.Field;
 import java.time.Duration;
-import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
-import java.util.stream.Collectors;
 
 import org.springframework.ai.mcp.server.common.autoconfigure.properties.McpServerProperties;
 import org.springframework.ai.mcp.server.common.autoconfigure.properties.McpServerStreamableHttpProperties;
@@ -155,7 +153,7 @@ public class McpServerToolListingHandlerConfiguration {
 
     private Map<String, McpNotificationHandler>           notificationHandlers;
 
-    private Map<Integer, Mono<McpSchema.ListToolsResult>> toolsCache;
+    private Map<ToolsCacheKey, Mono<McpSchema.ListToolsResult>> toolsCache;
 
     private Duration                                      requestTimeout;
 
@@ -183,6 +181,20 @@ public class McpServerToolListingHandlerConfiguration {
 
     public void clearToolsCache() {
       toolsCache.clear();
+    }
+
+    /**
+     * Identity of a cached {@code tools/list} answer: the caller and the
+     * scopes their token carries, the two inputs {@code isToolEligible}
+     * actually reads.
+     *
+     * @param username the authenticated caller, the token subject or the
+     *                 internal client id
+     * @param scopes   the caller's {@code SCOPE_*} authorities, sorted and
+     *                 deduplicated so that two equivalent tokens share an
+     *                 entry
+     */
+    private record ToolsCacheKey(String username, List<String> scopes) {
     }
 
     private Map<String, McpNotificationHandler> notificationHandlers(DefaultMcpStreamableServerSessionFactory sessionFactory) {
@@ -216,14 +228,19 @@ public class McpServerToolListingHandlerConfiguration {
       return (exchange, params) -> {
         Assert.notNull(getMcpServerToolService(), "Mcp Server Tool Service shouldn't be null");
         Authentication authentication = SecurityContextHolder.getContext().getAuthentication();
-        int key = authentication.getAuthorities()
-                                .stream()
-                                .map(GrantedAuthority::getAuthority)
-                                .filter(a -> a.startsWith("SCOPE_"))
-                                .distinct()
-                                .sorted()
-                                .collect(Collectors.toCollection(ArrayList::new))
-                                .hashCode();
+        // The caller is part of the key, not only its scopes: isAllowedTool
+        // asks the per-user MCP question (the audience), so two callers with
+        // the same scopes no longer necessarily see the same list. Kept as
+        // compared fields rather than a folded hash, so that a hash collision
+        // cannot serve one caller's tool list to another
+        ToolsCacheKey key = new ToolsCacheKey(authentication.getName(),
+                                              authentication.getAuthorities()
+                                                            .stream()
+                                                            .map(GrantedAuthority::getAuthority)
+                                                            .filter(a -> a.startsWith("SCOPE_"))
+                                                            .distinct()
+                                                            .sorted()
+                                                            .toList());
         return toolsCache.computeIfAbsent(key, k -> {
           List<Tool> listTools = listTools();
           List<Tool> tools = listTools.stream()

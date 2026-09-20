@@ -54,11 +54,11 @@ class McpServerAudienceServiceTest {
 
   private static final String      DEFAULT_PERMISSIONS_FIELD = "defaultPermissions";
 
-  private static final String      PERMISSIONS_FIELD         = "permissions";
-
   private static final String      USERNAME                  = "john";
 
   private static final String      USERS_GROUP               = "/platform/users";
+
+  private static final String      EXTERNALS_GROUP           = "/platform/externals";
 
   private static final String      ADMINISTRATORS_GROUP      = "/platform/administrators";
 
@@ -91,32 +91,24 @@ class McpServerAudienceServiceTest {
   }
 
   @Test
-  @DisplayName("A defaulted audience is never memoised, so a failed read cannot pin it")
-  void doesNotMemoiseADefaultedAudience() {
+  @DisplayName("The audience is never held in a field, so no read can pin a stale one")
+  void neverMemoisesTheAudience() {
     when(settingService.get(any(), any(), any())).thenReturn(null);
-
     audienceService.getPermissions();
     audienceService.getPermissions();
 
-    // Read again every time: memoising the default would make one failed read
-    // a permanently wide-open door for the JVM's lifetime.
-    verify(settingService, times(2)).get(any(), any(), any());
-  }
-
-  @Test
-  @DisplayName("A stored audience is memoised, so the gate costs one read")
-  void memoisesAStoredAudience() {
     when(settingService.get(any(), any(), any())).thenReturn((SettingValue) SettingValue.create(ADMINISTRATORS_GROUP));
-
-    assertEquals(List.of(ADMINISTRATORS_GROUP), audienceService.getPermissions());
     assertEquals(List.of(ADMINISTRATORS_GROUP), audienceService.getPermissions());
 
-    verify(settingService, times(1)).get(any(), any(), any());
+    // Read on every call: a memo above SettingService would serve the old
+    // audience to a concurrent reader that had already read the store, and to
+    // every other cluster node for ever, since ListenerService is in-JVM only
+    verify(settingService, times(3)).get(any(), any(), any());
   }
 
   @Test
-  @DisplayName("Saving a new audience takes effect at once, without a restart")
-  void savingInvalidatesTheMemo() {
+  @DisplayName("A narrowing save is visible to the very next read")
+  void savingIsVisibleAtOnce() {
     when(settingService.get(any(), any(), any())).thenReturn((SettingValue) SettingValue.create(USERS_GROUP));
     assertEquals(List.of(USERS_GROUP), audienceService.getPermissions());
 
@@ -140,7 +132,7 @@ class McpServerAudienceServiceTest {
   @Test
   @DisplayName("A user outside the audience group is refused")
   void refusesAUserOutsideTheAudienceGroup() {
-    ReflectionTestUtils.setField(audienceService, PERMISSIONS_FIELD, List.of("*:" + ADMINISTRATORS_GROUP));
+    when(settingService.get(any(), any(), any())).thenReturn((SettingValue) SettingValue.create("*:" + ADMINISTRATORS_GROUP));
 
     when(userAcl.getUserIdentity(USERNAME)).thenReturn(identityOf(USERNAME, USERS_GROUP));
 
@@ -148,9 +140,35 @@ class McpServerAudienceServiceTest {
   }
 
   @Test
+  @DisplayName("An external user is outside the shipped default audience")
+  void refusesAnExternalUserUnderTheShippedDefault() {
+    when(settingService.get(any(), any(), any())).thenReturn(null);
+    ReflectionTestUtils.setField(audienceService, DEFAULT_PERMISSIONS_FIELD, List.of(DEFAULT_PERMISSION));
+
+    when(userAcl.getUserIdentity(USERNAME)).thenReturn(identityOf(USERNAME, EXTERNALS_GROUP));
+
+    // Deliberate, and the one population whose access the upgrade narrows: an
+    // external login carries /platform/externals and not /platform/users, so
+    // the shipped default excludes it. Pinned so that widening or narrowing
+    // that choice is a visible edit rather than a side effect
+    assertFalse(audienceService.isUserInAudience(USERNAME));
+
+    ReflectionTestUtils.setField(audienceService,
+                                 DEFAULT_PERMISSIONS_FIELD,
+                                 List.of(DEFAULT_PERMISSION, "*:" + EXTERNALS_GROUP));
+    assertTrue(audienceService.isUserInAudience(USERNAME));
+  }
+
+  @Test
   @DisplayName("A membership expression matches only that membership type")
   void matchesAMembershipExpression() {
-    ReflectionTestUtils.setField(audienceService, PERMISSIONS_FIELD, List.of("manager:" + USERS_GROUP));
+    when(settingService.get(any(), any(), any())).thenReturn((SettingValue) SettingValue.create("manager:" + USERS_GROUP));
+
+    when(userAcl.getUserIdentity("plain-member")).thenReturn(new Identity("plain-member",
+                                                                          Set.of(new MembershipEntry(USERS_GROUP, "member"))));
+    // The "only" half of the claim: same group, other membership type. Drop
+    // the type argument from the isMemberOf call and this is what fails
+    assertFalse(audienceService.isUserInAudience("plain-member"));
 
     when(userAcl.getUserIdentity(USERNAME)).thenReturn(new Identity(USERNAME,
                                                                     Set.of(new MembershipEntry(USERS_GROUP, "manager"))));
@@ -161,17 +179,25 @@ class McpServerAudienceServiceTest {
   @Test
   @DisplayName("A bare username is matched without resolving an identity")
   void matchesABareUsername() {
-    ReflectionTestUtils.setField(audienceService, PERMISSIONS_FIELD, List.of(USERNAME));
+    when(settingService.get(any(), any(), any())).thenReturn((SettingValue) SettingValue.create(USERNAME));
 
     assertTrue(audienceService.isUserInAudience(USERNAME));
     assertFalse(audienceService.isUserInAudience("someone-else"));
     verify(userAcl, never()).getUserIdentity(any());
   }
 
+  /**
+   * Guards the pluggable-authenticator path rather than one the shipped
+   * {@code OrganizationAuthenticatorImpl} produces: that one answers an
+   * identity with no membership for an unknown login rather than null, and a
+   * blank login is already refused before the lookup. A custom
+   * {@code AuthenticatorPlugin} may still answer null, and the gate must
+   * refuse rather than throw when it does.
+   */
   @Test
   @DisplayName("A user with no platform identity is refused, not crashed on")
   void refusesAUserWithNoIdentity() {
-    ReflectionTestUtils.setField(audienceService, PERMISSIONS_FIELD, List.of(DEFAULT_PERMISSION));
+    when(settingService.get(any(), any(), any())).thenReturn((SettingValue) SettingValue.create(DEFAULT_PERMISSION));
 
     when(userAcl.getUserIdentity(USERNAME)).thenReturn(null);
 
@@ -189,7 +215,7 @@ class McpServerAudienceServiceTest {
   @Test
   @DisplayName("A malformed expression matches nobody instead of breaking the gate")
   void ignoresAMalformedExpression() {
-    ReflectionTestUtils.setField(audienceService, PERMISSIONS_FIELD, List.of("manager:"));
+    when(settingService.get(any(), any(), any())).thenReturn((SettingValue) SettingValue.create("manager:"));
 
     assertFalse(audienceService.isUserInAudience(USERNAME));
   }

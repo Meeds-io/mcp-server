@@ -34,12 +34,14 @@ import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.doNothing;
+import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 import static org.springframework.http.HttpHeaders.AUTHORIZATION;
 import static org.springframework.http.MediaType.APPLICATION_FORM_URLENCODED_VALUE;
 import static org.springframework.http.MediaType.APPLICATION_JSON;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
@@ -56,10 +58,6 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
-import org.springframework.boot.test.context.TestConfiguration;
-import org.springframework.context.annotation.Bean;
-import org.springframework.context.annotation.Import;
 import org.springframework.http.HttpHeaders;
 import org.springframework.security.core.GrantedAuthority;
 import org.springframework.security.core.authority.SimpleGrantedAuthority;
@@ -67,13 +65,15 @@ import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.security.oauth2.core.AuthorizationGrantType;
 import org.springframework.security.oauth2.core.ClientAuthenticationMethod;
 import org.springframework.security.oauth2.core.DefaultOAuth2AuthenticatedPrincipal;
+import org.springframework.security.oauth2.core.OAuth2AuthenticationException;
+import org.springframework.security.oauth2.core.OAuth2Error;
+import org.springframework.security.oauth2.core.OAuth2ErrorCodes;
 import org.springframework.security.oauth2.core.oidc.OidcScopes;
 import org.springframework.security.oauth2.server.authorization.client.RegisteredClient;
 import org.springframework.security.oauth2.server.authorization.client.RegisteredClientRepository;
 import org.springframework.security.oauth2.server.authorization.settings.ClientSettings;
 import org.springframework.security.oauth2.server.authorization.settings.OAuth2TokenFormat;
 import org.springframework.security.oauth2.server.authorization.settings.TokenSettings;
-import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.MvcResult;
 import org.springframework.test.web.servlet.request.MockHttpServletRequestBuilder;
@@ -82,21 +82,12 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 
 import io.meeds.mcp.server.model.UserToolExecution;
-import io.meeds.mcp.server.plugin.McpServerOauthOpaqueTokenIntrospector;
-import io.meeds.mcp.server.plugin.McpToolPlugin;
 import io.meeds.mcp.server.service.McpServerAudienceService;
 import io.meeds.mcp.server.service.McpServerToolService;
-import io.meeds.mcp.server.service.McpToolApprovalService;
 import io.meeds.mcp.server.test.McpServiceIntegrationTestSupport;
-import io.meeds.oauth2.server.test.IntegrationTestBaseTestApplication;
 
 import lombok.extern.slf4j.Slf4j;
 
-@AutoConfigureMockMvc
-@Import({
-  McpServerOAuthIntegrationTest.TestMcpToolConfiguration.class,
-  IntegrationTestBaseTestApplication.class
-})
 @DisplayName("MCP server OAuth integration suite")
 @Slf4j
 class McpServerOAuthIntegrationTest extends McpServiceIntegrationTestSupport {
@@ -188,13 +179,9 @@ class McpServerOAuthIntegrationTest extends McpServiceIntegrationTestSupport {
   @Autowired
   private McpServerAudienceService              mcpServerAudienceService;
 
-  @MockitoBean
-  private McpToolApprovalService                mcpToolApprovalService;
-
-  @MockitoBean
-  private McpServerOauthOpaqueTokenIntrospector opaqueTokenIntrospector;
-
   private static final String                   NO_CONVERSATION_MESSAGE = "requires the user's approval";
+
+  private static final String                   NOT_ALLOWED_MESSAGE     = "isn't allowed";
 
   private String                                currentScopes;
 
@@ -420,6 +407,42 @@ class McpServerOAuthIntegrationTest extends McpServiceIntegrationTestSupport {
   }
 
   @Test
+  @DisplayName("A token the door refuses is refused on every /mcp path, not only at the tool")
+  void aRefusedTokenIsRefusedOnEveryMcpPath() throws Exception {
+    String token = issueToken(clientWithScopes("mcp-door-refusal-" + UUID.randomUUID(), TOOL_READ_SCOPE));
+    // The real McpServerOauthOpaqueTokenIntrospector throws exactly this when
+    // the caller may not use the MCP server; here the bean is substituted, so
+    // the refusal is injected to check what the transport does with it
+    doThrow(new OAuth2AuthenticationException(new OAuth2Error(OAuth2ErrorCodes.INVALID_TOKEN,
+                                                              "User is not allowed to use the MCP Server",
+                                                              null))).when(opaqueTokenIntrospector)
+                                                                     .introspect(anyString());
+
+    mvc.perform(post(MCP_ENDPOINT).header(AUTHORIZATION, bearer(token))
+                                  .header(HttpHeaders.ACCEPT, ACCEPT_HEADER_VALUE)
+                                  .contentType(APPLICATION_JSON)
+                                  .content(initializeRequest()))
+       .andExpect(status().isUnauthorized());
+
+    mvc.perform(post(MCP_ENDPOINT).header(AUTHORIZATION, bearer(token))
+                                  .header(HttpHeaders.ACCEPT, ACCEPT_HEADER_VALUE)
+                                  .contentType(APPLICATION_JSON)
+                                  .content("""
+                                      {
+                                        "jsonrpc": "2.0",
+                                        "id": "tools-list-refused",
+                                        "method": "tools/list",
+                                        "params": {}
+                                      }
+                                      """))
+       .andExpect(status().isUnauthorized());
+
+    mvc.perform(get(MCP_ENDPOINT).header(AUTHORIZATION, bearer(token))
+                                 .header(HttpHeaders.ACCEPT, ACCEPT_HEADER_VALUE))
+       .andExpect(status().isUnauthorized());
+  }
+
+  @Test
   @DisplayName("A user outside the MCP audience cannot call a tool")
   void userOutsideTheMcpAudienceCannotCallATool() throws Exception {
     mcpServerAudienceService.savePermissions(List.of("*:/platform/no-such-group"));
@@ -430,6 +453,7 @@ class McpServerOAuthIntegrationTest extends McpServiceIntegrationTestSupport {
       MvcResult result = callTool(token, sessionId, TEST_READ_TOOL_NAME, MESSAGE, Map.of());
 
       assertThat(result.getResponse().getContentAsString()).contains(IS_ERROR_TRUE_MESSAGE)
+                                                           .contains(NOT_ALLOWED_MESSAGE)
                                                            .doesNotContain("read:" + MESSAGE);
     } finally {
       mcpServerAudienceService.savePermissions(List.of(McpServerAudienceService.DEFAULT_PERMISSION));
@@ -451,6 +475,7 @@ class McpServerOAuthIntegrationTest extends McpServiceIntegrationTestSupport {
       // Same session, same token, next request: the new audience decides
       assertThat(callTool(token, sessionId, TEST_READ_TOOL_NAME, MESSAGE, Map.of()).getResponse()
                                                                                   .getContentAsString()).contains(IS_ERROR_TRUE_MESSAGE)
+                                                                                                        .contains(NOT_ALLOWED_MESSAGE)
                                                                                                         .doesNotContain("read:"
                                                                                                             + MESSAGE);
     } finally {
@@ -644,32 +669,6 @@ class McpServerOAuthIntegrationTest extends McpServiceIntegrationTestSupport {
 
   private String bearer(String token) {
     return "Bearer " + token;
-  }
-
-  @TestConfiguration
-  static class TestMcpToolConfiguration {
-
-    @Bean
-    McpToolPlugin testMcpTool() {
-      return new TestMcpTool();
-    }
-
-  }
-
-  public static class TestMcpTool implements McpToolPlugin {
-
-    public String testReadTool(String message) {
-      return "read:" + message;
-    }
-
-    public String testWriteTool(String message) {
-      return "write:" + message;
-    }
-
-    public String testApprovalTool(String message) {
-      return "approval:" + message;
-    }
-
   }
 
 }
