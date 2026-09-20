@@ -283,7 +283,7 @@ class McpServerOAuthIntegrationTest extends McpServiceIntegrationTestSupport {
     MvcResult result = callTool(token, sessionId, TEST_READ_TOOL_NAME, MESSAGE);
 
     assertThat(result.getResponse().getContentAsString())
-                                                         .contains("read:hello")
+                                                         .contains("read:" + MESSAGE)
                                                          .contains(IS_ERROR_FALSE_MESSAGE);
   }
 
@@ -443,12 +443,12 @@ class McpServerOAuthIntegrationTest extends McpServiceIntegrationTestSupport {
    * @throws Exception on a request failure
    */
   @Test
-  @DisplayName("A session opened before the refusal is refused on its next call, on the same Mcp-Session-Id")
+  @DisplayName("A session opened before the refusal is refused on its next call (guard: nothing caches the door's answer per session)")
   void aSessionOpenedBeforeTheRefusalIsRefusedOnItsNextCall() throws Exception {
     String token = issueToken(clientWithScopes("mcp-narrowed-" + UUID.randomUUID(), TOOL_READ_SCOPE));
     String sessionId = initializeSession(token);
     assertThat(callTool(token, sessionId, TEST_READ_TOOL_NAME, MESSAGE).getResponse().getContentAsString())
-                                                                                                        .contains("read:hello");
+                                                                                                        .contains("read:" + MESSAGE);
 
     // The audience is narrowed away from the caller: the real door
     // (McpServerOauthOpaqueTokenIntrospector) now throws on every
