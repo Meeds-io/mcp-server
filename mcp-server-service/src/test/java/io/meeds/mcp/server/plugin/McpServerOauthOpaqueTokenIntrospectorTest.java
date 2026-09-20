@@ -21,6 +21,10 @@ package io.meeds.mcp.server.plugin;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.lenient;
+import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 import java.util.Collection;
@@ -29,6 +33,7 @@ import java.util.Map;
 import java.util.Set;
 
 import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.Mock;
@@ -41,6 +46,8 @@ import org.springframework.security.oauth2.server.authorization.client.Registere
 import org.springframework.security.oauth2.server.resource.introspection.SpringOpaqueTokenIntrospector;
 import org.springframework.test.util.ReflectionTestUtils;
 
+import io.meeds.mcp.server.service.McpServerAudienceService;
+import io.meeds.mcp.server.util.McpToolUtils;
 import io.meeds.oauth2.server.service.OAuthClientService;
 
 @ExtendWith(MockitoExtension.class)
@@ -69,11 +76,21 @@ class McpServerOauthOpaqueTokenIntrospectorTest {
 
   private static final String                   CLIENT_ID                        = "mcp-client";
 
+  private static final String                   USERNAME                         = "test-user";
+
+  private static final String                   CLIENT_ID_PARAM                  = "client_id";
+
+  private static final String                   MCP_ACCESS_DENIED_ERROR          =
+                                                                                "User is not allowed to use the MCP Server";
+
   @Mock
   private SpringOpaqueTokenIntrospector         delegate;
 
   @Mock
   private OAuthClientService                    oAuthClientService;
+
+  @Mock
+  private McpServerAudienceService              audienceService;
 
   private McpServerOauthOpaqueTokenIntrospector introspector;
 
@@ -83,6 +100,8 @@ class McpServerOauthOpaqueTokenIntrospectorTest {
 
     ReflectionTestUtils.setField(introspector, "delegate", delegate);
     ReflectionTestUtils.setField(introspector, "oAuthClientService", oAuthClientService);
+    ReflectionTestUtils.setField(introspector, "audienceService", audienceService);
+    lenient().when(audienceService.isUserInAudience(any())).thenReturn(true);
     ReflectionTestUtils.setField(introspector, "issuerUri", ISSUER_URI);
     ReflectionTestUtils.setField(introspector, "serverAudience", SERVER_AUDIENCE);
   }
@@ -359,8 +378,109 @@ class McpServerOauthOpaqueTokenIntrospectorTest {
     assertEquals(TOKEN_SCOPES_NOT_SUPPORTED_ERROR, exception.getError().getDescription());
   }
 
+
+  @Test
+  @DisplayName("A user inside the MCP audience is let through")
+  void introspect_ShouldAcceptUser_WhenUserIsInMcpAudience() {
+    OAuth2AuthenticatedPrincipal principal = principal(Map.of("aud",
+                                                              SERVER_AUDIENCE,
+                                                              "iss",
+                                                              ISSUER_URI,
+                                                              "azp",
+                                                              CLIENT_ID,
+                                                              SCOPE_PARAM,
+                                                              READ_SCOPE));
+
+    when(delegate.introspect(TOKEN)).thenReturn(principal);
+    when(oAuthClientService.getClient(CLIENT_ID)).thenReturn(registeredClient(READ_SCOPE));
+    when(audienceService.isUserInAudience(USERNAME)).thenReturn(true);
+
+    OAuth2AuthenticatedPrincipal result = introspector.introspect(TOKEN);
+
+    assertEquals(USERNAME, result.getName());
+  }
+
+  @Test
+  @DisplayName("A user outside the MCP audience is refused at the door")
+  void introspect_ShouldThrowInvalidToken_WhenUserIsNotInMcpAudience() {
+    OAuth2AuthenticatedPrincipal principal = principal(Map.of("aud",
+                                                              SERVER_AUDIENCE,
+                                                              "iss",
+                                                              ISSUER_URI,
+                                                              "azp",
+                                                              CLIENT_ID,
+                                                              SCOPE_PARAM,
+                                                              READ_SCOPE));
+
+    when(delegate.introspect(TOKEN)).thenReturn(principal);
+    when(oAuthClientService.getClient(CLIENT_ID)).thenReturn(registeredClient(READ_SCOPE));
+    when(audienceService.isUserInAudience(USERNAME)).thenReturn(false);
+
+    OAuth2AuthenticationException exception = assertThrows(OAuth2AuthenticationException.class,
+                                                           () -> introspector.introspect(TOKEN));
+
+    assertEquals(INVALID_TOKEN_ERROR, exception.getError().getErrorCode());
+    assertEquals(MCP_ACCESS_DENIED_ERROR, exception.getError().getDescription());
+  }
+
+  @Test
+  @DisplayName("The internal client is never asked the audience question")
+  void introspect_ShouldAcceptInternalClient_WhenAudienceExcludesEveryHuman() {
+    OAuth2AuthenticatedPrincipal principal =
+                                           principal(Map.of("aud",
+                                                            SERVER_AUDIENCE,
+                                                            "iss",
+                                                            ISSUER_URI,
+                                                            "azp",
+                                                            CLIENT_ID,
+                                                            CLIENT_ID_PARAM,
+                                                            McpToolUtils.MCP_OAUTH2_CLIENT_CREDENTIALS_REGISTRATION_ID,
+                                                            SCOPE_PARAM,
+                                                            READ_SCOPE));
+
+    when(delegate.introspect(TOKEN)).thenReturn(principal);
+    when(oAuthClientService.getClient(CLIENT_ID)).thenReturn(registeredClient(READ_SCOPE));
+
+    OAuth2AuthenticatedPrincipal result = introspector.introspect(TOKEN);
+
+    assertEquals(1, result.getAuthorities().size());
+    // Not merely allowed despite an excluding audience: never asked at all, so
+    // no audience an administrator can configure reaches EVA's tool calling
+    verify(audienceService, never()).isUserInAudience(any());
+  }
+
+  @Test
+  @DisplayName("A user token whose subject is the internal client id is gated like any user")
+  void introspect_ShouldGateUser_WhenSubjectIsInternalClientIdButTokenIsAUserToken() {
+    // The subject is the user login on a user grant, and nothing reserves the
+    // login 'mcp-internal'. Only the client_id claim, which the authorization
+    // server writes itself, decides the exemption.
+    OAuth2AuthenticatedPrincipal principal =
+                                           new DefaultOAuth2AuthenticatedPrincipal(McpToolUtils.MCP_OAUTH2_CLIENT_CREDENTIALS_REGISTRATION_ID,
+                                                                                   Map.of("aud",
+                                                                                          SERVER_AUDIENCE,
+                                                                                          "iss",
+                                                                                          ISSUER_URI,
+                                                                                          "azp",
+                                                                                          CLIENT_ID,
+                                                                                          CLIENT_ID_PARAM,
+                                                                                          CLIENT_ID,
+                                                                                          SCOPE_PARAM,
+                                                                                          READ_SCOPE),
+                                                                                   List.of());
+
+    when(delegate.introspect(TOKEN)).thenReturn(principal);
+    when(oAuthClientService.getClient(CLIENT_ID)).thenReturn(registeredClient(READ_SCOPE));
+    when(audienceService.isUserInAudience(McpToolUtils.MCP_OAUTH2_CLIENT_CREDENTIALS_REGISTRATION_ID)).thenReturn(false);
+
+    OAuth2AuthenticationException exception = assertThrows(OAuth2AuthenticationException.class,
+                                                           () -> introspector.introspect(TOKEN));
+
+    assertEquals(MCP_ACCESS_DENIED_ERROR, exception.getError().getDescription());
+  }
+
   private OAuth2AuthenticatedPrincipal principal(Map<String, Object> attributes) {
-    return new DefaultOAuth2AuthenticatedPrincipal("test-user",
+    return new DefaultOAuth2AuthenticatedPrincipal(USERNAME,
                                                    attributes,
                                                    List.of());
   }

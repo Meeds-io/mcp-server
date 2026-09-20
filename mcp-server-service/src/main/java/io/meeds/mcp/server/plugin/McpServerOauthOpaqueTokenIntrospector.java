@@ -41,6 +41,8 @@ import org.springframework.stereotype.Component;
 
 import io.meeds.mcp.server.model.McpServerOAuthClientProperties;
 import io.meeds.mcp.server.service.McpInternalOAuthClientService;
+import io.meeds.mcp.server.service.McpServerAudienceService;
+import io.meeds.mcp.server.util.McpToolUtils;
 import io.meeds.oauth2.server.service.OAuthClientService;
 
 import lombok.extern.slf4j.Slf4j;
@@ -58,6 +60,9 @@ public class McpServerOauthOpaqueTokenIntrospector implements OpaqueTokenIntrosp
   @Autowired
   private OAuthClientService             oAuthClientService;
 
+  @Autowired
+  private McpServerAudienceService       audienceService;
+
   @Value("${spring.security.oauth2.resourceserver.jwt.issuer-uri}")
   private String                         issuerUri;
 
@@ -66,6 +71,19 @@ public class McpServerOauthOpaqueTokenIntrospector implements OpaqueTokenIntrosp
 
   private SpringOpaqueTokenIntrospector  delegate;
 
+  /**
+   * Validates an opaque access token before anything under {@code /mcp} runs.
+   * <p>
+   * {@link #validateMcpAudience(OAuth2AuthenticatedPrincipal)} is the first
+   * enforcement point of the MCP access gate, and the only one that covers the
+   * whole surface — {@code initialize}, {@code tools/list}, {@code tools/call}
+   * and the SSE stream alike. Being here also means it is re-evaluated on
+   * every request, so narrowing the audience takes a user's access away at
+   * once instead of at the expiry of a token already issued to them.
+   *
+   * @param token the opaque bearer token presented by the caller
+   * @return the authenticated principal, carrying its scope authorities
+   */
   @Override
   public OAuth2AuthenticatedPrincipal introspect(String token) {
     OAuth2AuthenticatedPrincipal principal = getDelegate().introspect(token);
@@ -73,6 +91,7 @@ public class McpServerOauthOpaqueTokenIntrospector implements OpaqueTokenIntrosp
     validateAudience(principal);
     validateIssuer(principal);
     RegisteredClient client = validateAuthorizedParty(principal);
+    validateMcpAudience(principal);
 
     Collection<GrantedAuthority> authorities = extractScopeAuthorities(principal, client);
 
@@ -81,6 +100,11 @@ public class McpServerOauthOpaqueTokenIntrospector implements OpaqueTokenIntrosp
                                                    authorities);
   }
 
+  /**
+   * @return the Spring introspector doing the actual call to the authorization
+   *         server's introspection endpoint, built lazily because the internal
+   *         client secret it authenticates with is generated on first use
+   */
   public SpringOpaqueTokenIntrospector getDelegate() {
     if (delegate == null) {
       delegate = SpringOpaqueTokenIntrospector.withIntrospectionUri(oAuthClientProperties.getOpaquetoken()
@@ -94,6 +118,14 @@ public class McpServerOauthOpaqueTokenIntrospector implements OpaqueTokenIntrosp
     return delegate;
   }
 
+  /**
+   * Maps the token's scopes to Spring Security authorities, once they have
+   * been checked against the client's registered scopes.
+   *
+   * @param principal the introspected token principal
+   * @param client    the client the token was issued to
+   * @return one {@code SCOPE_*} authority per scope carried by the token
+   */
   private Collection<GrantedAuthority> extractScopeAuthorities(OAuth2AuthenticatedPrincipal principal, RegisteredClient client) {
     List<String> scopes = extractScopes(principal);
     validateScopes(client, scopes);
@@ -102,6 +134,13 @@ public class McpServerOauthOpaqueTokenIntrospector implements OpaqueTokenIntrosp
                  .toList();
   }
 
+  /**
+   * Reads the {@code scope} claim, which the authorization server may encode
+   * either as a space-separated string or as a collection.
+   *
+   * @param principal the introspected token principal
+   * @return the scopes carried by the token, never null
+   */
   private List<String> extractScopes(OAuth2AuthenticatedPrincipal principal) {
     Object scope = principal.getAttribute("scope");
     if (scope instanceof String scopeValue) {
@@ -121,6 +160,15 @@ public class McpServerOauthOpaqueTokenIntrospector implements OpaqueTokenIntrosp
     return List.of();
   }
 
+  /**
+   * Rejects a token that was not issued for this MCP server, i.e. whose
+   * {@code aud} claim does not name it. Not to be confused with the MCP
+   * <em>user</em> audience of
+   * {@link #validateMcpAudience(OAuth2AuthenticatedPrincipal)}: this one is
+   * about which server the token is for, that one about who may use it.
+   *
+   * @param principal the introspected token principal
+   */
   private void validateAudience(OAuth2AuthenticatedPrincipal principal) {
     Object audience = principal.getAttribute("aud");
     boolean valid = audience != null && switch (audience) {
@@ -138,6 +186,12 @@ public class McpServerOauthOpaqueTokenIntrospector implements OpaqueTokenIntrosp
     }
   }
 
+  /**
+   * Rejects a token that was not issued by the configured authorization
+   * server.
+   *
+   * @param principal the introspected token principal
+   */
   private void validateIssuer(OAuth2AuthenticatedPrincipal principal) {
     String issuer = principal.getAttribute("iss");
     if (StringUtils.isBlank(issuer) || !Strings.CS.equals(issuer, issuerUri)) {
@@ -148,6 +202,13 @@ public class McpServerOauthOpaqueTokenIntrospector implements OpaqueTokenIntrosp
     }
   }
 
+  /**
+   * Rejects a token whose authorized party ({@code azp}) is not a known,
+   * active OAuth client.
+   *
+   * @param principal the introspected token principal
+   * @return the registered client the token belongs to, never null
+   */
   private RegisteredClient validateAuthorizedParty(OAuth2AuthenticatedPrincipal principal) {
     String azp = principal.getAttribute("azp");
     RegisteredClient client = StringUtils.isBlank(azp) ? null : oAuthClientService.getClient(azp);
@@ -160,6 +221,44 @@ public class McpServerOauthOpaqueTokenIntrospector implements OpaqueTokenIntrosp
     return client;
   }
 
+  /**
+   * Rejects a token whose end user is outside the MCP audience.
+   * <p>
+   * The user is the token subject, which the authorization server sets to the
+   * platform login on a user grant. A blank subject therefore resolves to no
+   * user and is refused, as is a subject no platform identity answers to.
+   * <p>
+   * The internal client is exempt and must stay so: EVA reaches its tools
+   * through the internal client-credentials grant, whose subject is the client
+   * id rather than a human login, so asking the audience about it would refuse
+   * every EVA tool call the moment an audience was configured. The exemption
+   * is decided on the {@code client_id} claim — which the authorization server
+   * writes from the client the token was actually issued to — and never on the
+   * subject, so a user whose login equals the internal client id is gated like
+   * any other user.
+   *
+   * @param principal the introspected token principal
+   */
+  private void validateMcpAudience(OAuth2AuthenticatedPrincipal principal) {
+    if (McpToolUtils.isInternalClientPrincipal(principal.getAttributes())) {
+      return;
+    }
+    String username = principal.getName();
+    if (!audienceService.isUserInAudience(username)) {
+      log.warn("User '{}' is not allowed to use the MCP Server", username);
+      throw new OAuth2AuthenticationException(new OAuth2Error(OAuth2ErrorCodes.INVALID_TOKEN,
+                                                              "User is not allowed to use the MCP Server",
+                                                              null));
+    }
+  }
+
+  /**
+   * Checks that every scope the token carries is one its OAuth client is
+   * registered for.
+   *
+   * @param client the client the token was issued to
+   * @param scopes the scopes carried by the token
+   */
   private void validateScopes(RegisteredClient client, List<String> scopes) {
     if (CollectionUtils.isEmpty(scopes) || !client.getScopes().containsAll(scopes)) {
       log.warn("Token scopes '{}' is not valid. Expected Client scopes to allow them all, current client scopes: {}",

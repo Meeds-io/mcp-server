@@ -29,6 +29,7 @@ import java.util.Calendar;
 import java.util.Collections;
 import java.util.Date;
 import java.util.List;
+import java.util.Map;
 import java.util.TimeZone;
 import java.util.UUID;
 
@@ -69,6 +70,15 @@ public class McpToolUtils {
   public static final String        AI_AGENT_TOOL_EXECUTION_EVENT                 = "ai-agent-tool-execution";
 
   public static final String        MCP_OAUTH2_CLIENT_CREDENTIALS_REGISTRATION_ID = "mcp-internal";
+
+  /**
+   * Name of the {@code ExoFeatureService} feature gating the MCP server, both
+   * globally (its on/off flag) and per user (the audience resolved by
+   * {@code McpServerFeaturePlugin}).
+   */
+  public static final String        MCP_SERVER_FEATURE                            = "mcp.server";
+
+  public static final String        EVENT_MCP_SERVER_AUDIENCE_UPDATED             = "mcp-server-audience-updated";
 
   public static final String        TOOL_CONTEXT_USER_NAME_PARAM                  = "userName";
 
@@ -122,6 +132,12 @@ public class McpToolUtils {
     // Utils class
   }
 
+  /**
+   * Parses one {@code ai-tool-definitions.json} resource.
+   *
+   * @param url the resource to read
+   * @return the tool definitions it declares, empty when it cannot be read
+   */
   public static List<SimpleToolDefinition> parseToolDefinitions(URL url) {
     try (InputStream inputStream = url.openStream()) {
       String content = IOUtils.toString(inputStream, StandardCharsets.UTF_8);
@@ -133,6 +149,10 @@ public class McpToolUtils {
     }
   }
 
+  /**
+   * @param value the tool definitions as a JSON string
+   * @return the parsed definitions, or null when the string is blank
+   */
   @SneakyThrows
   public static final ToolDefinitionMethods fromJsonString(String value) {
     if (StringUtils.isBlank(value)) {
@@ -141,6 +161,13 @@ public class McpToolUtils {
     return OBJECT_MAPPER.readValue(value, ToolDefinitionMethods.class);
   }
 
+  /**
+   * Same as {@link #fromJsonString(String)} for the persisted form, whose
+   * input schemas are base64 encoded.
+   *
+   * @param value the persisted tool definitions
+   * @return the parsed definitions with decoded schemas, or null when blank
+   */
   @SneakyThrows
   public static ToolDefinitionMethods fromJsonStringBase64(String value) {
     if (StringUtils.isBlank(value)) {
@@ -155,6 +182,13 @@ public class McpToolUtils {
     return toolDefinitions;
   }
 
+  /**
+   * Serializes tool definitions to their persisted form, base64 encoding each
+   * input schema.
+   *
+   * @param toolDefinitions the definitions to serialize
+   * @return the JSON string to persist
+   */
   @SneakyThrows
   public static String toJsonStringBase64(ToolDefinitionMethods toolDefinitions) {
     List<SimpleToolDefinition> tools = toolDefinitions.tools()
@@ -165,6 +199,10 @@ public class McpToolUtils {
     return OBJECT_MAPPER.writeValueAsString(new ToolDefinitionMethods(tools));
   }
 
+  /**
+   * @param name a Java method name
+   * @return its snake-case form, which is the MCP tool name
+   */
   public static String toSnakeCase(String name) {
     if (name == null || name.isEmpty()) {
       return name;
@@ -183,6 +221,10 @@ public class McpToolUtils {
     return snakeCaseBuilder.toString();
   }
 
+  /**
+   * @param name a snake-case name
+   * @return its camel-case form
+   */
   public static String toCamelCase(String name) {
     if (name == null || name.isEmpty()) {
       return name;
@@ -206,6 +248,16 @@ public class McpToolUtils {
     return camelCaseBuilder.toString();
   }
 
+  /**
+   * Reads a private field of a Spring AI {@link MethodToolCallback}, which
+   * exposes no accessor for the tool object and method it wraps.
+   *
+   * @param toolCallback the callback to introspect
+   * @param fieldName    the field to read
+   * @return the field value
+   * @throws NoSuchFieldException   when the field does not exist
+   * @throws IllegalAccessException when it cannot be read
+   */
   public static Object getMethodToolFieldValue(MethodToolCallback toolCallback, String fieldName) throws NoSuchFieldException,
                                                                                                   IllegalAccessException {
     Field field = MethodToolCallback.class.getDeclaredField(fieldName);
@@ -300,14 +352,43 @@ public class McpToolUtils {
    * @param authentication the current {@link Authentication}, may be null
    * @return true when the token belongs to the internal client, else false
    */
-  private static boolean isInternalClientAuthentication(Authentication authentication) {
+  public static boolean isInternalClientAuthentication(Authentication authentication) {
     if (!(authentication instanceof BearerTokenAuthentication bearerTokenAuthentication)) {
       return false;
     }
     // getTokenAttributes() is never null: an unmodifiable copy of the
     // principal attributes, built by every constructor
-    Object clientId = bearerTokenAuthentication.getTokenAttributes().get(OAuth2TokenIntrospectionClaimNames.CLIENT_ID);
-    return clientId instanceof String clientIdValue
+    return isInternalClientId(bearerTokenAuthentication.getTokenAttributes().get(OAuth2TokenIntrospectionClaimNames.CLIENT_ID));
+  }
+
+  /**
+   * Same question as {@link #isInternalClientAuthentication(Authentication)},
+   * asked one step earlier: at token introspection time there is no
+   * {@link Authentication} yet, only the introspected principal. Both
+   * enforcement points of the MCP access gate must recognize the internal
+   * client the same way or the exemption means two different things, so both
+   * go through {@link #isInternalClientId(Object)} and neither consults the
+   * token subject.
+   *
+   * @param tokenAttributes the introspected token attributes, may be null
+   * @return true when the token belongs to the internal client, else false
+   */
+  public static boolean isInternalClientPrincipal(Map<String, Object> tokenAttributes) {
+    return tokenAttributes != null && isInternalClientId(tokenAttributes.get(OAuth2TokenIntrospectionClaimNames.CLIENT_ID));
+  }
+
+  /**
+   * Compares an introspected {@code client_id} claim with the internal MCP
+   * client's registration id. The claim is authoritative: the authorization
+   * server overwrites it from the registered client the token was actually
+   * issued to, so unlike the subject it cannot be chosen by the token holder.
+   *
+   * @param clientIdClaim the {@code client_id} claim value, may be null or of
+   *                      any type
+   * @return true when the claim names the internal MCP client
+   */
+  private static boolean isInternalClientId(Object clientIdClaim) {
+    return clientIdClaim instanceof String clientIdValue
            && Strings.CS.equals(MCP_OAUTH2_CLIENT_CREDENTIALS_REGISTRATION_ID, clientIdValue);
   }
 
