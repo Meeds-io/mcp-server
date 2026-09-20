@@ -76,10 +76,11 @@ import lombok.extern.slf4j.Slf4j;
  * <p>
  * The permission-expression grammar deliberately mirrors
  * {@code ExoFeatureServiceImpl}'s own {@code exo.feature.<name>.permissions}
- * fallback, which registering an {@code McpServerFeaturePlugin} switches off:
- * a deployment that had configured that property must keep the exact access it
- * had. That is also why {@link #defaultPermissions()} reads that very property
- * as its default.
+ * fallback. The audience is resolved by this service alone — no
+ * {@code FeaturePlugin} is registered for the feature, so that fallback never
+ * decides MCP access — and the property is read here instead, as the default
+ * of {@code defaultPermissions}, so that a deployment which had narrowed MCP
+ * access with it keeps the exact access it had.
  */
 @Service
 @Slf4j
@@ -121,22 +122,21 @@ public class McpServerAudienceService {
   private ListenerService      listenerService;
 
   /**
-   * Default audience, read from the very property
-   * {@code ExoFeatureServiceImpl} consults when no {@code FeaturePlugin} is
-   * registered for the feature. Registering the plugin makes that fallback
-   * unreachable, so reading the same property here is what keeps a deployment
-   * that had narrowed MCP access by property narrowed after the upgrade,
-   * instead of silently reopening it to {@link #DEFAULT_PERMISSION}.
+   * Default audience, read from the {@code exo.feature.mcp.server.permissions}
+   * property. The audience is resolved by this service alone — nothing on the
+   * MCP request path consults {@code ExoFeatureServiceImpl}'s own property
+   * fallback — so the property is read here, in order that a deployment which
+   * had narrowed MCP access by setting it keeps that meaning after the
+   * upgrade, instead of silently reopening to {@link #DEFAULT_PERMISSION}.
    */
   @Value("#{'${exo.feature.mcp.server.permissions:" + DEFAULT_PERMISSION + "}'.split(',')}")
   private List<String>         defaultPermissions;
 
   /**
-   * Tells whether a user belongs to the MCP audience. This is the question
-   * {@code McpServerFeaturePlugin} answers on behalf of
-   * {@code ExoFeatureService.isFeatureActiveForUser("mcp.server", username)},
-   * so it decides access for every present and future caller of that API
-   * without any of them knowing how the audience is stored.
+   * Tells whether a user belongs to the MCP audience. This is the one place
+   * the question is answered: the gate,
+   * {@code McpServerToolService.isMcpServerEnabledForUser}, asks it directly,
+   * so no caller needs to know how the audience is stored.
    *
    * @param username the platform login of the end user, may be null or blank
    * @return true when the user matches at least one permission expression of

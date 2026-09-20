@@ -29,6 +29,9 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.security.core.Authentication;
 import org.springframework.security.oauth2.core.AuthorizationGrantType;
+import org.springframework.security.oauth2.core.OAuth2AuthenticationException;
+import org.springframework.security.oauth2.core.OAuth2Error;
+import org.springframework.security.oauth2.core.OAuth2ErrorCodes;
 import org.springframework.security.oauth2.server.authorization.token.OAuth2TokenContext;
 import org.springframework.stereotype.Component;
 
@@ -40,18 +43,32 @@ import jakarta.annotation.PostConstruct;
 
 /**
  * Names this MCP server as the audience of the access tokens issued for its
- * tool scopes — and refuses to, for a user the MCP audience excludes.
+ * tool scopes — and refuses the token outright for a user the MCP audience
+ * excludes.
  * <p>
  * That refusal is what keeps an excluded user from <em>adding</em> the server
  * to an external MCP client at all. Without it they complete the whole OAuth
  * flow — discovery, dynamic client registration, login, consent — obtain a
  * token, and only then meet the door's 401: they end up owning a connector
- * that looks broken. With it, no provider names an audience for their token,
- * {@code OAuthAccessTokenCustomizerService.computeJwtAudiences} fails the
- * token request with {@code invalid_request} ("No valid audience provided"),
- * and nothing is ever recorded as connected. A refresh goes through the same
- * customizer, so an audience narrowed later bites at the next refresh as well
- * as, through the door, at the very next request.
+ * that looks broken. With it the token request fails with
+ * {@code access_denied}, and nothing is ever recorded as connected. A refresh
+ * goes through the same customizer, so an audience narrowed later bites at
+ * the next refresh as well as, through the door, at the very next request.
+ * <p>
+ * The refusal has to be <em>raised</em>, not expressed by returning null.
+ * {@code OAuthAccessTokenCustomizerService.computeJwtAudiences} takes the
+ * first non-empty answer among the registered providers and only fails the
+ * request when every one of them abstains — and the authorization server
+ * ships a second provider, {@code OAuthAccessTokenAudienceTokenRequestProvider},
+ * which answers with the {@code resource} parameter of the authorization
+ * request (RFC 8707) whenever that value is one of
+ * {@code OAuthSettingService.getAllowedAudiences()}. This addon registers its
+ * own URL as exactly such an allowed audience, and MCP clients do send
+ * {@code resource}. So a null here would merely abstain, that provider would
+ * name the MCP URL in its place, and the excluded user would get a token
+ * anyway. Throwing {@link OAuth2AuthenticationException} instead ends the
+ * stream before any other provider is consulted, and the customizer
+ * propagates it as the token endpoint's error response.
  */
 @Component
 public class McpServerOAuthAccessTokenAudienceProvider implements OAuthAccessTokenAudienceProvider {
@@ -85,10 +102,16 @@ public class McpServerOAuthAccessTokenAudienceProvider implements OAuthAccessTok
    * @return this MCP server's URL as the token's audience when the token
    *         carries an MCP tool scope and either has no end user (a
    *         client-credentials grant) or has one the MCP server is enabled
-   *         for; null otherwise. For a token without an MCP scope the null
-   *         lets another provider answer; for an MCP token whose end user is
-   *         excluded it makes the authorization server refuse the token
-   *         request, as no other provider names an audience for those scopes
+   *         for; null for a token without an MCP scope, which lets another
+   *         provider answer
+   * @throws OAuth2AuthenticationException with {@code access_denied} for an
+   *                                       MCP token whose end user is outside
+   *                                       the MCP audience, or whose context
+   *                                       carries no principal at all — a
+   *                                       grant this code does not know fails
+   *                                       closed, as a refusal rather than an
+   *                                       abstention another provider could
+   *                                       override
    */
   @Override
   public List<String> provideAudiences(OAuth2TokenContext context) {
@@ -98,7 +121,9 @@ public class McpServerOAuthAccessTokenAudienceProvider implements OAuthAccessTok
                || mcpServerToolService.isMcpServerEnabledForUser(getEndUserName(context))) {
       return List.of(mcpBaseUrl);
     } else {
-      return null; // NOSONAR
+      throw new OAuth2AuthenticationException(new OAuth2Error(OAuth2ErrorCodes.ACCESS_DENIED,
+                                                              "User is not allowed to use the MCP Server",
+                                                              null));
     }
   }
 
@@ -133,8 +158,9 @@ public class McpServerOAuthAccessTokenAudienceProvider implements OAuthAccessTok
    *
    * @param context the access token being issued
    * @return the end user's login, or null when the context carries no
-   *         principal — which the audience refuses, so a grant this code does
-   *         not know fails closed
+   *         principal — which the audience refuses, so that
+   *         {@link #provideAudiences} throws and a grant this code does not
+   *         know fails closed
    */
   private String getEndUserName(OAuth2TokenContext context) {
     Authentication principal = context.getPrincipal();

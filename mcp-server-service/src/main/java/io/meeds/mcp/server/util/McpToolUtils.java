@@ -72,9 +72,9 @@ public class McpToolUtils {
   public static final String        MCP_OAUTH2_CLIENT_CREDENTIALS_REGISTRATION_ID = "mcp-internal";
 
   /**
-   * Name of the {@code ExoFeatureService} feature gating the MCP server, both
-   * globally (its on/off flag) and per user (the audience resolved by
-   * {@code McpServerFeaturePlugin}).
+   * Name of the {@code ExoFeatureService} feature carrying the MCP server's
+   * global on/off flag. The per-user audience is not a feature plugin: it is
+   * resolved by {@code McpServerAudienceService} alone.
    */
   public static final String        MCP_SERVER_FEATURE                            = "mcp.server";
 
