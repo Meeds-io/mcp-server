@@ -69,6 +69,18 @@ import jakarta.annotation.PostConstruct;
  * anyway. Throwing {@link OAuth2AuthenticationException} instead ends the
  * stream before any other provider is consulted, and the customizer
  * propagates it as the token endpoint's error response.
+ * <p>
+ * <b>The refusal depends on this provider being consulted first.</b>
+ * {@code computeJwtAudiences} is a short-circuiting stream, so the throw below
+ * happens only while this provider is reached before
+ * {@code OAuthAccessTokenAudienceTokenRequestProvider} — which would otherwise
+ * answer from {@code resource} and end the stream. That ordering comes from
+ * {@code OAuthAccessTokenCustomizerService}'s comparator, which today places
+ * this provider first; no value this class can declare would outrank a
+ * competitor already at {@code LOWEST_PRECEDENCE} under a descending sort. The
+ * aggregate test registers both providers through the real {@code addProvider}
+ * and is therefore the tripwire: if it goes red after a change to that
+ * comparator, the MCP token gate has stopped working and the test is right.
  */
 @Component
 public class McpServerOAuthAccessTokenAudienceProvider implements OAuthAccessTokenAudienceProvider {
