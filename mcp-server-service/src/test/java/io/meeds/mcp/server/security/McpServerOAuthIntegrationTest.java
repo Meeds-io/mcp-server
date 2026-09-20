@@ -430,6 +430,42 @@ class McpServerOAuthIntegrationTest extends McpServiceIntegrationTestSupport {
        .andExpect(status().isUnauthorized());
   }
 
+  /**
+   * The requirement's own scenario: a user narrowed out of the audience
+   * <em>after</em> opening a session is refused on that same session's next
+   * call, not only when opening a new one. The pin guards a property this
+   * repository does not implement but depends on — the bearer token is
+   * introspected on every request by Spring Security's resource-server filter,
+   * and the MCP transport session ({@code Mcp-Session-Id}) carries no
+   * authentication of its own. Nothing here caches the door's answer per
+   * session today; this test is what fails the day something does.
+   *
+   * @throws Exception on a request failure
+   */
+  @Test
+  @DisplayName("A session opened before the refusal is refused on its next call, on the same Mcp-Session-Id")
+  void aSessionOpenedBeforeTheRefusalIsRefusedOnItsNextCall() throws Exception {
+    String token = issueToken(clientWithScopes("mcp-narrowed-" + UUID.randomUUID(), TOOL_READ_SCOPE));
+    String sessionId = initializeSession(token);
+    assertThat(callTool(token, sessionId, TEST_READ_TOOL_NAME, MESSAGE).getResponse().getContentAsString())
+                                                                                                        .contains("read:hello");
+
+    // The audience is narrowed away from the caller: the real door
+    // (McpServerOauthOpaqueTokenIntrospector) now throws on every
+    // introspection, which the substituted bean is re-stubbed to do
+    doThrow(new OAuth2AuthenticationException(new OAuth2Error(OAuth2ErrorCodes.INVALID_TOKEN,
+                                                              "User is not allowed to use the MCP Server",
+                                                              null))).when(opaqueTokenIntrospector)
+                                                                     .introspect(anyString());
+
+    mvc.perform(toolCallRequest(token,
+                                sessionId,
+                                TEST_READ_TOOL_NAME,
+                                MESSAGE,
+                                Map.of(TOOL_CONTEXT_CONVERSATION_ID_PARAM, "test-conversation-" + UUID.randomUUID())))
+       .andExpect(status().isUnauthorized());
+  }
+
   @Test
   @DisplayName("Tool definition update enables approval requirement")
   void updateToolDefinitionEnablesApprovalRequirement() throws Exception {
@@ -520,33 +556,62 @@ class McpServerOAuthIntegrationTest extends McpServiceIntegrationTestSupport {
                     Map.of(TOOL_CONTEXT_CONVERSATION_ID_PARAM, "test-conversation-" + UUID.randomUUID()));
   }
 
+  /**
+   * Performs a {@code tools/call} expected to reach the tool, whatever the
+   * tool then answers.
+   *
+   * @param token          the bearer token
+   * @param sessionId      the MCP session id
+   * @param toolName       the tool to call
+   * @param message        the tool's {@code message} argument
+   * @param contextHeaders the tool-context headers to send
+   * @return the 200 result
+   * @throws Exception on a request failure
+   */
   private MvcResult callTool(String token,
                              String sessionId,
                              String toolName,
                              String message,
                              Map<String, String> contextHeaders) throws Exception {
+    return mvc.perform(toolCallRequest(token, sessionId, toolName, message, contextHeaders))
+              .andExpect(status().isOk())
+              .andReturn();
+  }
+
+  /**
+   * Builds a {@code tools/call} request without performing it, for the tests
+   * that expect the transport to refuse it.
+   *
+   * @param token          the bearer token
+   * @param sessionId      the MCP session id
+   * @param toolName       the tool to call
+   * @param message        the tool's {@code message} argument
+   * @param contextHeaders the tool-context headers to send
+   * @return the request
+   */
+  private MockHttpServletRequestBuilder toolCallRequest(String token,
+                                                        String sessionId,
+                                                        String toolName,
+                                                        String message,
+                                                        Map<String, String> contextHeaders) {
     MockHttpServletRequestBuilder request = post(MCP_ENDPOINT).header(AUTHORIZATION, bearer(token))
                                                              .header(MCP_SESSION_ID_HEADER, sessionId)
                                                              .header(HttpHeaders.ACCEPT, ACCEPT_HEADER_VALUE);
     contextHeaders.forEach(request::header);
-    return mvc.perform(request
-                                         .contentType(APPLICATION_JSON)
-                                         .content("""
-                                             {
-                                               "jsonrpc": "2.0",
-                                               "id": "tool-call",
-                                               "method": "tools/call",
-                                               "params": {
-                                                 "name": "%s",
-                                                 "arguments": {
-                                                   "message": "%s"
-                                                 }
-                                               }
-                                             }
-                                             """
-                                                .formatted(toolName, message)))
-              .andExpect(status().isOk())
-              .andReturn();
+    return request.contentType(APPLICATION_JSON)
+                  .content("""
+                      {
+                        "jsonrpc": "2.0",
+                        "id": "tool-call",
+                        "method": "tools/call",
+                        "params": {
+                          "name": "%s",
+                          "arguments": {
+                            "message": "%s"
+                          }
+                        }
+                      }
+                      """.formatted(toolName, message));
   }
 
   private String initializeSession(String token) throws Exception {
