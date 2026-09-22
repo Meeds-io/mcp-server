@@ -216,9 +216,10 @@ public class McpServerAudienceService {
   /**
    * Replaces the audience. The change takes effect on the next request, on
    * this node and on every other, because nothing above
-   * {@code SettingService} holds the previous value. Broadcast so that any
-   * addon keeping a per-user answer of its own — the {@code ai}
-   * administration UI among them — can react.
+   * {@code SettingService} holds the previous value. The broadcast is an
+   * extension seam and nothing listens to it today: the {@code ai}
+   * administration UI re-reads the audience over REST after each save. An
+   * addon that ever keeps a per-user answer of its own would hook here.
    *
    * @param audience the new list of permission expressions; null or empty
    *                 means nobody, as {@link #isUserInAudience(String)}

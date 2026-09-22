@@ -74,13 +74,24 @@ import jakarta.annotation.PostConstruct;
  * {@code computeJwtAudiences} is a short-circuiting stream, so the throw below
  * happens only while this provider is reached before
  * {@code OAuthAccessTokenAudienceTokenRequestProvider} — which would otherwise
- * answer from {@code resource} and end the stream. That ordering comes from
- * {@code OAuthAccessTokenCustomizerService}'s comparator, which today places
- * this provider first; no value this class can declare would outrank a
- * competitor already at {@code LOWEST_PRECEDENCE} under a descending sort. The
- * aggregate test registers both providers through the real {@code addProvider}
- * and is therefore the tripwire: if it goes red after a change to that
- * comparator, the MCP token gate has stopped working and the test is right.
+ * answer from {@code resource} and end the stream. That ordering is an
+ * accident of {@code OAuthAccessTokenCustomizerService}'s comparator,
+ * {@code (p1, p2) -> p2.getOrder() - p1.getOrder()}: this provider keeps the
+ * default {@code HIGHEST_PRECEDENCE} ({@code Integer.MIN_VALUE}), the
+ * {@code resource} provider declares {@code LOWEST_PRECEDENCE}
+ * ({@code Integer.MAX_VALUE}), and {@code MAX_VALUE - MIN_VALUE} overflows to
+ * {@code -1} — so this provider sorts first <em>because the subtraction
+ * overflows</em>. Computed without overflow, that descending sort would put
+ * the {@code resource} provider first and the refusal below would never be
+ * reached; of the two overflow-free rewrites, only an ascending
+ * {@code Integer.compare(p1.getOrder(), p2.getOrder())} — the Spring
+ * {@code Ordered} convention the two constants' names imply — preserves the
+ * gate. Making the refusal independent of position is the authorization
+ * server's to do (consult every provider before choosing, or an explicit veto
+ * in the SPI); until then the aggregate test, which registers both providers
+ * through the real {@code addProvider}, is the tripwire: if it goes red after
+ * a change to that comparator, the MCP token gate has stopped working and the
+ * test is right.
  */
 @Component
 public class McpServerOAuthAccessTokenAudienceProvider implements OAuthAccessTokenAudienceProvider {
