@@ -18,18 +18,10 @@
  */
 package io.meeds.mcp.server.tool.util;
 
-import java.io.ByteArrayOutputStream;
 import java.io.File;
 import java.io.FileOutputStream;
 import java.io.IOException;
-import java.io.InputStream;
-import java.net.InetAddress;
 import java.net.URI;
-import java.net.UnknownHostException;
-import java.net.http.HttpClient;
-import java.net.http.HttpHeaders;
-import java.net.http.HttpRequest;
-import java.net.http.HttpResponse;
 import java.nio.file.Files;
 import java.nio.file.attribute.FileAttribute;
 import java.nio.file.attribute.PosixFilePermission;
@@ -56,6 +48,12 @@ import org.exoplatform.social.attachment.AttachmentService;
 import org.exoplatform.upload.UploadResource;
 import org.exoplatform.upload.UploadService;
 
+import io.meeds.commons.http.SafeFetchException;
+import io.meeds.commons.http.SafeFetchPolicy;
+import io.meeds.commons.http.SafeFetchRequest;
+import io.meeds.commons.http.SafeFetchResponse;
+import io.meeds.commons.http.SafeHttpFetcher;
+
 /**
  * Helpers to turn an image (from a URL or base64) into a platform
  * {@link UploadService} <code>uploadId</code> that any upload-consuming API
@@ -63,8 +61,13 @@ import org.exoplatform.upload.UploadService;
  * accepts. This is the missing "materialize" side of {@link UploadService},
  * which otherwise only registers/reads resources.
  *
- * <p>Fetching an image from a URL happens server-side, so the URL is validated
- * against SSRF (only public http/https hosts are allowed).
+ * <p>Fetching from a URL happens server-side, through the platform's
+ * {@link SafeHttpFetcher}: only public http/https hosts are reached, and the
+ * address is judged by the HTTP client's own resolver when the connection
+ * opens, so the address checked is the address dialled — a name answering a
+ * public address once and an internal one at the next lookup is refused at
+ * the connection. No redirect is followed; the body is bounded by the caller's
+ * limit and the whole read by a deadline.
  */
 public final class UploadToolUtils {
 
@@ -77,12 +80,46 @@ public final class UploadToolUtils {
 
   private static final int    READ_TIMEOUT_SECONDS     = 20;
 
+  /** Longest fetch of one URL in all: a server trickling bytes cannot hold a tool call longer. */
+  private static final int    TOTAL_TIMEOUT_SECONDS    = 60;
+
+  private static final String USER_AGENT               = "Meeds-MCP-Server-Upload/1.0";
+
+  private static final FileAttribute<Set<PosixFilePermission>> OWNER_ONLY_PERMS =
+                                                                                 PosixFilePermissions.asFileAttribute(EnumSet.of(PosixFilePermission.OWNER_READ,
+                                                                                                                                  PosixFilePermission.OWNER_WRITE));
+
+  /**
+   * The one fetcher of every URL a tool is given: public http/https on any
+   * port, no redirect followed, the timeouts above. Shared for the JVM's life,
+   * so it is never closed; its only thread is a daemon.
+   */
+  private static final SafeHttpFetcher FETCHER = new SafeHttpFetcher(SafeFetchPolicy.builder()
+                                                                                      .name("mcp-server-upload")
+                                                                                      .userAgent(USER_AGENT)
+                                                                                      .anyPort()
+                                                                                      .maxRedirects(0)
+                                                                                      .maxBytes(DEFAULT_MAX_BYTES)
+                                                                                      .connectTimeout(Duration.ofSeconds(CONNECT_TIMEOUT_SECONDS))
+                                                                                      .readTimeout(Duration.ofSeconds(READ_TIMEOUT_SECONDS))
+                                                                                      .totalTimeout(Duration.ofSeconds(TOTAL_TIMEOUT_SECONDS))
+                                                                                      .build());
+
+  /**
+   * Not instantiated.
+   */
   private UploadToolUtils() {
   }
 
   /** A downloaded image: its bytes, resolved mime type and a file name. */
   public record FetchedContent(byte[] bytes, String mimeType, String fileName) {
 
+    /**
+     * Compares by content: the bytes are an array.
+     *
+     * @param o the other object
+     * @return true when the bytes, type and name are equal
+     */
     @Override
     public boolean equals(Object o) {
       return this == o
@@ -92,37 +129,24 @@ public final class UploadToolUtils {
               && Objects.equals(fileName, other.fileName));
     }
 
+    /**
+     * Hashes by content, the bytes included.
+     *
+     * @return the hash
+     */
     @Override
     public int hashCode() {
       return Objects.hash(Arrays.hashCode(bytes), mimeType, fileName);
     }
 
+    /**
+     * Describes the content by its size, type and name, never its bytes.
+     *
+     * @return the description
+     */
     @Override
     public String toString() {
       return "FetchedContent[bytes.length=%d, mimeType=%s, fileName=%s]".formatted(bytes.length, mimeType, fileName);
-    }
-  }
-
-  /** A raw http(s) response: its status, headers and body bytes (already size-capped). */
-  private record FetchedResponse(int statusCode, HttpHeaders headers, byte[] bytes) {
-
-    @Override
-    public boolean equals(Object o) {
-      return this == o
-          || (o instanceof FetchedResponse other
-              && statusCode == other.statusCode
-              && Objects.equals(headers, other.headers)
-              && Arrays.equals(bytes, other.bytes));
-    }
-
-    @Override
-    public int hashCode() {
-      return Objects.hash(statusCode, headers, Arrays.hashCode(bytes));
-    }
-
-    @Override
-    public String toString() {
-      return "FetchedResponse[statusCode=%d, bytes.length=%d]".formatted(statusCode, bytes.length);
     }
   }
 
@@ -138,6 +162,10 @@ public final class UploadToolUtils {
    * Resolves an image from exactly one of an http(s) URL or a base64 string,
    * stages it and registers it with {@link UploadService}.
    *
+   * @param uploadService the upload registry
+   * @param imageUrl the public http(s) URL, or null
+   * @param imageBase64 the base64 bytes, or null
+   * @param maxBytes the most bytes accepted
    * @return the generated <code>uploadId</code> to pass to a consumer API
    */
   public static String materializeFromUrlOrBase64(UploadService uploadService,
@@ -166,7 +194,14 @@ public final class UploadToolUtils {
    * platform ACLs are enforced (an unreadable object throws
    * {@link IllegalAccessException} — no IDOR).
    *
+   * @param attachmentService the attachments, read as the user
+   * @param fileService the files
+   * @param aclIdentity the user the attachment is read as
+   * @param source the one source of the image
+   * @param maxBytes the most bytes accepted
    * @return the resolved image bytes, mime type and file name
+   * @throws IllegalAccessException when the user may not read the attachment
+   * @throws ObjectNotFoundException when the attachment has no file
    */
   public static FetchedContent resolveImage(AttachmentService attachmentService,
                                           FileService fileService,
@@ -213,7 +248,13 @@ public final class UploadToolUtils {
     return hasUrl ? fetchImage(imageUrl, maxBytes) : decodeBase64Image(imageBase64, maxBytes);
   }
 
-  /** Decodes a base64 image into its bytes, enforcing the size cap and a supported mime. */
+  /**
+   * Decodes a base64 image into its bytes, enforcing the size cap and a supported mime.
+   *
+   * @param imageBase64 the base64 bytes, a data URI accepted
+   * @param maxBytes the most bytes accepted
+   * @return the image
+   */
   private static FetchedContent decodeBase64Image(String imageBase64, long maxBytes) {
     byte[] bytes = decodeBase64(imageBase64);
     if (bytes.length > maxBytes) {
@@ -227,20 +268,29 @@ public final class UploadToolUtils {
   }
 
   /**
-   * Downloads an image over http(s) after validating the URL against SSRF.
+   * Downloads an image over http(s) through the platform's guarded fetcher.
+   *
+   * @param url the http(s) URL
+   * @param maxBytes the most bytes read before failing
+   * @return the image
    */
   public static FetchedContent fetchImage(String url, long maxBytes) {
-    FetchedResponse response = fetchInternal(url, maxBytes);
-    int status = response.statusCode();
-    if (status < 200 || status >= 300) {
-      throw new IllegalArgumentException("The image URL returned HTTP " + status + ".");
-    }
-    byte[] bytes = response.bytes();
-    String mimeType = response.headers()
-                              .firstValue("Content-Type")
-                              .map(value -> value.split(";")[0].trim().toLowerCase())
-                              .filter(value -> value.startsWith("image/"))
-                              .orElseGet(() -> sniffImageMime(bytes));
+    return fetchImage(FETCHER, url, maxBytes);
+  }
+
+  /**
+   * Downloads an image through a given fetcher: the seam of the tests, which
+   * hand in one over a table of names.
+   *
+   * @param fetcher the fetcher
+   * @param url the http(s) URL
+   * @param maxBytes the most bytes read before failing
+   * @return the image
+   */
+  static FetchedContent fetchImage(SafeHttpFetcher fetcher, String url, long maxBytes) {
+    SafeFetchResponse response = fetchInternal(fetcher, url, maxBytes, "image");
+    byte[] bytes = response.body();
+    String mimeType = StringUtils.startsWith(response.mediaType(), "image/") ? response.mediaType() : sniffImageMime(bytes);
     if (mimeType == null) {
       throw new IllegalArgumentException("The URL does not point to a supported image.");
     }
@@ -248,8 +298,8 @@ public final class UploadToolUtils {
   }
 
   /**
-   * Downloads <b>any</b> file (not restricted to images) over http(s) after
-   * validating the URL against SSRF. The mime type is resolved from the
+   * Downloads <b>any</b> file (not restricted to images) over http(s) through
+   * the platform's guarded fetcher. The mime type is resolved from the
    * <code>Content-Type</code> response header (falling back to
    * <code>application/octet-stream</code>) and the file name is derived from the
    * URL path (falling back to <code>defaultFileName</code>). Used by document /
@@ -261,52 +311,70 @@ public final class UploadToolUtils {
    * @return the downloaded bytes, resolved mime type and file name
    */
   public static FetchedContent fetchUrl(String url, long maxBytes, String defaultFileName) {
-    FetchedResponse response = fetchInternal(url, maxBytes);
-    int status = response.statusCode();
-    if (status < 200 || status >= 300) {
-      throw new IllegalArgumentException("The file URL returned HTTP " + status + ".");
-    }
-    byte[] bytes = response.bytes();
+    return fetchUrl(FETCHER, url, maxBytes, defaultFileName);
+  }
+
+  /**
+   * Downloads any file through a given fetcher: the seam of the tests.
+   *
+   * @param fetcher the fetcher
+   * @param url the http(s) URL to download
+   * @param maxBytes the maximum number of bytes to read before failing
+   * @param defaultFileName a file name to use when the URL path has none
+   * @return the downloaded bytes, resolved mime type and file name
+   */
+  static FetchedContent fetchUrl(SafeHttpFetcher fetcher, String url, long maxBytes, String defaultFileName) {
+    SafeFetchResponse response = fetchInternal(fetcher, url, maxBytes, "file");
+    byte[] bytes = response.body();
     if (bytes.length == 0) {
       throw new IllegalArgumentException("The file URL returned an empty response body; provide a URL that points to actual file bytes.");
     }
-    String mimeType = response.headers()
-                              .firstValue("Content-Type")
-                              .map(value -> value.split(";")[0].trim())
-                              .filter(StringUtils::isNotBlank)
-                              .orElse("application/octet-stream");
+    String mimeType = StringUtils.defaultIfBlank(StringUtils.trim(StringUtils.substringBefore(response.contentType(), ";")),
+                                                 "application/octet-stream");
     return new FetchedContent(bytes, mimeType, fileNameFromUrl(url, defaultFileName));
   }
 
   /**
-   * Downloads bytes from a validated public http(s) URL. Shared by
+   * Reads a URL through the fetcher, whose guard refuses what is not public
+   * http(s) — the URL's shape before the request, the address at the
+   * connection — and whose bounds cap the body and the time. Shared by
    * {@link #fetchImage} and {@link #fetchUrl}, which differ only in how they
-   * interpret the status/headers/bytes afterwards.
+   * interpret the answer. Every refusal is an {@link IllegalArgumentException}
+   * the tool reports; none names the URL's host or address.
+   *
+   * @param fetcher the fetcher
+   * @param url the URL as given
+   * @param maxBytes the most bytes read
+   * @param what "image" or "file", for the messages
+   * @return the 2xx answer
    */
-  private static FetchedResponse fetchInternal(String url, long maxBytes) {
-    assertPublicHttpUrl(url);
-    HttpClient client = HttpClient.newBuilder()
-                                  .followRedirects(HttpClient.Redirect.NEVER)
-                                  .connectTimeout(Duration.ofSeconds(CONNECT_TIMEOUT_SECONDS))
-                                  .build();
-    HttpRequest request = HttpRequest.newBuilder(URI.create(url.trim()))
-                                     .timeout(Duration.ofSeconds(READ_TIMEOUT_SECONDS))
-                                     .GET()
-                                     .build();
-    HttpResponse<InputStream> response;
+  private static SafeFetchResponse fetchInternal(SafeHttpFetcher fetcher, String url, long maxBytes, String what) {
     try {
-      response = client.send(request, HttpResponse.BodyHandlers.ofInputStream());
-    } catch (InterruptedException e) {
-      Thread.currentThread().interrupt();
-      throw new IllegalStateException("Interrupted while downloading from the URL.");
-    } catch (IOException e) {
-      throw new IllegalArgumentException("Could not fetch the URL: " + e.getMessage());
+      URI uri = fetcher.getGuard().normalize(url);
+      return fetcher.fetch(SafeFetchRequest.get(uri).withMaxBytes(maxBytes));
+    } catch (SafeFetchException e) {
+      throw new IllegalArgumentException(switch (e.getFailure()) {
+      case INVALID_URL -> "Invalid URL.";
+      case SCHEME_NOT_ALLOWED, PORT_NOT_ALLOWED -> "Only http and https URLs are allowed.";
+      case CREDENTIALS_IN_URL -> "The URL must not carry credentials.";
+      case REFUSED_ADDRESS -> "URL host is not allowed (it points to a private or internal address).";
+      case UNRESOLVABLE -> "Could not fetch the URL: unknown host.";
+      case HTTP_ERROR -> "The " + what + " URL returned HTTP " + e.getStatus() + ".";
+      case TOO_MANY_REDIRECTS -> "The " + what + " URL redirects, which is not followed; provide the final URL.";
+      case TOO_LARGE -> "The file exceeds the maximum allowed size (" + (maxBytes / (1024 * 1024)) + " MB).";
+      case TIMEOUT -> "Could not fetch the URL: it did not answer in time.";
+      case CONTENT_TYPE_NOT_ALLOWED, UNREACHABLE -> "Could not fetch the URL.";
+      }, e);
     }
-    byte[] bytes = readCapped(response.body(), maxBytes);
-    return new FetchedResponse(response.statusCode(), response.headers(), bytes);
   }
 
-  /** Extracts the last path segment of a URL as a file name, or the given fallback. */
+  /**
+   * Extracts the last path segment of a URL as a file name, or the given fallback.
+   *
+   * @param url the URL
+   * @param defaultFileName the fallback, "download" when blank
+   * @return the file name
+   */
   static String fileNameFromUrl(String url, String defaultFileName) {
     try {
       String path = URI.create(StringUtils.trimToEmpty(url)).getPath();
@@ -325,6 +393,12 @@ public final class UploadToolUtils {
   /**
    * Stages raw bytes to a temp file and registers an {@link UploadResource},
    * returning its <code>uploadId</code>.
+   *
+   * @param uploadService the upload registry
+   * @param bytes the content
+   * @param fileName the file name, the upload id when blank
+   * @param mimeType the mime type
+   * @return the upload id
    */
   public static String materialize(UploadService uploadService, byte[] bytes, String fileName, String mimeType) {
     if (bytes == null || bytes.length == 0) {
@@ -351,21 +425,25 @@ public final class UploadToolUtils {
     return uploadId;
   }
 
-  private static final FileAttribute<Set<PosixFilePermission>> OWNER_ONLY_PERMS =
-                                                                                 PosixFilePermissions.asFileAttribute(EnumSet.of(PosixFilePermission.OWNER_READ,
-                                                                                                                                  PosixFilePermission.OWNER_WRITE));
-
   /**
    * Creates a temp file restricted to the owner (rw-------) rather than relying on the
    * platform/umask default, since the default temp directory is shared and world-writable
    * on most systems and the staged bytes are user-supplied image content. The eXo/Meeds
    * runtime is POSIX-only (Linux), so no non-POSIX fallback is needed.
+   *
+   * @return the file
+   * @throws IOException when it cannot be created
    */
   private static File createOwnerOnlyTempFile() throws IOException {
     return Files.createTempFile("mcp-upload-", ".bin", OWNER_ONLY_PERMS).toFile();
   }
 
-  /** Removes the upload resource and its temp file. Safe to call in a finally. */
+  /**
+   * Removes the upload resource and its temp file. Safe to call in a finally.
+   *
+   * @param uploadService the upload registry
+   * @param uploadId the upload id, null for nothing to release
+   */
   public static void release(UploadService uploadService, String uploadId) {
     if (uploadId == null) {
       return;
@@ -377,6 +455,12 @@ public final class UploadToolUtils {
     }
   }
 
+  /**
+   * Decodes base64 data, a data URI prefix dropped and white space ignored.
+   *
+   * @param data the base64 text
+   * @return the bytes
+   */
   public static byte[] decodeBase64(String data) {
     String encoded = data.trim();
     if (encoded.startsWith("data:")) {
@@ -393,77 +477,12 @@ public final class UploadToolUtils {
   }
 
   /**
-   * Rejects any URL that is not public http/https — no other scheme, and no
-   * host resolving to a loopback/link-local/site-local/CGNAT/unique-local
-   * address (SSRF guard). Package-visible for testing.
+   * The image type the bytes are, from their magic number: png, jpeg, gif or
+   * webp.
+   *
+   * @param bytes the bytes
+   * @return the mime type, or null for none of those
    */
-  static void assertPublicHttpUrl(String urlString) {
-    URI uri;
-    try {
-      uri = URI.create(StringUtils.trimToEmpty(urlString));
-    } catch (IllegalArgumentException e) {
-      throw new IllegalArgumentException("Invalid URL.");
-    }
-    String scheme = uri.getScheme();
-    if (scheme == null || !(scheme.equalsIgnoreCase("http") || scheme.equalsIgnoreCase("https"))) {
-      throw new IllegalArgumentException("Only http and https URLs are allowed.");
-    }
-    String host = uri.getHost();
-    if (StringUtils.isBlank(host)) {
-      throw new IllegalArgumentException("The URL has no host.");
-    }
-    InetAddress[] addresses;
-    try {
-      addresses = InetAddress.getAllByName(host);
-    } catch (UnknownHostException e) {
-      throw new IllegalArgumentException("Could not fetch the URL: unknown host " + host + ".");
-    }
-    for (InetAddress address : addresses) {
-      if (isBlockedAddress(address)) {
-        throw new IllegalArgumentException("URL host is not allowed (it points to a private or internal address).");
-      }
-    }
-  }
-
-  static boolean isBlockedAddress(InetAddress address) {
-    if (address.isAnyLocalAddress() || address.isLoopbackAddress() || address.isLinkLocalAddress()
-        || address.isSiteLocalAddress() || address.isMulticastAddress()) {
-      return true;
-    }
-    byte[] bytes = address.getAddress();
-    if (bytes.length == 4) {
-      int b0 = bytes[0] & 0xFF;
-      int b1 = bytes[1] & 0xFF;
-      // 0.0.0.0/8 and CGNAT 100.64.0.0/10
-      return b0 == 0 || (b0 == 100 && b1 >= 64 && b1 <= 127);
-    }
-    if (bytes.length == 16) {
-      // IPv6 unique local addresses fc00::/7
-      return (bytes[0] & 0xFE) == 0xFC;
-    }
-    return false;
-  }
-
-  private static byte[] readCapped(InputStream input, long maxBytes) {
-    try (input) {
-      ByteArrayOutputStream output = new ByteArrayOutputStream();
-      byte[] buffer = new byte[8192];
-      long total = 0;
-      int read;
-      while ((read = input.read(buffer)) != -1) {
-        total += read;
-        if (total > maxBytes) {
-          throw new IllegalArgumentException("The file exceeds the maximum allowed size (" + (maxBytes / (1024 * 1024))
-              + " MB).");
-        }
-        output.write(buffer, 0, read);
-      }
-      return output.toByteArray();
-    } catch (IOException e) {
-      throw new IllegalArgumentException("Could not fetch the URL: " + e.getMessage());
-    }
-  }
-
   static String sniffImageMime(byte[] bytes) {
     if (bytes == null || bytes.length < 12) {
       return null;
@@ -484,6 +503,12 @@ public final class UploadToolUtils {
     return null;
   }
 
+  /**
+   * The file extension of an image mime type.
+   *
+   * @param mimeType the mime type
+   * @return the extension, dot included
+   */
   private static String extensionForMime(String mimeType) {
     return switch (mimeType) {
     case "image/png" -> ".png";
