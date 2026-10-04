@@ -210,7 +210,14 @@ public class McpToolApprovalService {
     userAnswers.put(id, approvalAnswer);
     try {
       sendApprovalRequest(id, conversationId, toolName, toolInput, username, approvalRequest);
-      waitForAnswer(approvalRequest, approvalAnswer);
+      // the scheduled checker wakes every waiter periodically to test the timeout
+      synchronized (approvalRequest) {
+        while (!approvalAnswer.isAnswered() && !approvalRequest.isTimedOut(timeout)) {
+          approvalRequest.wait();
+        }
+      }
+    } catch (InterruptedException e) {
+      Thread.currentThread().interrupt();
     } finally {
       userRequests.remove(id);
       userAnswers.remove(id);
@@ -458,26 +465,6 @@ public class McpToolApprovalService {
                                     COMETD_CHANNEL,
                                     JsonUtils.toJsonString(parameters));
     listenerService.broadcast(AI_AGENT_TOOL_EXECUTION_EVENT, username, parameters);
-  }
-
-  /**
-   * Blocks the calling thread until the card is answered or times out. The
-   * scheduled checker wakes every waiter periodically to test the timeout.
-   *
-   * @param approvalRequest the pending card, used as the lock
-   * @param approvalAnswer  the answer filled by {@link #receiveAnswer}
-   */
-  private void waitForAnswer(UserToolApprovalRequest approvalRequest, UserToolApprovalAnswer approvalAnswer) {
-    synchronized (approvalRequest) {
-      while (!approvalAnswer.isAnswered() && !approvalRequest.isTimedOut(timeout)) {
-        try {
-          approvalRequest.wait();
-        } catch (InterruptedException e) {
-          Thread.currentThread().interrupt();
-          return;
-        }
-      }
-    }
   }
 
   /**
