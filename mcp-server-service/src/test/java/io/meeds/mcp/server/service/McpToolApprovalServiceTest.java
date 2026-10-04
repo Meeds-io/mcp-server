@@ -501,6 +501,7 @@ class McpToolApprovalServiceTest {
                                                                                          .expiresAt(java.time.Instant.ofEpochMilli(1000))
                                                                                          .build());
     when(continuationBayeux.isSubscribed(USERNAME, WS_CLIENT_ID)).thenReturn(true);
+    when(grantService.getMaxDays()).thenReturn(14);
 
     Future<Boolean> future = CompletableFuture.supplyAsync(() -> service.requestApproval(REQUEST_ID,
                                                                                          "conv",
@@ -518,7 +519,8 @@ class McpToolApprovalServiceTest {
     verify(continuationService, atLeastOnce()).sendMessage(eq(USERNAME), eq(COMETD_CHANNEL), messages.capture());
     assertThat(messages.getAllValues().get(0)).contains("\"grantable\":\"true\"")
                                               .contains("\"grantConstraintValue\":\"example.com\"")
-                                              .contains("\"agentNameId\":\"agent-1\"");
+                                              .contains("\"agentNameId\":\"agent-1\"")
+                                              .contains("\"grantMaxDays\":\"14\"");
     assertThat(messages.getAllValues().get(1)).contains("\"grantId\":\"44\"")
                                               .contains("\"grantExpiresAt\":\"1000\"");
   }

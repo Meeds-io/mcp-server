@@ -142,6 +142,9 @@ public class McpToolUtils {
   /** Event parameter: whether the approval card may offer "Always allow". */
   public static final String        AI_AGENT_TOOL_GRANTABLE_PARAM                 = "grantable";
 
+  /** Event parameter: the longest validity, in days, the card may offer. */
+  public static final String        AI_AGENT_TOOL_GRANT_MAX_DAYS_PARAM            = "grantMaxDays";
+
   /** Event parameter: the agent the call is made for, when known. */
   public static final String        AI_AGENT_TOOL_AGENT_NAME_ID_PARAM             = "agentNameId";
 
