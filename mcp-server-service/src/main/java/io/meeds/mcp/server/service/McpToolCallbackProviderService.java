@@ -21,9 +21,12 @@ package io.meeds.mcp.server.service;
 import static io.meeds.mcp.server.util.McpServerUtils.getMimeType;
 import static io.meeds.mcp.server.util.McpServerUtils.toAsyncToolSpecification;
 import static io.meeds.mcp.server.util.McpServerUtils.toSyncToolSpecification;
+import static io.meeds.mcp.server.util.McpToolUtils.getClientId;
+import static io.meeds.mcp.server.util.McpToolUtils.getCurrentAgentNameId;
 import static io.meeds.mcp.server.util.McpToolUtils.getCurrentConversationId;
 import static io.meeds.mcp.server.util.McpToolUtils.getCurrentUserName;
 import static io.meeds.mcp.server.util.McpToolUtils.getMethodToolFieldValue;
+import static io.meeds.mcp.server.util.McpToolUtils.isCurrentCallRetry;
 import static io.meeds.mcp.server.util.McpToolUtils.toCamelCase;
 import static io.meeds.mcp.server.util.McpToolUtils.toSnakeCase;
 
@@ -65,6 +68,9 @@ import org.exoplatform.services.security.Identity;
 
 import io.meeds.common.ContainerTransactional;
 import io.meeds.mcp.server.constant.UserToolRequestType;
+import io.meeds.mcp.server.model.McpToolGrant;
+import io.meeds.mcp.server.model.McpToolGrantConstraint;
+import io.meeds.mcp.server.model.McpToolGrantRequest;
 import io.meeds.mcp.server.model.UserToolDeniedException;
 import io.meeds.mcp.server.model.UserToolExecution;
 import io.meeds.mcp.server.model.UserToolExecution.UserToolExecutionBuilder;
@@ -94,6 +100,8 @@ public class McpToolCallbackProviderService implements ToolCallbackProvider {
   private UserACL                 userAcl;
 
   private List<McpToolPlugin>     toolObjects;
+
+  private McpToolGrantService     mcpToolGrantService;
 
   @Override
   public ToolCallback[] getToolCallbacks() {
@@ -167,6 +175,7 @@ public class McpToolCallbackProviderService implements ToolCallbackProvider {
                                                           .build();
       return new MethodToolCallbackWrapper(mcpServerToolService,
                                            mcpToolApprovalService,
+                                           mcpToolGrantService,
                                            userAcl,
                                            toolCallback);
     }
@@ -190,12 +199,17 @@ public class McpToolCallbackProviderService implements ToolCallbackProvider {
     private static final String          LLM_ERROR_EXPLANATION            =
                                                              "Error calling Tool '%s'. Please check the allowed Tool input types. The original input was: %s.";
 
+    private static final String          LLM_ALWAYS_ASK_EXPLANATION       =
+                                                             "Tool '%s' requires the user's approval every time, and this caller can't ask for it. As LLM, tell the user that this tool can't be executed from here.";
+
     private static final String          LLM_NO_CONVERSATION_EXPLANATION  =
                                                              "Tool '%s' requires the user's approval, which can only be requested from a Meeds AI chat conversation, and this call carries no conversation. As LLM, tell the user that this tool can't be executed from here.";
 
     private final McpServerToolService   mcpServerToolService;
 
     private final McpToolApprovalService mcpToolApprovalService;
+
+    private final McpToolGrantService    mcpToolGrantService;
 
     private final UserACL                userAcl;
 
@@ -205,13 +219,23 @@ public class McpToolCallbackProviderService implements ToolCallbackProvider {
 
     private final Method                 toolMethod;
 
+    /**
+     * @param mcpServerToolService   the tool registry
+     * @param mcpToolApprovalService the approval cards
+     * @param mcpToolGrantService    the standing approvals, may be null (no
+     *                                 grant ever applies)
+     * @param userAcl                the platform ACL
+     * @param toolCallback           the wrapped tool method
+     */
     @SneakyThrows
     public MethodToolCallbackWrapper(McpServerToolService mcpServerToolService,
                                      McpToolApprovalService mcpToolApprovalService,
+                                     McpToolGrantService mcpToolGrantService,
                                      UserACL userAcl,
                                      MethodToolCallback toolCallback) {
       this.mcpServerToolService = mcpServerToolService;
       this.mcpToolApprovalService = mcpToolApprovalService;
+      this.mcpToolGrantService = mcpToolGrantService;
       this.userAcl = userAcl;
       this.toolCallback = toolCallback;
       this.toolObject = getMethodToolFieldValue(toolCallback, "toolObject");
@@ -246,6 +270,17 @@ public class McpToolCallbackProviderService implements ToolCallbackProvider {
       return toolCallback.getToolMetadata();
     }
 
+    /**
+     * Runs one tool call as the user: the scope check, then for an
+     * approval-gated or "always ask" tool the standing approval or the card,
+     * then the tool itself, each step traced to the user's chat.
+     *
+     * @param toolInput    the call input
+     * @param toolContext  the Spring AI tool context
+     * @param userIdentity the user the tool runs as
+     * @return the tool output
+     * @throws Exception when the call is refused, denied, times out or fails
+     */
     @ContainerTransactional
     private String call(String toolInput, ToolContext toolContext, Identity userIdentity) throws Exception {
       Authentication authentication = SecurityContextHolder.getContext().getAuthentication();
@@ -262,22 +297,26 @@ public class McpToolCallbackProviderService implements ToolCallbackProvider {
       try {
         if (!mcpServerToolService.isAllowedTool(toolMethod.getName(), authentication)) {
           throw new IllegalAccessException("Tool '%s' execution isn't allowed switch selected scopes".formatted(toolMethod.getName()));
-        } else if (mcpServerToolService.isRequireApproval(toolMethod.getName(), authentication)) {
-          if (StringUtils.isBlank(conversationId)) {
-            // The approval card lives in the chat conversation: without one,
-            // nobody could ever answer and the request would only time out
-            throw new IllegalStateException(LLM_NO_CONVERSATION_EXPLANATION.formatted(toolMethod.getName()));
-          }
-          mcpToolApprovalService.traceToolExecution(executionBuilder.toolExecutionType(UserToolRequestType.APPROVAL_REQUEST)
-                                                                    .build());
-          boolean approved = mcpToolApprovalService.requestApproval(id,
-                                                                    conversationId,
-                                                                    toolMethod.getName(),
-                                                                    toolInput,
-                                                                    userIdentity.getUserId());
-          if (!approved) {
-            throw new UserToolDeniedException("Tool execution aborted. As LLM, give an answer to the User: 'You denied the execution thus ...'.");
-          }
+        }
+        String toolName = toSnakeCase(toolMethod.getName());
+        boolean alwaysAsk = mcpServerToolService.isAlwaysAsk(toolName);
+        if (alwaysAsk && !mcpServerToolService.hasApprovalScope(authentication)) {
+          // An "always ask" tool means what it says for every caller: one that
+          // can't show a card (a plain write token, as external MCP clients
+          // hold) is refused rather than run unasked
+          throw new IllegalAccessException(LLM_ALWAYS_ASK_EXPLANATION.formatted(toolMethod.getName()));
+        } else if (alwaysAsk || mcpServerToolService.isRequireApproval(toolMethod.getName(), authentication)) {
+          approveCall(id,
+                      new McpToolGrantRequest(id,
+                                              userIdentity.getUserId(),
+                                              toolName,
+                                              toolInput,
+                                              getCurrentAgentNameId(),
+                                              conversationId,
+                                              getClientId(authentication),
+                                              isCurrentCallRetry()),
+                      alwaysAsk,
+                      executionBuilder);
         }
         mcpToolApprovalService.traceToolExecution(executionBuilder.toolExecutionType(UserToolRequestType.TOOL_EXECUTION_START)
                                                                   .build());
@@ -336,11 +375,95 @@ public class McpToolCallbackProviderService implements ToolCallbackProvider {
       }
     }
 
+    /**
+     * Decides an approval-gated call: a standing approval covering it lets it
+     * run (traced as granted, its use recorded and logged), otherwise the user
+     * is asked on a card in the conversation, which may offer "Always allow".
+     * An "always ask" tool never uses a standing approval and never offers
+     * one.
+     *
+     * @param id               the call identifier
+     * @param grantRequest     the call as the server resolved it
+     * @param alwaysAsk        whether the tool is marked "always ask"
+     * @param executionBuilder the trace builder of the call
+     * @throws UserToolDeniedException when the user denies the call
+     */
+    private void approveCall(String id,
+                             McpToolGrantRequest grantRequest,
+                             boolean alwaysAsk,
+                             UserToolExecutionBuilder executionBuilder) {
+      Map<String, Object> toolArguments = grantArguments(grantRequest.toolInput());
+      McpToolGrant grant = alwaysAsk || mcpToolGrantService == null ? null :
+                                                                     mcpToolGrantService.findApplicableGrant(grantRequest,
+                                                                                                             toolArguments);
+      if (grant != null) {
+        executionBuilder.grantId(grant.getId()).grantOwnerType(grant.getOwnerType().name());
+        mcpToolGrantService.recordUse(grant, grantRequest);
+        log.info("Tool '{}' run for user '{}' under standing approval '{}' ({}, agent: {}, conversation: {}, client: {})",
+                 grantRequest.toolName(),
+                 grantRequest.username(),
+                 grant.getId(),
+                 grant.getOwnerType(),
+                 grantRequest.agentNameId(),
+                 grantRequest.conversationId(),
+                 grantRequest.clientId());
+        mcpToolApprovalService.traceToolExecution(executionBuilder.toolExecutionType(UserToolRequestType.TOOL_EXECUTION_GRANTED)
+                                                                  .build());
+        return;
+      }
+      if (StringUtils.isBlank(grantRequest.conversationId())) {
+        // The approval card lives in the chat conversation: without one,
+        // nobody could ever answer and the request would only time out
+        throw new IllegalStateException(LLM_NO_CONVERSATION_EXPLANATION.formatted(toolMethod.getName()));
+      }
+      boolean grantable = !alwaysAsk && mcpToolGrantService != null && mcpToolGrantService.isGrantStoreAvailable();
+      McpToolGrantConstraint offeredConstraint = grantable ? mcpToolGrantService.proposeConstraint(grantRequest.toolName(),
+                                                                                                    toolArguments) :
+                                                           null;
+      mcpToolApprovalService.traceToolExecution(executionBuilder.toolExecutionType(UserToolRequestType.APPROVAL_REQUEST)
+                                                                .build());
+      boolean approved = mcpToolApprovalService.requestApproval(id,
+                                                                grantRequest.conversationId(),
+                                                                toolMethod.getName(),
+                                                                grantRequest.toolInput(),
+                                                                grantRequest.username(),
+                                                                grantRequest,
+                                                                grantable,
+                                                                offeredConstraint);
+      if (!approved) {
+        throw new UserToolDeniedException("Tool execution aborted. As LLM, give an answer to the User: 'You denied the execution thus ...'.");
+      }
+    }
+
+    /**
+     * Reads the call arguments the way the tool method will receive them, for
+     * the argument limits of standing approvals.
+     *
+     * @param toolInput the call input
+     * @return the arguments with camel-case keys, or null when the input isn't
+     *         a JSON object (no argument limit can then match)
+     */
+    private Map<String, Object> grantArguments(String toolInput) {
+      try {
+        return transformSnakeToCamelCaseArguments(extractToolArguments(toolInput));
+      } catch (RuntimeException e) {
+        return null;
+      }
+    }
+
+    /**
+     * @param toolInput the call input
+     * @return the call input as a JSON object map
+     */
     private Map<String, Object> extractToolArguments(String toolInput) {
       return jsonHelper.fromJson(toolInput, new ParameterizedTypeReference<>() {
       });
     }
 
+    /**
+     * @param toolArguments the call arguments with the schema's keys
+     * @return the arguments with the camel-case keys the tool method uses
+     */
     private Map<String, Object> transformSnakeToCamelCaseArguments(Map<String, Object> toolArguments) {
       return toolArguments.entrySet()
                           .stream()
