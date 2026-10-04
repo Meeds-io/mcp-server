@@ -173,18 +173,68 @@ public class McpServerToolService {
    * Tells whether an administrator marked a tool "always ask": every call
    * needs the user's approval on a card, no standing approval ever covers it,
    * and a caller that can't be asked (a token without the approval scope, such
-   * as an external MCP client's) is refused. Read from the setting store on
-   * every call, never from the node-local tool definitions.
+   * as an external MCP client's) is refused.
+   * <p>
+   * Read from the database on every call, never from a node-local memo nor
+   * from the setting cache, whose {@code get} answers null on a read failure
+   * exactly as for an absent flag. An absent flag means "not always ask"; a
+   * read that fails means "always ask" (fail closed, decided by the Architects
+   * Lead): no standing approval applies to a tool whose policy can't be read.
    *
    * @param toolName the MCP tool name
-   * @return true when the tool is marked "always ask"
+   * @return true when the tool is marked "always ask", or when its flag can't
+   *         be read
    */
   public boolean isAlwaysAsk(String toolName) {
     if (StringUtils.isBlank(toolName)) {
       return false;
     }
-    SettingValue<?> settingValue = settingService.get(AI_AGENT_CONTEXT, ALWAYS_ASK_SCOPE, toolName);
+    Map<String, SettingValue> flags;
+    try {
+      flags = readAlwaysAskFlags();
+    } catch (RuntimeException e) {
+      log.warn("The 'always ask' flag of tool '{}' couldn't be read ({}): the tool is treated as always ask",
+               toolName,
+               e.getMessage());
+      log.debug("Always ask flag read failure", e);
+      return true;
+    }
+    SettingValue<?> settingValue = flags.get(toolName);
     return settingValue != null && settingValue.getValue() != null && Boolean.parseBoolean(settingValue.getValue().toString());
+  }
+
+  /**
+   * @return the names of the tools marked "always ask", sorted
+   * @throws IllegalStateException when the flags can't be read
+   */
+  public List<String> getAlwaysAskToolNames() {
+    return readAlwaysAskFlags().entrySet()
+                               .stream()
+                               .filter(e -> e.getValue() != null
+                                            && e.getValue().getValue() != null
+                                            && Boolean.parseBoolean(e.getValue().getValue().toString()))
+                               .map(Map.Entry::getKey)
+                               .sorted()
+                               .toList();
+  }
+
+  /**
+   * Reads every "always ask" flag from the database, past the setting cache,
+   * so that a failure is an exception rather than an absent value.
+   *
+   * @return the flags by tool name, empty when none is set
+   * @throws IllegalStateException when the store answers nothing at all
+   */
+  @SuppressWarnings("rawtypes")
+  private Map<String, SettingValue> readAlwaysAskFlags() {
+    Map<String, SettingValue> flags = settingService.getSettingsByContextAndScope(AI_AGENT_CONTEXT.getName(),
+                                                                                  AI_AGENT_CONTEXT.getId(),
+                                                                                  ALWAYS_ASK_SCOPE.getName(),
+                                                                                  ALWAYS_ASK_SCOPE.getId());
+    if (flags == null) {
+      throw new IllegalStateException("No answer from the setting store");
+    }
+    return flags;
   }
 
   /**

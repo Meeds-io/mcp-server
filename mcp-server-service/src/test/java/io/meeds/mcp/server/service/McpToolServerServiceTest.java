@@ -539,18 +539,52 @@ class McpToolServerServiceTest {
   }
 
   /**
-   * The "always ask" flag is read from the setting store on every call, never
-   * memoised, so an administrator's change holds on every node at once.
+   * The "always ask" flag is read from the store on every call, never
+   * memoised, so an administrator's change holds on every node at once; an
+   * absent flag means "not always ask".
    */
   @Test
   void isAlwaysAsk_readsTheStoreOnEveryCall() {// NOSONAR
-    when(settingService.get(any(), any(), eq(TOOL_NAME))).thenReturn((SettingValue) SettingValue.create("true"),
-                                                                       (SettingValue) null);
+    when(settingService.getSettingsByContextAndScope("GLOBAL", "AI_AGENT", "APPLICATION", "AI_AGENT_TOOL_ALWAYS_ASK"))
+                                                                                                                   .thenReturn(Map.of(TOOL_NAME,
+                                                                                                                                      SettingValue.create("true")),
+                                                                                                                               Map.of());
 
     assertTrue(mcpServerToolService.isAlwaysAsk(TOOL_NAME));
     assertFalse(mcpServerToolService.isAlwaysAsk(TOOL_NAME));
     assertFalse(mcpServerToolService.isAlwaysAsk(" "));
-    verify(settingService, times(2)).get(any(), any(), eq(TOOL_NAME));
+    verify(settingService, times(2)).getSettingsByContextAndScope(any(), any(), any(), any());
+  }
+
+  /**
+   * A flag that can't be read fails closed: the tool is treated as always ask,
+   * so no standing approval covers it (decision of the Architects Lead).
+   */
+  @Test
+  void isAlwaysAsk_failsClosedWhenTheFlagCantBeRead() {// NOSONAR
+    when(settingService.getSettingsByContextAndScope(any(), any(), any(), any())).thenThrow(new IllegalStateException("db down"))
+                                                                                .thenReturn(null);
+
+    assertTrue(mcpServerToolService.isAlwaysAsk(TOOL_NAME));
+    assertTrue(mcpServerToolService.isAlwaysAsk(TOOL_NAME));
+  }
+
+  /**
+   * The administration lists the flagged tools, sorted, and an unreadable
+   * store is an error there, not an empty list.
+   */
+  @Test
+  void getAlwaysAskToolNames_listsTheFlaggedTools() {// NOSONAR
+    when(settingService.getSettingsByContextAndScope(any(), any(), any(), any())).thenReturn(Map.of("b_tool",
+                                                                                                    SettingValue.create("true"),
+                                                                                                    "a_tool",
+                                                                                                    SettingValue.create("true"),
+                                                                                                    "c_tool",
+                                                                                                    SettingValue.create("false")))
+                                                                                .thenReturn(null);
+
+    assertEquals(List.of("a_tool", "b_tool"), mcpServerToolService.getAlwaysAskToolNames());
+    assertThrows(IllegalStateException.class, () -> mcpServerToolService.getAlwaysAskToolNames());
   }
 
   /**
