@@ -416,7 +416,10 @@ public class McpToolCallbackProviderService implements ToolCallbackProvider {
         // nobody could ever answer and the request would only time out
         throw new IllegalStateException(LLM_NO_CONVERSATION_EXPLANATION.formatted(toolMethod.getName()));
       }
-      boolean grantable = !alwaysAsk && mcpToolGrantService != null && mcpToolGrantService.isGrantStoreAvailable();
+      boolean grantable = !alwaysAsk
+                          && mcpToolGrantService != null
+                          && mcpToolGrantService.isGrantStoreAvailable()
+                          && mcpToolGrantService.allowsStandingApproval(grantRequest.toolName(), toolArguments);
       McpToolGrantConstraint offeredConstraint = grantable ? mcpToolGrantService.proposeConstraint(grantRequest.toolName(),
                                                                                                     toolArguments) :
                                                            null;
