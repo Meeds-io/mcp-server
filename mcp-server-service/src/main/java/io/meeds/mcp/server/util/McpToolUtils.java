@@ -86,6 +86,18 @@ public class McpToolUtils {
 
   public static final String        TOOL_CONTEXT_CONVERSATION_ID_PARAM            = "conversationId";
 
+  /**
+   * Header naming the agent on whose behalf the internal client calls a tool,
+   * trusted under the same gate as {@link #TOOL_CONTEXT_USER_NAME_PARAM}.
+   */
+  public static final String        TOOL_CONTEXT_AGENT_NAME_ID_PARAM              = "agentNameId";
+
+  /**
+   * Header carried by the internal client when the call belongs to a retried
+   * answer, trusted under the same gate as {@link #TOOL_CONTEXT_USER_NAME_PARAM}.
+   */
+  public static final String        TOOL_CONTEXT_RETRY_MESSAGE_ID_PARAM           = "retryMessageId";
+
   public static final String        TOOL_CONTEXT_ID                               = UUID.randomUUID().toString();
 
   public static final String        TOOL_READ_SCOPE                               = "mcp.tools.read";
@@ -117,6 +129,27 @@ public class McpToolUtils {
   public static final String        AI_AGENT_TOOL_NAME_PARAM                      = "toolName";
 
   public static final String        AI_AGENT_TOOL_EXEC_COMPLETED_PARAM            = "completed";
+
+  /** Event parameter: the standing approval a call ran under, or created. */
+  public static final String        AI_AGENT_TOOL_GRANT_ID_PARAM                  = "grantId";
+
+  /** Event parameter: the owner type of the standing approval. */
+  public static final String        AI_AGENT_TOOL_GRANT_OWNER_TYPE_PARAM          = "grantOwnerType";
+
+  /** Event parameter: when the created standing approval expires (epoch ms). */
+  public static final String        AI_AGENT_TOOL_GRANT_EXPIRES_AT_PARAM          = "grantExpiresAt";
+
+  /** Event parameter: whether the approval card may offer "Always allow". */
+  public static final String        AI_AGENT_TOOL_GRANTABLE_PARAM                 = "grantable";
+
+  /** Event parameter: the agent the call is made for, when known. */
+  public static final String        AI_AGENT_TOOL_AGENT_NAME_ID_PARAM             = "agentNameId";
+
+  /** Event parameter: the argument limit kind the card may offer. */
+  public static final String        AI_AGENT_TOOL_GRANT_CONSTRAINT_KIND_PARAM     = "grantConstraintKind";
+
+  /** Event parameter: the argument limit value the card may offer. */
+  public static final String        AI_AGENT_TOOL_GRANT_CONSTRAINT_VALUE_PARAM    = "grantConstraintValue";
 
   private static final ObjectMapper OBJECT_MAPPER                                 = new ObjectMapper();
 
@@ -316,6 +349,47 @@ public class McpToolUtils {
   public static String getCurrentConversationId() {
     HttpServletRequest request = getInternalToolCallRequest();
     return request == null ? null : StringUtils.trimToNull(request.getHeader(TOOL_CONTEXT_CONVERSATION_ID_PARAM));
+  }
+
+  /**
+   * Resolves the agent on whose behalf the current Tool is executed, from the
+   * {@link #TOOL_CONTEXT_AGENT_NAME_ID_PARAM} header of the internal client
+   * only ({@link #getInternalToolCallRequest()}): any other caller gets null,
+   * so an external client can never claim the agent a standing approval names.
+   *
+   * @return the agent name id, or null when unknown
+   */
+  public static String getCurrentAgentNameId() {
+    HttpServletRequest request = getInternalToolCallRequest();
+    return request == null ? null : StringUtils.trimToNull(request.getHeader(TOOL_CONTEXT_AGENT_NAME_ID_PARAM));
+  }
+
+  /**
+   * Tells whether the current Tool call belongs to a retried answer, from the
+   * {@link #TOOL_CONTEXT_RETRY_MESSAGE_ID_PARAM} header of the internal client
+   * only. The answer can only make the approval gate stricter (no standing
+   * approval applies to a retried answer), so no caller gains anything by
+   * sending it, and an external client's header is ignored like the others.
+   *
+   * @return true when the internal client marked the call as a retry
+   */
+  public static boolean isCurrentCallRetry() {
+    HttpServletRequest request = getInternalToolCallRequest();
+    return request != null && StringUtils.isNotBlank(request.getHeader(TOOL_CONTEXT_RETRY_MESSAGE_ID_PARAM));
+  }
+
+  /**
+   * Reads the OAuth client that owns the bearer token of a call.
+   *
+   * @param authentication the current {@link Authentication}, may be null
+   * @return the client id, or null when the call isn't a bearer-token call
+   */
+  public static String getClientId(Authentication authentication) {
+    if (!(authentication instanceof BearerTokenAuthentication bearerTokenAuthentication)) {
+      return null;
+    }
+    Object clientId = bearerTokenAuthentication.getTokenAttributes().get(OAuth2TokenIntrospectionClaimNames.CLIENT_ID);
+    return clientId == null ? null : clientId.toString();
   }
 
   /**

@@ -20,15 +20,26 @@ package io.meeds.mcp.server.model;
 
 import lombok.Data;
 
+/**
+ * The answer to a pending approval card. The first answer wins: the card
+ * resends its answer until the server confirms it, and later copies change
+ * nothing.
+ */
 @Data
 public class UserToolApprovalAnswer {
 
-  private String  username;
+  private String       username;
 
-  private boolean answered;
+  private boolean      answered;
 
-  private boolean approved;
+  private boolean      approved;
 
+  /** The standing approval created by an "Always allow" answer, or null. */
+  private McpToolGrant grant;
+
+  /**
+   * @param username the user the card is shown to
+   */
   public UserToolApprovalAnswer(String username) {
     this.username = username;
   }
