@@ -90,7 +90,7 @@ public class SimpleToolDefinition implements ToolDefinition {
    * @param disabled        whether the tool is switched off
    * @param annotations     the MCP hints, or null
    */
-  public SimpleToolDefinition(String name, // NOSONAR
+  public SimpleToolDefinition(String name,
                               String title,
                               String description,
                               String inputSchema,
