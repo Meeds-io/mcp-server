@@ -33,10 +33,10 @@ import io.meeds.mcp.server.model.McpToolGrantConstraint;
  * closed: an argument they cannot read with certainty means "no constraint
  * offered" and "does not match".
  * <p>
- * A contributor is a Spring {@code @Service} with an explicit, unique bean name
- * whose class implements this interface first (the Kernel/Spring bridge exports
- * a bean under its first interface only, so a tool plugin class cannot also be
- * the evaluator).
+ * A contributor is a dedicated Spring {@code @Service} with an explicit,
+ * unique bean name, non-final (the Kernel/Spring bridge exports it to the MCP
+ * server as a proxy of its class). It is never the tool plugin class itself:
+ * every public method of an {@code McpToolPlugin} is a tool candidate.
  */
 public interface McpToolGrantConstraintEvaluator {
 
