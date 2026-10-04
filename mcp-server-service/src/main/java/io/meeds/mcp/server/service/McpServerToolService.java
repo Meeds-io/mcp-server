@@ -178,8 +178,8 @@ public class McpServerToolService {
    * Read from the database on every call, never from a node-local memo nor
    * from the setting cache, whose {@code get} answers null on a read failure
    * exactly as for an absent flag. An absent flag means "not always ask"; a
-   * read that fails means "always ask" (fail closed, decided by the Architects
-   * Lead): no standing approval applies to a tool whose policy can't be read.
+   * read that fails means "always ask": no standing approval applies to a
+   * tool whose policy can't be read.
    *
    * @param toolName the MCP tool name
    * @return true when the tool is marked "always ask", or when its flag can't

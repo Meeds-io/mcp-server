@@ -29,9 +29,9 @@ import io.meeds.mcp.server.model.McpToolGrantRequest;
  * provider installed no grant ever applies and every approval-gated call shows
  * its card, as before standing approvals existed.
  * <p>
- * A contributor is a Spring {@code @Service} with an explicit, unique bean name
- * whose class implements this interface first, so the Kernel/Spring bridge
- * exports it to the MCP server's context.
+ * A contributor is a Spring {@code @Service} with an explicit, unique bean
+ * name, non-final, so that the Kernel/Spring bridge exports it to the MCP
+ * server's context as a proxy of its class.
  */
 public interface McpToolGrantProvider {
 
