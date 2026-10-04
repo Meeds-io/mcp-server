@@ -110,6 +110,18 @@ class McpToolApprovalServiceTest {
   @Autowired
   private McpToolApprovalService         service;
 
+  /**
+   * Boots the kernel's root container once, outside the per-test timeout:
+   * the grant creation is woven with @ContainerTransactional, whose aspect
+   * reads the current container, and the first read boots it (tens of
+   * seconds in a test JVM).
+   */
+  @org.junit.jupiter.api.BeforeAll
+  @Timeout(value = 300, unit = TimeUnit.SECONDS)
+  static void bootTheRootContainerOnce() {
+    org.exoplatform.container.ExoContainerContext.getCurrentContainer();
+  }
+
   @BeforeEach
   void setUp() {
     getRequests().clear();
@@ -530,6 +542,23 @@ class McpToolApprovalServiceTest {
     assertThat(getRequests().get(REQUEST_ID).isGrantable()).isFalse();
     service.receiveAnswer(REQUEST_ID, WS_CLIENT_ID, true);
     assertThat(future.get(1, TimeUnit.SECONDS)).isTrue();
+  }
+
+  /**
+   * The grant of an "Always allow" answer is created on the CometD thread,
+   * which has no portal container bound: the method that creates it binds
+   * one (the AspectJ-woven @ContainerTransactional), or the store's setting
+   * reads and its row write would run without one.
+   *
+   * @throws NoSuchMethodException when the method is renamed
+   */
+  @Test
+  void grantCreationBindsAContainer() throws NoSuchMethodException {
+    java.lang.reflect.Method createGrant = McpToolApprovalService.class.getDeclaredMethod("createGrant",
+                                                                                          String.class,
+                                                                                          UserToolApprovalRequest.class,
+                                                                                          McpToolGrantChoice.class);
+    assertThat(createGrant.isAnnotationPresent(io.meeds.common.ContainerTransactional.class)).isTrue();
   }
 
   /**
