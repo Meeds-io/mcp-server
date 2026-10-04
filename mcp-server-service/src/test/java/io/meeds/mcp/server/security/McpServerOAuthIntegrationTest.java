@@ -275,6 +275,10 @@ class McpServerOAuthIntegrationTest extends McpServiceIntegrationTestSupport {
     assertThat(body).contains(TEST_READ_TOOL_NAME);
     assertThat(body).doesNotContain(TEST_WRITE_TOOL_NAME);
     assertThat(body).doesNotContain(TEST_APPROVAL_TOOL_NAME);
+    // the add-on's Font Awesome name is published as a standard MCP icon
+    assertThat(body).contains("\"icons\"")
+                    .contains("data:image/svg+xml;base64,")
+                    .contains("\"mimeType\":\"image/svg+xml\"");
   }
 
   @Test

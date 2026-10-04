@@ -24,6 +24,9 @@ import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
+import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.time.Instant;
 import java.util.Date;
 import java.util.List;
@@ -31,6 +34,7 @@ import java.util.Map;
 
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.io.TempDir;
 import org.springframework.mock.web.MockHttpServletRequest;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
 import org.springframework.security.core.GrantedAuthority;
@@ -246,6 +250,63 @@ class McpToolUtilsTest {
     assertEquals("{\"type\":\"object\",\"x\":1}", decodedTool.getInputSchema());
     assertTrue(decodedTool.isRequireApproval());
     assertFalse(decodedTool.isDisabled());
+  }
+
+  /**
+   * A tool with no icon takes the file's default; a tool's own icon wins.
+   *
+   * @param tmp a temporary folder
+   */
+  @Test
+  void parseToolDefinitions_fileDefaultIcon_appliesToToolsWithoutTheirOwn(@TempDir Path tmp) throws Exception {// NOSONAR
+    Path file = tmp.resolve("ai-tool-definitions.json");
+    Files.writeString(file, """
+        { "icon": "fa-tasks",
+          "tools": [ { "name": "plain_tool", "input_schema": {} },
+                     { "name": "own_icon_tool", "icon": "fa-clipboard", "input_schema": {} } ] }
+        """, StandardCharsets.UTF_8);
+
+    List<SimpleToolDefinition> tools = McpToolUtils.parseToolDefinitions(file.toUri().toURL());
+
+    assertEquals(2, tools.size());
+    assertEquals("fa-tasks", tools.get(0).getIcon());
+    assertEquals("fa-clipboard", tools.get(1).getIcon());
+  }
+
+  /**
+   * A property this server does not know, at the file or the tool level,
+   * no longer drops every tool of the file.
+   *
+   * @param tmp a temporary folder
+   */
+  @Test
+  void parseToolDefinitions_unknownProperties_keepTheTools(@TempDir Path tmp) throws Exception {// NOSONAR
+    Path file = tmp.resolve("ai-tool-definitions.json");
+    Files.writeString(file, """
+        { "future_file_field": 1,
+          "tools": [ { "name": "plain_tool", "future_tool_field": { "x": true }, "input_schema": {} } ] }
+        """, StandardCharsets.UTF_8);
+
+    List<SimpleToolDefinition> tools = McpToolUtils.parseToolDefinitions(file.toUri().toURL());
+
+    assertEquals(1, tools.size());
+    assertEquals("plain_tool", tools.get(0).getName());
+    assertNull(tools.get(0).getIcon());
+  }
+
+  /**
+   * The persisted copy keeps the icon through the base64 round trip.
+   */
+  @Test
+  void toJsonStringBase64_keepsTheIcon() {// NOSONAR
+    SimpleToolDefinition tool = new SimpleToolDefinition();
+    tool.setName(TOOL_NAME);
+    tool.setInputSchema("{}");
+    tool.setIcon("fa-clipboard");
+
+    ToolDefinitionMethods decoded = McpToolUtils.fromJsonStringBase64(McpToolUtils.toJsonStringBase64(new ToolDefinitionMethods(List.of(tool))));
+
+    assertEquals("fa-clipboard", decoded.tools().get(0).getIcon());
   }
 
   @Test

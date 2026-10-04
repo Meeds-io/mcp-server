@@ -171,7 +171,8 @@ public class McpToolUtils {
   }
 
   /**
-   * Parses one {@code ai-tool-definitions.json} resource.
+   * Parses one {@code ai-tool-definitions.json} resource. A tool that declares
+   * no icon takes the file's default icon, when the file declares one.
    *
    * @param url the resource to read
    * @return the tool definitions it declares, empty when it cannot be read
@@ -180,6 +181,15 @@ public class McpToolUtils {
     try (InputStream inputStream = url.openStream()) {
       String content = IOUtils.toString(inputStream, StandardCharsets.UTF_8);
       ToolDefinitionMethods definitionMethods = fromJsonString(content);
+      if (definitionMethods == null || definitionMethods.tools() == null) {
+        return Collections.emptyList();
+      }
+      if (StringUtils.isNotBlank(definitionMethods.icon())) {
+        definitionMethods.tools()
+                         .stream()
+                         .filter(tool -> StringUtils.isBlank(tool.getIcon()))
+                         .forEach(tool -> tool.setIcon(definitionMethods.icon()));
+      }
       return definitionMethods.tools();
     } catch (IOException e) {
       log.warn("An error occurred while parsing Tool Definitions from url {}", url, e);
