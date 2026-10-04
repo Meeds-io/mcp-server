@@ -558,7 +558,7 @@ class McpToolServerServiceTest {
 
   /**
    * A flag that can't be read fails closed: the tool is treated as always ask,
-   * so no standing approval covers it (decision of the Architects Lead).
+   * so no standing approval covers it.
    */
   @Test
   void isAlwaysAsk_failsClosedWhenTheFlagCantBeRead() {// NOSONAR
