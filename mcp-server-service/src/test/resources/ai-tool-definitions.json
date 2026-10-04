@@ -1,7 +1,9 @@
 {
+  "icon": "fa-tools",
   "tools": [
     {
       "name": "test_read_tool",
+      "icon": "fa-clipboard",
       "title": "Test Read Tool",
       "description": "Read-only MCP test tool",
       "input_schema": {

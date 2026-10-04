@@ -1,0 +1,9 @@
+Meeds MCP Server
+Copyright (C) 2026 Meeds Association contact@meeds.io
+
+This product bundles third-party assets:
+
+- Font Awesome Free 5.15.4 solid icons (a subset), by Fonticons, Inc.
+  https://fontawesome.com - Icons licensed under CC BY 4.0
+  (https://creativecommons.org/licenses/by/4.0/).
+  Location: mcp-server-service/src/main/resources/mcp-tool-icons/fa-solid/
