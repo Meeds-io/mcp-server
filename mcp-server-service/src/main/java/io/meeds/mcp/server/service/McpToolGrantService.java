@@ -75,6 +75,10 @@ public class McpToolGrantService {
   @Autowired
   private ObjectProvider<McpToolGrantConstraintEvaluator> constraintEvaluators;
 
+  /**
+   * The longest validity of a user's standing approval, in days: the one
+   * deployment knob, also read by the grant store of the AI add-on.
+   */
   @Value("${meeds.mcp.tool.grant.maxDays:90}")
   @Setter
   private int                                             maxDays;

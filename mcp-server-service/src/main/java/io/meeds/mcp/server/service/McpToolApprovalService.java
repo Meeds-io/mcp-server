@@ -60,6 +60,7 @@ import org.springframework.stereotype.Component;
 import org.exoplatform.services.listener.ListenerService;
 import org.exoplatform.ws.frameworks.cometd.ContinuationService;
 
+import io.meeds.common.ContainerTransactional;
 import io.meeds.mcp.server.constant.UserToolRequestType;
 import io.meeds.mcp.server.model.McpToolGrant;
 import io.meeds.mcp.server.model.McpToolGrantChoice;
@@ -316,6 +317,9 @@ public class McpToolApprovalService {
    * @param choice          the checked choice, null when invalid
    * @return the created grant, or null
    */
+  // The answer arrives on a CometD thread with no portal container bound: the
+  // grant store reads settings and writes a row, which need one
+  @ContainerTransactional
   private McpToolGrant createGrant(String id, UserToolApprovalRequest approvalRequest, McpToolGrantChoice choice) {
     if (!approvalRequest.isGrantable()) {
       log.info("'Always allow' answered on approval request '{}' whose card couldn't offer it: the call is approved once, no standing approval is created",
