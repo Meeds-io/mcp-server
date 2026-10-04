@@ -290,6 +290,7 @@ class McpToolCallbackProviderServiceTest {
     bindRequest(TOOL_CONTEXT_ID, CONVERSATION_ID);
     McpToolGrantConstraint constraint = new McpToolGrantConstraint(McpToolGrantConstraint.EMAIL_DOMAIN_KIND, "example.com");
     when(mcpToolGrantService.isGrantStoreAvailable()).thenReturn(true);
+    when(mcpToolGrantService.allowsStandingApproval(eq(TOOL_METHOD), any())).thenReturn(true);
     when(mcpToolGrantService.proposeConstraint(eq(TOOL_METHOD), any())).thenReturn(constraint);
     when(mcpToolApprovalService.requestApproval(any(), any(), any(), any(), any(), any(), anyBoolean(), any())).thenReturn(true);
 
@@ -303,6 +304,29 @@ class McpToolCallbackProviderServiceTest {
                                                    any(McpToolGrantRequest.class),
                                                    eq(true),
                                                    eq(constraint));
+  }
+
+  /**
+   * A call the tool never lets run unasked shows a card without "Always
+   * allow".
+   */
+  @Test
+  void call_callTheToolForbidsGrantsFor_cardDoesntOfferAlwaysAllow() {// NOSONAR
+    bindRequest(TOOL_CONTEXT_ID, CONVERSATION_ID);
+    when(mcpToolGrantService.isGrantStoreAvailable()).thenReturn(true);
+    when(mcpToolGrantService.allowsStandingApproval(eq(TOOL_METHOD), any())).thenReturn(false);
+    when(mcpToolApprovalService.requestApproval(any(), any(), any(), any(), any(), any(), anyBoolean(), any())).thenReturn(true);
+
+    toolCallback.call(TOOL_INPUT);
+
+    verify(mcpToolApprovalService).requestApproval(anyString(),
+                                                   eq(CONVERSATION_ID),
+                                                   eq(TOOL_METHOD),
+                                                   anyString(),
+                                                   eq(USERNAME),
+                                                   any(),
+                                                   eq(false),
+                                                   eq(null));
   }
 
   /**

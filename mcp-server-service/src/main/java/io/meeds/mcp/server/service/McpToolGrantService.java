@@ -118,7 +118,7 @@ public class McpToolGrantService {
                e);
       return null;
     }
-    if (grants == null) {
+    if (grants == null || !allowsStandingApproval(request.toolName(), arguments)) {
       return null;
     }
     Instant now = clock.instant();
@@ -149,6 +149,30 @@ public class McpToolGrantService {
   }
 
   /**
+   * Tells whether the tool lets a standing approval cover this call at all,
+   * from its own evaluator; a tool without evaluator always does, a failing
+   * evaluator never does.
+   *
+   * @param toolName  the MCP tool name
+   * @param arguments the call arguments as the tool receives them
+   * @return true when a standing approval may cover the call
+   */
+  public boolean allowsStandingApproval(String toolName, Map<String, Object> arguments) {
+    McpToolGrantConstraintEvaluator evaluator = getEvaluator(toolName);
+    if (evaluator == null) {
+      return true;
+    } else if (arguments == null) {
+      return false;
+    }
+    try {
+      return evaluator.allowsStandingApproval(toolName, arguments);
+    } catch (RuntimeException e) {
+      log.warn("Tool '{}' couldn't tell whether a standing approval may cover the call, none does", toolName, e);
+      return false;
+    }
+  }
+
+  /**
    * Derives the argument limit an approval card may offer, from the tool's own
    * evaluator.
    *
@@ -159,7 +183,7 @@ public class McpToolGrantService {
    */
   public McpToolGrantConstraint proposeConstraint(String toolName, Map<String, Object> arguments) {
     McpToolGrantConstraintEvaluator evaluator = getEvaluator(toolName);
-    if (evaluator == null) {
+    if (evaluator == null || arguments == null) {
       return null;
     }
     try {
@@ -315,9 +339,23 @@ public class McpToolGrantService {
       return null;
     }
     return constraintEvaluators.orderedStream()
-                               .filter(evaluator -> evaluator.supports(toolName))
+                               .filter(evaluator -> supports(evaluator, toolName))
                                .findFirst()
                                .orElse(null);
+  }
+
+  /**
+   * @param evaluator a contributed evaluator
+   * @param toolName  the MCP tool name
+   * @return whether the evaluator owns the tool, false when it fails to say
+   */
+  private boolean supports(McpToolGrantConstraintEvaluator evaluator, String toolName) {
+    try {
+      return evaluator.supports(toolName);
+    } catch (RuntimeException e) {
+      log.warn("Grant constraint evaluator '{}' failed to tell whether it owns tool '{}'", evaluator, toolName, e);
+      return false;
+    }
   }
 
 }

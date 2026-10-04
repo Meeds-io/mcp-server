@@ -47,6 +47,20 @@ public interface McpToolGrantConstraintEvaluator {
   boolean supports(String toolName);
 
   /**
+   * Tells whether any standing approval, limited or not, may cover this call.
+   * A tool returns false for calls it never lets run unasked, for example a
+   * mail sent from a shared mailbox or in another person's name; such a call
+   * always shows its card, and the card doesn't offer "Always allow".
+   *
+   * @param toolName  the MCP tool name
+   * @param arguments the call arguments as the tool receives them
+   * @return true when a standing approval may cover the call
+   */
+  default boolean allowsStandingApproval(String toolName, Map<String, Object> arguments) {
+    return true;
+  }
+
+  /**
    * Derives the argument limit an approval card may offer for this call, for
    * example "only recipients in example.com" when every recipient is there.
    *

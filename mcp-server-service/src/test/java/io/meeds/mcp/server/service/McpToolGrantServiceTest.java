@@ -99,6 +99,27 @@ class McpToolGrantServiceTest {
     lenient().when(providers.getIfUnique()).thenReturn(provider);
     lenient().when(evaluators.orderedStream()).thenAnswer(invocation -> Stream.of(evaluator));
     lenient().when(evaluator.supports(TOOL)).thenReturn(true);
+    lenient().when(evaluator.allowsStandingApproval(any(), any())).thenReturn(true);
+  }
+
+  /**
+   * A call the tool never lets run unasked is covered by no grant, even an
+   * unlimited one, and a failing or missing answer counts as a refusal.
+   */
+  @Test
+  void toolCanForbidAnyGrantForACall() {
+    when(provider.findGrants(USER, TOOL)).thenReturn(List.of(userGrant().build()));
+
+    when(evaluator.allowsStandingApproval(TOOL, ARGUMENTS)).thenReturn(false);
+    assertThat(service.findApplicableGrant(request(false), ARGUMENTS)).isNull();
+    assertThat(service.allowsStandingApproval(TOOL, ARGUMENTS)).isFalse();
+
+    when(evaluator.allowsStandingApproval(TOOL, ARGUMENTS)).thenThrow(new IllegalStateException("broken"));
+    assertThat(service.allowsStandingApproval(TOOL, ARGUMENTS)).isFalse();
+    assertThat(service.allowsStandingApproval(TOOL, null)).isFalse();
+
+    when(evaluator.supports("create_task")).thenReturn(false);
+    assertThat(service.allowsStandingApproval("create_task", null)).isTrue();
   }
 
   /**
