@@ -1,7 +1,7 @@
 /**
  * This file is part of the Meeds project (https://meeds.io/).
  *
- * Copyright (C) 2020 - 2025 Meeds Association contact@meeds.io
+ * Copyright (C) 2026 Meeds Association contact@meeds.io
  *
  * This program is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Lesser General Public
@@ -16,32 +16,20 @@
  * along with this program; if not, write to the Free Software Foundation,
  * Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301, USA.
  */
-package io.meeds.mcp.server.model;
-
-import lombok.Data;
+package io.meeds.mcp.server.constant;
 
 /**
- * The answer to a pending approval card. The first answer wins: the card
- * resends its answer until the server confirms it, and later copies change
- * nothing.
+ * Who a standing tool approval belongs to. The owner is always stated
+ * explicitly: a grant never becomes "everybody's" because its user is missing.
  */
-@Data
-public class UserToolApprovalAnswer {
+public enum McpToolGrantOwnerType {
 
-  private String       username;
-
-  private boolean      answered;
-
-  private boolean      approved;
-
-  /** The standing approval created by an "Always allow" answer, or null. */
-  private McpToolGrant grant;
+  /** A standing approval a user gave for their own tool calls. */
+  USER,
 
   /**
-   * @param username the user the card is shown to
+   * A platform policy: an administrator pre-approved the tool for every user.
    */
-  public UserToolApprovalAnswer(String username) {
-    this.username = username;
-  }
+  PLATFORM;
 
 }

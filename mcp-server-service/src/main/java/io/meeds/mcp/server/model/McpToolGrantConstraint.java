@@ -1,7 +1,7 @@
 /**
  * This file is part of the Meeds project (https://meeds.io/).
  *
- * Copyright (C) 2020 - 2025 Meeds Association contact@meeds.io
+ * Copyright (C) 2026 Meeds Association contact@meeds.io
  *
  * This program is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Lesser General Public
@@ -18,30 +18,19 @@
  */
 package io.meeds.mcp.server.model;
 
-import lombok.Data;
-
 /**
- * The answer to a pending approval card. The first answer wins: the card
- * resends its answer until the server confirms it, and later copies change
- * nothing.
+ * A limit on the arguments a standing tool approval covers, for example
+ * {@code email_domain} / {@code example.com}: only calls whose recipients are
+ * all in that domain. The kind and the value are produced and checked by the
+ * tool's own {@code McpToolGrantConstraintEvaluator}, never by the client, so
+ * the check and the tool read the arguments with one parser.
+ *
+ * @param kind  the constraint kind, e.g. {@code email_domain}
+ * @param value the constraint value, e.g. the normalised domain
  */
-@Data
-public class UserToolApprovalAnswer {
+public record McpToolGrantConstraint(String kind, String value) {
 
-  private String       username;
-
-  private boolean      answered;
-
-  private boolean      approved;
-
-  /** The standing approval created by an "Always allow" answer, or null. */
-  private McpToolGrant grant;
-
-  /**
-   * @param username the user the card is shown to
-   */
-  public UserToolApprovalAnswer(String username) {
-    this.username = username;
-  }
+  /** The only constraint kind of the first phase. */
+  public static final String EMAIL_DOMAIN_KIND = "email_domain";
 
 }

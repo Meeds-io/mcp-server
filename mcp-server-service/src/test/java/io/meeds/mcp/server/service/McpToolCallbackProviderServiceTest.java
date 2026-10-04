@@ -19,13 +19,18 @@
 package io.meeds.mcp.server.service;
 
 import static io.meeds.mcp.server.util.McpToolUtils.MCP_OAUTH2_CLIENT_CREDENTIALS_REGISTRATION_ID;
+import static io.meeds.mcp.server.util.McpToolUtils.TOOL_CONTEXT_AGENT_NAME_ID_PARAM;
 import static io.meeds.mcp.server.util.McpToolUtils.TOOL_CONTEXT_CONVERSATION_ID_PARAM;
 import static io.meeds.mcp.server.util.McpToolUtils.TOOL_CONTEXT_ID;
 import static io.meeds.mcp.server.util.McpToolUtils.TOOL_CONTEXT_ID_PARAM;
+import static io.meeds.mcp.server.util.McpToolUtils.TOOL_CONTEXT_RETRY_MESSAGE_ID_PARAM;
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyBoolean;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.lenient;
@@ -41,6 +46,7 @@ import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.ai.tool.ToolCallback;
@@ -60,7 +66,11 @@ import org.exoplatform.portal.config.UserACL;
 import org.exoplatform.services.security.ConversationState;
 import org.exoplatform.services.security.Identity;
 
+import io.meeds.mcp.server.constant.McpToolGrantOwnerType;
 import io.meeds.mcp.server.constant.UserToolRequestType;
+import io.meeds.mcp.server.model.McpToolGrant;
+import io.meeds.mcp.server.model.McpToolGrantConstraint;
+import io.meeds.mcp.server.model.McpToolGrantRequest;
 import io.meeds.mcp.server.model.SimpleToolDefinition;
 import io.meeds.mcp.server.model.UserToolExecution;
 import io.meeds.mcp.server.plugin.McpToolPlugin;
@@ -95,6 +105,9 @@ class McpToolCallbackProviderServiceTest {
   @Mock
   private UserACL                       userAcl;
 
+  @Mock
+  private McpToolGrantService           mcpToolGrantService;
+
   private McpToolCallbackProviderService service;
 
   private ToolCallback                  toolCallback;
@@ -112,7 +125,8 @@ class McpToolCallbackProviderServiceTest {
                                                  mcpServerToolService,
                                                  mcpToolApprovalService,
                                                  userAcl,
-                                                 List.of(new GreetingToolPlugin()));
+                                                 List.of(new GreetingToolPlugin()),
+                                                 mcpToolGrantService);
     toolCallback = service.getToolCallbacks()[0];
 
     // The internal call is a bearer token OWNED by the internal client: the
@@ -150,12 +164,22 @@ class McpToolCallbackProviderServiceTest {
                                                 eq(CONVERSATION_ID),
                                                 eq(TOOL_METHOD),
                                                 anyString(),
-                                                eq(USERNAME))).thenReturn(true);
+                                                eq(USERNAME),
+                                                any(),
+                                                anyBoolean(),
+                                                any())).thenReturn(true);
 
     String output = toolCallback.call(TOOL_INPUT);
 
     assertTrue(output.contains("Hello Bob"), output);
-    verify(mcpToolApprovalService).requestApproval(anyString(), eq(CONVERSATION_ID), eq(TOOL_METHOD), anyString(), eq(USERNAME));
+    verify(mcpToolApprovalService).requestApproval(anyString(),
+                                                   eq(CONVERSATION_ID),
+                                                   eq(TOOL_METHOD),
+                                                   anyString(),
+                                                   eq(USERNAME),
+                                                   any(),
+                                                   anyBoolean(),
+                                                   any());
   }
 
   @Test
@@ -165,7 +189,7 @@ class McpToolCallbackProviderServiceTest {
     IllegalStateException e = assertThrows(IllegalStateException.class, () -> toolCallback.call(TOOL_INPUT));
 
     assertTrue(e.getMessage().contains("conversation"), e.getMessage());
-    verify(mcpToolApprovalService, never()).requestApproval(any(), any(), any(), any(), any());
+    verify(mcpToolApprovalService, never()).requestApproval(any(), any(), any(), any(), any(), any(), anyBoolean(), any());
   }
 
   @Test
@@ -173,7 +197,7 @@ class McpToolCallbackProviderServiceTest {
     IllegalStateException e = assertThrows(IllegalStateException.class, () -> toolCallback.call(TOOL_INPUT));
 
     assertTrue(e.getMessage().contains(TOOL_METHOD), e.getMessage());
-    verify(mcpToolApprovalService, never()).requestApproval(any(), any(), any(), any(), any());
+    verify(mcpToolApprovalService, never()).requestApproval(any(), any(), any(), any(), any(), any(), anyBoolean(), any());
     verify(mcpToolApprovalService, never()).traceToolExecution(argThatIs(UserToolRequestType.APPROVAL_REQUEST));
     verify(mcpToolApprovalService).traceToolExecution(argThatIs(UserToolRequestType.TOOL_EXECUTION_ERROR));
   }
@@ -185,7 +209,172 @@ class McpToolCallbackProviderServiceTest {
     String output = toolCallback.call(TOOL_INPUT);
 
     assertTrue(output.contains("Hello Bob"), output);
-    verify(mcpToolApprovalService, never()).requestApproval(any(), any(), any(), any(), any());
+    verify(mcpToolApprovalService, never()).requestApproval(any(), any(), any(), any(), any(), any(), anyBoolean(), any());
+  }
+
+  /**
+   * A standing approval covering the call lets it run without a card: the run
+   * is traced as granted with the grant id and owner type, and its use is
+   * recorded.
+   */
+  @Test
+  void call_coveredByGrant_runsWithoutCardAndTracesTheGrant() {// NOSONAR
+    bindRequest(TOOL_CONTEXT_ID, CONVERSATION_ID);
+    McpToolGrant grant = McpToolGrant.builder().id(7L).ownerType(McpToolGrantOwnerType.PLATFORM).build();
+    when(mcpToolGrantService.findApplicableGrant(any(), any())).thenReturn(grant);
+
+    String output = toolCallback.call(TOOL_INPUT);
+
+    assertTrue(output.contains("Hello Bob"), output);
+    verify(mcpToolApprovalService, never()).requestApproval(any(), any(), any(), any(), any(), any(), anyBoolean(), any());
+    verify(mcpToolGrantService).recordUse(eq(grant), any());
+    verify(mcpToolApprovalService).traceToolExecution(org.mockito.ArgumentMatchers.argThat(execution -> execution != null
+        && execution.getToolExecutionType() == UserToolRequestType.TOOL_EXECUTION_GRANTED
+        && Long.valueOf(7L).equals(execution.getGrantId())
+        && "PLATFORM".equals(execution.getGrantOwnerType())));
+  }
+
+  /**
+   * The grant decision gets the call as the server resolved it: user, snake
+   * case tool name, trusted agent and conversation headers, the client, the
+   * retry flag, and the arguments as the tool receives them.
+   */
+  @Test
+  void call_grantDecisionGetsTheServerResolvedCall() {// NOSONAR
+    MockHttpServletRequest request = bindRequest(TOOL_CONTEXT_ID, CONVERSATION_ID);
+    request.addHeader(TOOL_CONTEXT_AGENT_NAME_ID_PARAM, "agent-1");
+    request.addHeader(TOOL_CONTEXT_RETRY_MESSAGE_ID_PARAM, "12");
+    when(mcpToolApprovalService.requestApproval(any(), any(), any(), any(), any(), any(), anyBoolean(), any())).thenReturn(true);
+
+    toolCallback.call("{\"user_name\":\"Bob\"}");
+
+    ArgumentCaptor<McpToolGrantRequest> grantRequest = ArgumentCaptor.forClass(McpToolGrantRequest.class);
+    @SuppressWarnings("unchecked")
+    ArgumentCaptor<Map<String, Object>> arguments = ArgumentCaptor.forClass(Map.class);
+    verify(mcpToolGrantService).findApplicableGrant(grantRequest.capture(), arguments.capture());
+    McpToolGrantRequest call = grantRequest.getValue();
+    assertEquals(USERNAME, call.username());
+    assertEquals(TOOL_METHOD, call.toolName());
+    assertEquals("agent-1", call.agentNameId());
+    assertEquals(CONVERSATION_ID, call.conversationId());
+    assertEquals(MCP_OAUTH2_CLIENT_CREDENTIALS_REGISTRATION_ID, call.clientId());
+    assertTrue(call.retry());
+    assertEquals(Map.of("userName", "Bob"), arguments.getValue());
+  }
+
+  /**
+   * The agent and retry headers of a caller that isn't the internal client
+   * are ignored.
+   */
+  @Test
+  void call_agentAndRetryHeadersIgnoredOutsideTheInternalGate() {// NOSONAR
+    MockHttpServletRequest request = bindRequest("forged-context-id", CONVERSATION_ID);
+    request.addHeader(TOOL_CONTEXT_AGENT_NAME_ID_PARAM, "agent-1");
+    request.addHeader(TOOL_CONTEXT_RETRY_MESSAGE_ID_PARAM, "12");
+
+    assertThrows(IllegalStateException.class, () -> toolCallback.call(TOOL_INPUT));
+
+    ArgumentCaptor<McpToolGrantRequest> grantRequest = ArgumentCaptor.forClass(McpToolGrantRequest.class);
+    verify(mcpToolGrantService).findApplicableGrant(grantRequest.capture(), any());
+    assertNull(grantRequest.getValue().agentNameId());
+    assertNull(grantRequest.getValue().conversationId());
+    assertFalse(grantRequest.getValue().retry());
+  }
+
+  /**
+   * Without a grant, the card offers "Always allow" when a grant store is
+   * installed, with the limit the tool's evaluator proposes.
+   */
+  @Test
+  void call_withoutGrant_cardOffersAlwaysAllow() {// NOSONAR
+    bindRequest(TOOL_CONTEXT_ID, CONVERSATION_ID);
+    McpToolGrantConstraint constraint = new McpToolGrantConstraint(McpToolGrantConstraint.EMAIL_DOMAIN_KIND, "example.com");
+    when(mcpToolGrantService.isGrantStoreAvailable()).thenReturn(true);
+    when(mcpToolGrantService.proposeConstraint(eq(TOOL_METHOD), any())).thenReturn(constraint);
+    when(mcpToolApprovalService.requestApproval(any(), any(), any(), any(), any(), any(), anyBoolean(), any())).thenReturn(true);
+
+    toolCallback.call(TOOL_INPUT);
+
+    verify(mcpToolApprovalService).requestApproval(anyString(),
+                                                   eq(CONVERSATION_ID),
+                                                   eq(TOOL_METHOD),
+                                                   anyString(),
+                                                   eq(USERNAME),
+                                                   any(McpToolGrantRequest.class),
+                                                   eq(true),
+                                                   eq(constraint));
+  }
+
+  /**
+   * An "always ask" tool shows its card even when a grant would cover it, and
+   * the card never offers "Always allow".
+   */
+  @Test
+  void call_alwaysAskTool_neverUsesNorOffersAGrant() {// NOSONAR
+    bindRequest(TOOL_CONTEXT_ID, CONVERSATION_ID);
+    when(mcpServerToolService.isAlwaysAsk(TOOL_METHOD)).thenReturn(true);
+    when(mcpServerToolService.hasApprovalScope(any())).thenReturn(true);
+    lenient().when(mcpToolGrantService.isGrantStoreAvailable()).thenReturn(true);
+    lenient().when(mcpToolGrantService.findApplicableGrant(any(), any())).thenReturn(McpToolGrant.builder().id(1L).ownerType(McpToolGrantOwnerType.USER).build());
+    when(mcpToolApprovalService.requestApproval(any(), any(), any(), any(), any(), any(), anyBoolean(), any())).thenReturn(true);
+
+    toolCallback.call(TOOL_INPUT);
+
+    verify(mcpToolGrantService, never()).findApplicableGrant(any(), any());
+    verify(mcpToolApprovalService).requestApproval(anyString(),
+                                                   eq(CONVERSATION_ID),
+                                                   eq(TOOL_METHOD),
+                                                   anyString(),
+                                                   eq(USERNAME),
+                                                   any(),
+                                                   eq(false),
+                                                   eq(null));
+  }
+
+  /**
+   * An "always ask" tool is asked even when its definition doesn't require
+   * approval.
+   */
+  @Test
+  void call_alwaysAskTool_asksEvenWithoutRequireApproval() {// NOSONAR
+    bindRequest(TOOL_CONTEXT_ID, CONVERSATION_ID);
+    lenient().when(mcpServerToolService.isRequireApproval(eq(TOOL_METHOD), any())).thenReturn(false);
+    when(mcpServerToolService.isAlwaysAsk(TOOL_METHOD)).thenReturn(true);
+    when(mcpServerToolService.hasApprovalScope(any())).thenReturn(true);
+    when(mcpToolApprovalService.requestApproval(any(), any(), any(), any(), any(), any(), anyBoolean(), any())).thenReturn(false);
+
+    assertThrows(io.meeds.mcp.server.model.UserToolDeniedException.class, () -> toolCallback.call(TOOL_INPUT));
+  }
+
+  /**
+   * An "always ask" tool is refused to a caller that can't be asked (no
+   * approval scope, as external MCP clients' plain write tokens), even though
+   * such a caller runs other write tools without a card.
+   */
+  @Test
+  void call_alwaysAskTool_refusedWithoutApprovalScope() {// NOSONAR
+    when(mcpServerToolService.isAlwaysAsk(TOOL_METHOD)).thenReturn(true);
+    when(mcpServerToolService.hasApprovalScope(any())).thenReturn(false);
+
+    IllegalAccessException e = assertThrows(IllegalAccessException.class, () -> toolCallback.call(TOOL_INPUT));
+
+    assertTrue(e.getMessage().contains("every time"), e.getMessage());
+    verify(mcpToolApprovalService, never()).requestApproval(any(), any(), any(), any(), any(), any(), anyBoolean(), any());
+    verify(mcpToolApprovalService, never()).traceToolExecution(argThatIs(UserToolRequestType.TOOL_EXECUTION_START));
+  }
+
+  /**
+   * A plain write caller of a tool that isn't "always ask" keeps running it
+   * without a card, as before standing approvals.
+   */
+  @Test
+  void call_plainWriteCaller_runsUnaskedWhenNotAlwaysAsk() {// NOSONAR
+    when(mcpServerToolService.isRequireApproval(eq(TOOL_METHOD), any())).thenReturn(false);
+
+    String output = toolCallback.call(TOOL_INPUT);
+
+    assertTrue(output.contains("Hello Bob"), output);
+    verify(mcpToolGrantService, never()).findApplicableGrant(any(), any());
   }
 
   @Test
@@ -198,11 +387,19 @@ class McpToolCallbackProviderServiceTest {
     return org.mockito.ArgumentMatchers.argThat(execution -> execution != null && execution.getToolExecutionType() == type);
   }
 
-  private static void bindRequest(String contextId, String conversationId) {
+  /**
+   * Binds a request carrying the internal client's context headers.
+   *
+   * @param contextId      the context id header
+   * @param conversationId the conversation id header
+   * @return the bound request, to add headers to
+   */
+  private static MockHttpServletRequest bindRequest(String contextId, String conversationId) {
     MockHttpServletRequest request = new MockHttpServletRequest();
     request.addHeader(TOOL_CONTEXT_ID_PARAM, contextId);
     request.addHeader(TOOL_CONTEXT_CONVERSATION_ID_PARAM, conversationId);
     RequestContextHolder.setRequestAttributes(new ServletRequestAttributes(request));
+    return request;
   }
 
   public static class GreetingToolPlugin implements McpToolPlugin {

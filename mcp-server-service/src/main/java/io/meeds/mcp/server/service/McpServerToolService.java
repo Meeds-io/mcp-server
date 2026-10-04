@@ -84,6 +84,14 @@ public class McpServerToolService {
 
   private static final Scope                TOOLS_SCOPE                   = Scope.APPLICATION.id(TOOLS_KEY);
 
+  /**
+   * Scope of the per-tool "always ask" flags, kept apart from the tool
+   * definition blob: the blob is memoised per node, while these flags are read
+   * from the setting store on every call so that an administrator's change
+   * holds on every node of a cluster at once.
+   */
+  private static final Scope                ALWAYS_ASK_SCOPE              = Scope.APPLICATION.id("AI_AGENT_TOOL_ALWAYS_ASK");
+
   @Autowired
   private PortalContainer                   container;
 
@@ -144,6 +152,58 @@ public class McpServerToolService {
            && authentication.getAuthorities()
                             .stream()
                             .anyMatch(a -> WRITE_APPROVE_SCOPE_AUTHORITY.equals(a.getAuthority()));
+  }
+
+  /**
+   * Tells whether the caller's token carries the scope under which the user is
+   * asked to approve write tools.
+   *
+   * @param authentication the current OAuth authentication, may be null
+   * @return true when the token holds {@code mcp.tools.writeWithApproval}
+   */
+  public boolean hasApprovalScope(Authentication authentication) {
+    return authentication != null
+           && CollectionUtils.isNotEmpty(authentication.getAuthorities())
+           && authentication.getAuthorities()
+                            .stream()
+                            .anyMatch(a -> WRITE_APPROVE_SCOPE_AUTHORITY.equals(a.getAuthority()));
+  }
+
+  /**
+   * Tells whether an administrator marked a tool "always ask": every call
+   * needs the user's approval on a card, no standing approval ever covers it,
+   * and a caller that can't be asked (a token without the approval scope, such
+   * as an external MCP client's) is refused. Read from the setting store on
+   * every call, never from the node-local tool definitions.
+   *
+   * @param toolName the MCP tool name
+   * @return true when the tool is marked "always ask"
+   */
+  public boolean isAlwaysAsk(String toolName) {
+    if (StringUtils.isBlank(toolName)) {
+      return false;
+    }
+    SettingValue<?> settingValue = settingService.get(AI_AGENT_CONTEXT, ALWAYS_ASK_SCOPE, toolName);
+    return settingValue != null && settingValue.getValue() != null && Boolean.parseBoolean(settingValue.getValue().toString());
+  }
+
+  /**
+   * Marks or unmarks a tool "always ask", see {@link #isAlwaysAsk(String)}.
+   *
+   * @param toolName  the MCP tool name, which must exist
+   * @param alwaysAsk the new flag
+   * @throws IllegalArgumentException when the tool doesn't exist
+   */
+  public void setAlwaysAsk(String toolName, boolean alwaysAsk) {
+    if (getToolDefinition(toolName) == null) {
+      throw new IllegalArgumentException("Tool with name '%s' not found".formatted(toolName));
+    }
+    log.info("Set AI Agent Tool '{}' always ask: {}", toolName, alwaysAsk);
+    if (alwaysAsk) {
+      settingService.set(AI_AGENT_CONTEXT, ALWAYS_ASK_SCOPE, toolName, SettingValue.create(Boolean.TRUE.toString()));
+    } else {
+      settingService.remove(AI_AGENT_CONTEXT, ALWAYS_ASK_SCOPE, toolName);
+    }
   }
 
   /**

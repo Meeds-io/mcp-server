@@ -20,6 +20,12 @@ package io.meeds.mcp.server.constant;
 
 public enum UserToolRequestType {
 
-  APPROVAL_REQUEST, APPROVAL_ANSWER, APPROVAL_TIMEOUT, TOOL_EXECUTION_START, TOOL_EXECUTION_FINISHED, TOOL_EXECUTION_ERROR, TOOL_EXECUTION_DENIED;
+  APPROVAL_REQUEST, APPROVAL_ANSWER, APPROVAL_TIMEOUT, TOOL_EXECUTION_START, TOOL_EXECUTION_FINISHED, TOOL_EXECUTION_ERROR, TOOL_EXECUTION_DENIED,
+
+  /**
+   * An approval-gated call ran without a card because a standing approval
+   * covered it; the event names the grant and its owner type.
+   */
+  TOOL_EXECUTION_GRANTED;
 
 }

@@ -27,12 +27,16 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertSame;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.argThat;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.doReturn;
 import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -532,6 +536,48 @@ class McpToolServerServiceTest {
    */
   private Authentication internalClientAuthentication(String clientId, String authority) {
     return internalClientAuthentication(clientId, authority, clientId);
+  }
+
+  /**
+   * The "always ask" flag is read from the setting store on every call, never
+   * memoised, so an administrator's change holds on every node at once.
+   */
+  @Test
+  void isAlwaysAsk_readsTheStoreOnEveryCall() {// NOSONAR
+    when(settingService.get(any(), any(), eq(TOOL_NAME))).thenReturn((SettingValue) SettingValue.create("true"),
+                                                                       (SettingValue) null);
+
+    assertTrue(mcpServerToolService.isAlwaysAsk(TOOL_NAME));
+    assertFalse(mcpServerToolService.isAlwaysAsk(TOOL_NAME));
+    assertFalse(mcpServerToolService.isAlwaysAsk(" "));
+    verify(settingService, times(2)).get(any(), any(), eq(TOOL_NAME));
+  }
+
+  /**
+   * Setting the flag stores it, clearing it removes it, and an unknown tool is
+   * refused.
+   */
+  @Test
+  void setAlwaysAsk_storesOrRemovesTheFlag() {// NOSONAR
+    mcpServerToolService.setToolDefinitions(Map.of(TOOL_NAME, tool(TOOL_NAME, "T", TYPE_OBJECT, true, false)));
+
+    mcpServerToolService.setAlwaysAsk(TOOL_NAME, true);
+    verify(settingService).set(any(), any(), eq(TOOL_NAME), argThat(value -> "true".equals(value.getValue())));
+
+    mcpServerToolService.setAlwaysAsk(TOOL_NAME, false);
+    verify(settingService).remove(any(), any(), eq(TOOL_NAME));
+
+    assertThrows(IllegalArgumentException.class, () -> mcpServerToolService.setAlwaysAsk("unknown_tool", true));
+  }
+
+  /**
+   * Only the approval scope counts as "can be asked".
+   */
+  @Test
+  void hasApprovalScope_onlyForTheApprovalScope() {// NOSONAR
+    assertTrue(mcpServerToolService.hasApprovalScope(internalClientAuthentication("c", WRITE_APPROVE_SCOPE_AUTHORITY, "c")));
+    assertFalse(mcpServerToolService.hasApprovalScope(internalClientAuthentication("c", WRITE_SCOPE_AUTHORITY, "c")));
+    assertFalse(mcpServerToolService.hasApprovalScope(null));
   }
 
   /**

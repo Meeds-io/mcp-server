@@ -51,6 +51,12 @@ public class UserToolExecution {
 
   private boolean             completed;
 
+  /** The standing approval the call ran under, or null. */
+  private Long                grantId;
+
+  /** The owner type of {@link #grantId}'s grant, or null. */
+  private String              grantOwnerType;
+
   // Workaround javadoc error not reading lombok classes
   public static class UserToolExecutionBuilder { // NOSONAR
   }
