@@ -149,6 +149,14 @@ public class McpServerUtils {
     }
   }
 
+  /**
+   * Builds the MCP tool of a callback, with the title, annotations and icon of
+   * its definition, and the call handler that runs it.
+   *
+   * @param toolCallback the tool callback
+   * @param mimeType     the mime type of the tool's result, or null for text
+   * @return the MCP tool specification
+   */
   private static SharedSyncToolSpecification toSharedSyncToolSpecification(ToolCallback toolCallback,
                                                                            MimeType mimeType) {
 
@@ -170,6 +178,12 @@ public class McpServerUtils {
                                                     annotations.idempotentHint(),
                                                     annotations.openWorldHint(),
                                                     annotations.returnDirect()));
+      }
+      // The add-on's Font Awesome icon, as a standard MCP icon for external
+      // clients
+      List<McpSchema.Icon> icons = McpToolIconUtils.toMcpIcons(simpleToolDefinition.getIcon());
+      if (!icons.isEmpty()) {
+        toolBuilder.icons(icons);
       }
     } else {
       log.warn("Tool Definition '{}' seems not having associated annotations", toolDefinition.name());
