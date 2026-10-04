@@ -89,8 +89,10 @@ class McpToolIconUtilsTest {
    */
   @Test
   void bundledIcons_areAllUnderTheSizeLimit_andResolve() throws Exception {
-    // the main folder only: the test classpath adds an oversized fixture
-    File[] files = new File("target/classes/" + McpToolIconUtils.ICONS_PATH).listFiles((dir, name) -> name.endsWith(".svg"));
+    // the main folder only, where McpToolIconUtils is compiled: the test
+    // classpath adds an oversized fixture
+    File mainClasses = new File(McpToolIconUtils.class.getProtectionDomain().getCodeSource().getLocation().toURI());
+    File[] files = new File(mainClasses, McpToolIconUtils.ICONS_PATH).listFiles((dir, name) -> name.endsWith(".svg"));
     assertNotNull(files);
     assertTrue(files.length > 0);
     for (File file : files) {
