@@ -26,6 +26,7 @@ import static io.meeds.mcp.server.service.McpServerToolService.WRITE_SCOPE_AUTHO
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
@@ -188,6 +189,47 @@ class McpToolServerServiceTest {
     assertEquals("Gamma", defs.get("gamma_tool").getDescription());
 
     verify(settingService).set(any(), any(), any(), any());
+  }
+
+  /**
+   * The icon belongs to the add-on: a persisted definition takes the shipped
+   * file's icon (added, changed or removed) while every administrator value
+   * is kept, so a booted instance needs no TOOLS_KEY bump.
+   *
+   * @param tmp a temporary folder
+   */
+  @Test
+  void getToolDefinitions_takesTheIconFromTheShippedFile_keepsSavedValues(// NOSONAR
+                                                                         @TempDir
+                                                                         Path tmp) {
+    ReflectionTestUtils.setField(mcpServerToolService, FORCE_REIMPORT_PARAM, false);
+
+    SimpleToolDefinition shippedAlpha = tool(ALPHA_TOOL, "ParsedDesc", TYPE_OBJECT, false, false);
+    shippedAlpha.setIcon("fa-clipboard");
+    SimpleToolDefinition shippedBeta = tool(BETA_TOOL, "ParsedBeta", TYPE_OBJECT, false, false);
+
+    SimpleToolDefinition savedAlpha = tool(ALPHA_TOOL, "SavedDesc", TYPE_OBJECT, true, true);
+    savedAlpha.setTitle("Saved title");
+    SimpleToolDefinition savedBeta = tool(BETA_TOOL, "SavedBeta", TYPE_OBJECT, true, false);
+    savedBeta.setIcon("fa-stale");
+    String savedBase64 = McpToolUtils.toJsonStringBase64(new ToolDefinitionMethods(List.of(savedAlpha, savedBeta)));
+    when(settingService.get(any(), any(), any())).thenReturn((SettingValue) SettingValue.create(savedBase64));
+
+    mockContainerResources(writeToolDefinitionsJson(tmp, List.of(shippedAlpha, shippedBeta)));
+
+    Map<String, SimpleToolDefinition> defs = mcpServerToolService.getToolDefinitions();
+
+    SimpleToolDefinition alpha = defs.get(ALPHA_TOOL);
+    assertEquals("fa-clipboard", alpha.getIcon());
+    assertEquals("SavedDesc", alpha.getDescription());
+    assertEquals("Saved title", alpha.getTitle());
+    assertTrue(alpha.isRequireApproval());
+    assertTrue(alpha.isDisabled());
+
+    SimpleToolDefinition beta = defs.get(BETA_TOOL);
+    assertNull(beta.getIcon());
+    assertEquals("SavedBeta", beta.getDescription());
+    assertTrue(beta.isRequireApproval());
   }
 
   @Test

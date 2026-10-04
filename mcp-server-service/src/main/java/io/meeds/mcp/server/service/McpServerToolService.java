@@ -482,7 +482,9 @@ public class McpServerToolService {
   /**
    * Builds the tool registry: every {@code ai-tool-definitions.json} on the
    * portal classpath, each entry overridden by its persisted version when one
-   * exists, then persisted back as the new reference set.
+   * exists, then persisted back as the new reference set. The icon is the
+   * add-on's, not the administrator's: it is always taken from the shipped
+   * file, so a booted instance shows a changed icon at its next restart.
    */
   @SneakyThrows
   private void retrieveToolDefinitions() {
@@ -507,6 +509,8 @@ public class McpServerToolService {
                                                                                                       .filter(t -> t.getName()
                                                                                                                     .equals(toolDefinition.getName()))
                                                                                                       .findFirst()
+                                                                                                      .map(saved -> withShippedIcon(saved,
+                                                                                                                                    toolDefinition))
                                                                                                       .orElse(toolDefinition))
                                                                .toList();
     saveToolsContent(McpToolUtils.toJsonStringBase64(new ToolDefinitionMethods(toolDefinitionList)));
@@ -514,6 +518,20 @@ public class McpServerToolService {
                                         .collect(Collectors.toMap(ToolDefinition::name,
                                                                   Function.identity(),
                                                                   ObjectUtils::firstNonNull));
+  }
+
+  /**
+   * Gives a persisted definition the icon of its shipped file, keeping every
+   * value the administrator may have edited.
+   *
+   * @param savedDefinition   the persisted definition
+   * @param shippedDefinition the definition read from the add-on's file
+   * @return the persisted definition, with the shipped icon
+   */
+  private SimpleToolDefinition withShippedIcon(SimpleToolDefinition savedDefinition,
+                                               SimpleToolDefinition shippedDefinition) {
+    savedDefinition.setIcon(shippedDefinition.getIcon());
+    return savedDefinition;
   }
 
   /**
