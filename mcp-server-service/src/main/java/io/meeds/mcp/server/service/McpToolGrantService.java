@@ -87,6 +87,14 @@ public class McpToolGrantService {
   private Clock                                           clock           = Clock.systemUTC();
 
   /**
+   * @return the longest validity, in days, of a user's standing approval: the
+   *         card offers only the durations within it
+   */
+  public int getMaxDays() {
+    return maxDays;
+  }
+
+  /**
    * @return true when an add-on installed exactly one grant store; with none
    *         (or an ambiguous configuration) no grant ever applies
    */

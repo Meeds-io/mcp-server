@@ -29,6 +29,7 @@ import static io.meeds.mcp.server.util.McpToolUtils.AI_AGENT_TOOL_GRANT_CONSTRAI
 import static io.meeds.mcp.server.util.McpToolUtils.AI_AGENT_TOOL_GRANT_CONSTRAINT_VALUE_PARAM;
 import static io.meeds.mcp.server.util.McpToolUtils.AI_AGENT_TOOL_GRANT_EXPIRES_AT_PARAM;
 import static io.meeds.mcp.server.util.McpToolUtils.AI_AGENT_TOOL_GRANT_ID_PARAM;
+import static io.meeds.mcp.server.util.McpToolUtils.AI_AGENT_TOOL_GRANT_MAX_DAYS_PARAM;
 import static io.meeds.mcp.server.util.McpToolUtils.AI_AGENT_TOOL_GRANT_OWNER_TYPE_PARAM;
 import static io.meeds.mcp.server.util.McpToolUtils.AI_AGENT_TOOL_ID_PARAM;
 import static io.meeds.mcp.server.util.McpToolUtils.AI_AGENT_TOOL_INPUT_PARAM;
@@ -370,6 +371,10 @@ public class McpToolApprovalService {
     parameters.put(AI_AGENT_TOOL_INPUT_PARAM, StringUtils.defaultIfBlank(toolInput, ""));
     parameters.put(AI_AGENT_TOOL_USERNAME_PARAM, StringUtils.defaultIfBlank(username, ""));
     parameters.put(AI_AGENT_TOOL_GRANTABLE_PARAM, String.valueOf(approvalRequest.isGrantable()));
+    if (approvalRequest.isGrantable()) {
+      // the card offers only the durations the server accepts
+      parameters.put(AI_AGENT_TOOL_GRANT_MAX_DAYS_PARAM, String.valueOf(grantService.getMaxDays()));
+    }
     McpToolGrantRequest grantRequest = approvalRequest.getGrantRequest();
     if (approvalRequest.isGrantable() && StringUtils.isNotBlank(grantRequest.agentNameId())) {
       parameters.put(AI_AGENT_TOOL_AGENT_NAME_ID_PARAM, grantRequest.agentNameId());
