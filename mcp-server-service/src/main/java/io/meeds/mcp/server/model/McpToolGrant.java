@@ -33,10 +33,10 @@ import lombok.NoArgsConstructor;
  * <p>
  * A grant covers a call when the tool names are equal, the owner is the
  * calling user (or the grant is a {@link McpToolGrantOwnerType#PLATFORM}
- * policy), the call happens strictly before {@link #getExpiresAt()}, the agent
- * is the grant's agent (or the grant names none), its {@link #getConstraint()}
+ * policy), the call happens strictly before {@code expiresAt}, the agent
+ * is the grant's agent (or the grant names none), its {@code constraint}
  * (if any) is satisfied by the tool's own evaluator, and — unless the grant is
- * {@link #isUnattended()} — the call comes from an interactive chat
+ * {@code unattended} — the call comes from an interactive chat
  * conversation. A grant chosen on an approval card is never unattended.
  */
 @Data
