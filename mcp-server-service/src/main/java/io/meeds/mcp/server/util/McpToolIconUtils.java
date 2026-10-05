@@ -61,7 +61,7 @@ public final class McpToolIconUtils {
   private static final String                    ICON_NAME_PREFIX = "fa-";
 
   /** A well-formed Font Awesome icon name: no dot, no slash, no traversal. */
-  private static final Pattern                   ICON_NAME      = Pattern.compile("^fa-[a-z0-9]+(-[a-z0-9]+)*$");
+  private static final Pattern                   ICON_NAME      = Pattern.compile("^fa-[a-z0-9]++(?:-[a-z0-9]++)*+$");
 
   /** The icons already read, empty for a name with no usable SVG. */
   private static final Map<String, Optional<Icon>> ICONS        = new ConcurrentHashMap<>();
