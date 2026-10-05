@@ -56,7 +56,7 @@ import lombok.extern.slf4j.Slf4j;
  * Every provider answer is checked again here, so the provider can never widen
  * a decision: owner, tool, expiry (strictly before), agent, interactivity and
  * constraint. A grant is <em>interactive-only</em> unless it is explicitly
- * {@link McpToolGrant#isUnattended() unattended}: it then covers a call only
+ * {@code unattended}: it then covers a call only
  * when the call comes from a chat conversation, so a grant chosen while the
  * user watched never authorizes a run without them. No grant applies to a call
  * of a retried answer: a retry repeats a question the user already saw
