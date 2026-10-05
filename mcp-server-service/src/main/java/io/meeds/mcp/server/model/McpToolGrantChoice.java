@@ -1,7 +1,7 @@
 /**
  * This file is part of the Meeds project (https://meeds.io/).
  *
- * Copyright (C) 2020 - 2025 Meeds Association contact@meeds.io
+ * Copyright (C) 2026 Meeds Association contact@meeds.io
  *
  * This program is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Lesser General Public
@@ -18,30 +18,18 @@
  */
 package io.meeds.mcp.server.model;
 
-import lombok.Data;
+import io.meeds.mcp.server.constant.McpToolGrantScope;
 
 /**
- * The answer to a pending approval card. The first answer wins: the card
- * resends its answer until the server confirms it, and later copies change
- * nothing.
+ * What the user picked with "Always allow" on an approval card: the only part
+ * of a grant the client chooses, each value from a closed list checked by the
+ * server.
+ *
+ * @param scope       this agent only, or any agent
+ * @param days        the validity in days, one of the offered durations
+ * @param constrained whether the grant is limited by the argument constraint
+ *                      the card offered (the constraint itself is derived on
+ *                      the server from the pending call)
  */
-@Data
-public class UserToolApprovalAnswer {
-
-  private String       username;
-
-  private boolean      answered;
-
-  private boolean      approved;
-
-  /** The standing approval created by an "Always allow" answer, or null. */
-  private McpToolGrant grant;
-
-  /**
-   * @param username the user the card is shown to
-   */
-  public UserToolApprovalAnswer(String username) {
-    this.username = username;
-  }
-
+public record McpToolGrantChoice(McpToolGrantScope scope, int days, boolean constrained) {
 }

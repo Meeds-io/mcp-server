@@ -35,6 +35,7 @@ import io.meeds.mcp.server.plugin.McpToolPlugin;
 import io.meeds.mcp.server.service.McpServerToolService;
 import io.meeds.mcp.server.service.McpToolApprovalService;
 import io.meeds.mcp.server.service.McpToolCallbackProviderService;
+import io.meeds.mcp.server.service.McpToolGrantService;
 
 import lombok.extern.slf4j.Slf4j;
 
@@ -47,17 +48,32 @@ import lombok.extern.slf4j.Slf4j;
 @Slf4j
 public class McpServerToolCallbackConfiguration {
 
+  /**
+   * Builds the provider turning every {@code McpToolPlugin} method into a tool
+   * callback guarded by the scope check, the standing approvals and the
+   * approval cards.
+   *
+   * @param applicationContext     the context, to reach the MCP server bean
+   * @param mcpServerToolService   the tool registry
+   * @param mcpToolApprovalService the approval cards
+   * @param mcpToolGrantService    the standing approvals
+   * @param userAcl                the platform ACL
+   * @param tools                  the contributed tool plugins
+   * @return the provider
+   */
   @Bean
   public ToolCallbackProvider mcpToolCallbackProvider(ApplicationContext applicationContext,
                                                       McpServerToolService mcpServerToolService,
                                                       McpToolApprovalService mcpToolApprovalService,
+                                                      McpToolGrantService mcpToolGrantService,
                                                       UserACL userAcl,
                                                       List<McpToolPlugin> tools) {
     McpToolCallbackProviderService toolCallbackProvider = new McpToolCallbackProviderService(applicationContext,
                                                                                              mcpServerToolService,
                                                                                              mcpToolApprovalService,
                                                                                              userAcl,
-                                                                                             tools);
+                                                                                             tools,
+                                                                                             mcpToolGrantService);
     mcpServerToolService.addToolUpdateListener(toolCallbackProvider::updateToolDefinition);
     return toolCallbackProvider;
   }

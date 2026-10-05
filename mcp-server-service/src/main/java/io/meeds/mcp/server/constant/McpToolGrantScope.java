@@ -1,7 +1,7 @@
 /**
  * This file is part of the Meeds project (https://meeds.io/).
  *
- * Copyright (C) 2020 - 2025 Meeds Association contact@meeds.io
+ * Copyright (C) 2026 Meeds Association contact@meeds.io
  *
  * This program is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Lesser General Public
@@ -16,32 +16,17 @@
  * along with this program; if not, write to the Free Software Foundation,
  * Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301, USA.
  */
-package io.meeds.mcp.server.model;
-
-import lombok.Data;
+package io.meeds.mcp.server.constant;
 
 /**
- * The answer to a pending approval card. The first answer wins: the card
- * resends its answer until the server confirms it, and later copies change
- * nothing.
+ * Which agents a standing tool approval chosen on an approval card covers.
  */
-@Data
-public class UserToolApprovalAnswer {
+public enum McpToolGrantScope {
 
-  private String       username;
+  /** Only the agent that made the call the card was shown for. */
+  AGENT,
 
-  private boolean      answered;
-
-  private boolean      approved;
-
-  /** The standing approval created by an "Always allow" answer, or null. */
-  private McpToolGrant grant;
-
-  /**
-   * @param username the user the card is shown to
-   */
-  public UserToolApprovalAnswer(String username) {
-    this.username = username;
-  }
+  /** Any agent calling the tool on the user's behalf. */
+  TOOL;
 
 }
