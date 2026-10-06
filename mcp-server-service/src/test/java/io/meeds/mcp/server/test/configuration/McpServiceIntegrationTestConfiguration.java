@@ -65,6 +65,7 @@ import io.meeds.mcp.server.service.McpServerToolService;
 import io.meeds.mcp.server.service.McpToolApprovalService;
 import io.meeds.mcp.server.service.McpToolCallbackProviderService;
 import io.meeds.mcp.server.web.McpBearerAuthenticationEntryPoint;
+import io.meeds.mcp.server.web.McpProtectedResourceMetadataCustomizer;
 
 import io.modelcontextprotocol.json.jackson3.JacksonMcpJsonMapper;
 import io.modelcontextprotocol.server.McpAsyncServer;
@@ -101,7 +102,8 @@ public class McpServiceIntegrationTestConfiguration {
                                              McpInternalOAuthClientService aiOAuthService,
                                              McpServerOauthOpaqueTokenIntrospector opaqueTokenIntrospector,
                                              @Qualifier("mcpServerAuthenticationEntryPoint")
-                                             McpBearerAuthenticationEntryPoint authenticationEntryPoint) {
+                                             McpBearerAuthenticationEntryPoint authenticationEntryPoint,
+                                             McpProtectedResourceMetadataCustomizer protectedResourceMetadataCustomizer) {
     return http.securityMatcher("/**")
                .csrf(csrf -> csrf.disable())
                .cors(Customizer.withDefaults())
@@ -110,7 +112,8 @@ public class McpServiceIntegrationTestConfiguration {
                                                             .anyRequest()
                                                             .authenticated())
                .oauth2ResourceServer(oauth2 -> oauth2.opaqueToken(c -> c.introspector(opaqueTokenIntrospector))
-                                                     .authenticationEntryPoint(authenticationEntryPoint))
+                                                     .authenticationEntryPoint(authenticationEntryPoint)
+                                                     .protectedResourceMetadata(m -> m.protectedResourceMetadataCustomizer(protectedResourceMetadataCustomizer)))
                .build();
   }
 

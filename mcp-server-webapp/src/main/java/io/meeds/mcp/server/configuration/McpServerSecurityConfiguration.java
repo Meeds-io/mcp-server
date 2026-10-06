@@ -35,6 +35,7 @@ import org.springframework.web.cors.UrlBasedCorsConfigurationSource;
 
 import io.meeds.mcp.server.plugin.McpServerOauthOpaqueTokenIntrospector;
 import io.meeds.mcp.server.web.McpBearerAuthenticationEntryPoint;
+import io.meeds.mcp.server.web.McpProtectedResourceMetadataCustomizer;
 import io.meeds.oauth2.server.web.OAuthCorsConfigurationSource;
 
 @Configuration
@@ -78,7 +79,8 @@ public class McpServerSecurityConfiguration {
   @Order(1)
   SecurityFilterChain mcpSecurityFilterChain(HttpSecurity http,
                                              McpServerOauthOpaqueTokenIntrospector opaqueTokenIntrospector,
-                                             McpBearerAuthenticationEntryPoint authenticationEntryPoint) {
+                                             McpBearerAuthenticationEntryPoint authenticationEntryPoint,
+                                             McpProtectedResourceMetadataCustomizer protectedResourceMetadataCustomizer) {
     return http.securityMatcher("/**")
                .csrf(csrf -> csrf.disable())
                .cors(Customizer.withDefaults())
@@ -91,7 +93,8 @@ public class McpServerSecurityConfiguration {
                                                             .anyRequest()
                                                             .denyAll())
                .oauth2ResourceServer(oauth2 -> oauth2.opaqueToken(c -> c.introspector(opaqueTokenIntrospector))
-                                                     .authenticationEntryPoint(authenticationEntryPoint))
+                                                     .authenticationEntryPoint(authenticationEntryPoint)
+                                                     .protectedResourceMetadata(m -> m.protectedResourceMetadataCustomizer(protectedResourceMetadataCustomizer)))
                .build();
   }
 

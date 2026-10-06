@@ -47,8 +47,10 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 
 import java.nio.charset.StandardCharsets;
 import java.time.Duration;
+import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Base64;
+import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 
@@ -57,6 +59,7 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.HttpHeaders;
 import org.springframework.security.core.GrantedAuthority;
 import org.springframework.security.core.authority.SimpleGrantedAuthority;
@@ -174,6 +177,12 @@ class McpServerOAuthIntegrationTest extends McpServiceIntegrationTestSupport {
   @Autowired
   private McpServerToolService                  mcpServerToolService;
 
+  @Value("${meeds.oauth.mcp-server-url}")
+  private String                                mcpUrl;
+
+  @Value("${meeds.oauth.server-base-url}")
+  private String                                oauthIssuerUrl;
+
   private static final String                   NO_CONVERSATION_MESSAGE = "requires the user's approval";
 
   private static final String                   NOT_ALLOWED_MESSAGE     = "isn't allowed";
@@ -231,6 +240,25 @@ class McpServerOAuthIntegrationTest extends McpServiceIntegrationTestSupport {
   protected void tearDown() {
     mcpServerToolService.setForceReimport(true);
     mcpServerToolService.setToolDefinitions(null);
+  }
+
+  /**
+   * Spring Security's resource server answers this path itself, ahead of any
+   * controller: the document must be its customized one.
+   */
+  @Test
+  @DisplayName("Protected resource metadata names the MCP endpoint, its authorization server and its scopes")
+  void protectedResourceMetadataNamesTheMcpEndpointItsAuthorizationServerAndItsScopes() throws Exception {
+    MvcResult result = mvc.perform(get("/.well-known/oauth-protected-resource"))
+                          .andExpect(status().isOk())
+                          .andReturn();
+
+    JsonNode metadata = objectMapper.readTree(result.getResponse().getContentAsString());
+    assertEquals(mcpUrl, metadata.path("resource").asText());
+    assertEquals(List.of(oauthIssuerUrl), toTexts(metadata.path("authorization_servers")));
+    assertEquals(List.of("openid", "offline_access", "mcp.tools.read", "mcp.tools.write"),
+                 toTexts(metadata.path("scopes_supported")));
+    assertEquals(false, metadata.path("tls_client_certificate_bound_access_tokens").asBoolean(true));
   }
 
   @Test
@@ -681,6 +709,12 @@ class McpServerOAuthIntegrationTest extends McpServiceIntegrationTestSupport {
 
   private String bearer(String token) {
     return "Bearer " + token;
+  }
+
+  private List<String> toTexts(JsonNode array) {
+    List<String> texts = new ArrayList<>();
+    array.forEach(node -> texts.add(node.asText()));
+    return texts;
   }
 
 }
