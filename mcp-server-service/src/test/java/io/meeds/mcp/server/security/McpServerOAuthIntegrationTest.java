@@ -28,6 +28,7 @@ import static io.meeds.mcp.server.util.McpToolUtils.TOOL_WRITE_APPROVE_SCOPE;
 import static io.meeds.mcp.server.util.McpToolUtils.TOOL_WRITE_SCOPE;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.junit.Assert.assertNotNull;
+import static io.meeds.mcp.server.web.McpProtectedResourceMetadataCustomizer.MCP_SERVER_SCOPES_PROPERTY;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
@@ -82,6 +83,8 @@ import org.springframework.test.web.servlet.request.MockHttpServletRequestBuilde
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+
+import org.exoplatform.commons.utils.PropertyManager;
 
 import io.meeds.mcp.server.model.UserToolExecution;
 import io.meeds.mcp.server.service.McpServerToolService;
@@ -244,21 +247,46 @@ class McpServerOAuthIntegrationTest extends McpServiceIntegrationTestSupport {
 
   /**
    * Spring Security's resource server answers this path itself, ahead of any
-   * controller: the document must be its customized one.
+   * controller: the document must be its customized one. The scopes are the
+   * MCP application's configured ones, set here to a value that differs from
+   * the shipped default.
    */
   @Test
   @DisplayName("Protected resource metadata names the MCP endpoint, its authorization server and its scopes")
   void protectedResourceMetadataNamesTheMcpEndpointItsAuthorizationServerAndItsScopes() throws Exception {
-    MvcResult result = mvc.perform(get("/.well-known/oauth-protected-resource"))
-                          .andExpect(status().isOk())
-                          .andReturn();
+    String configuredScopes = PropertyManager.getProperty(MCP_SERVER_SCOPES_PROPERTY);
+    PropertyManager.setProperty(MCP_SERVER_SCOPES_PROPERTY, "mcp.tools.read, mcp.tools.writeWithApproval");
+    MvcResult result;
+    try {
+      result = mvc.perform(get("/.well-known/oauth-protected-resource"))
+                  .andExpect(status().isOk())
+                  .andReturn();
+    } finally {
+      if (configuredScopes == null) {
+        System.clearProperty(MCP_SERVER_SCOPES_PROPERTY);
+        PropertyManager.refresh();
+      } else {
+        PropertyManager.setProperty(MCP_SERVER_SCOPES_PROPERTY, configuredScopes);
+      }
+    }
 
     JsonNode metadata = objectMapper.readTree(result.getResponse().getContentAsString());
     assertEquals(mcpUrl, metadata.path("resource").asText());
     assertEquals(List.of(oauthIssuerUrl), toTexts(metadata.path("authorization_servers")));
-    assertEquals(List.of("openid", "offline_access", "mcp.tools.read", "mcp.tools.write"),
+    assertEquals(List.of("openid", "mcp.tools.read", "mcp.tools.writeWithApproval", "offline_access"),
                  toTexts(metadata.path("scopes_supported")));
     assertEquals(false, metadata.path("tls_client_certificate_bound_access_tokens").asBoolean(true));
+  }
+
+  @Test
+  @DisplayName("Protected resource metadata is not served while the MCP server is disabled")
+  void protectedResourceMetadataIsNotServedWhileTheMcpServerIsDisabled() throws Exception {
+    mcpServerToolService.disableMcpServer();
+    try {
+      mvc.perform(get("/.well-known/oauth-protected-resource")).andExpect(status().isNotFound());
+    } finally {
+      mcpServerToolService.enableMcpServer();
+    }
   }
 
   @Test

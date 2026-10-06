@@ -18,16 +18,18 @@
  */
 package io.meeds.mcp.server.web;
 
-import static io.meeds.mcp.server.util.McpToolUtils.TOOL_READ_SCOPE;
-import static io.meeds.mcp.server.util.McpToolUtils.TOOL_WRITE_SCOPE;
-
+import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.List;
 import java.util.function.Consumer;
 
+import org.apache.commons.lang3.StringUtils;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.security.oauth2.core.oidc.OidcScopes;
 import org.springframework.security.oauth2.server.resource.OAuth2ProtectedResourceMetadata;
 import org.springframework.stereotype.Component;
+
+import org.exoplatform.commons.utils.PropertyManager;
 
 import io.meeds.oauth2.server.util.Utils;
 
@@ -41,10 +43,11 @@ import io.meeds.oauth2.server.util.Utils;
 @Component
 public class McpProtectedResourceMetadataCustomizer implements Consumer<OAuth2ProtectedResourceMetadata.Builder> {
 
-  private static final List<String> SCOPES = List.of(OidcScopes.OPENID,
-                                                     Utils.OFFLINE_ACCESS_SCOPE,
-                                                     TOOL_READ_SCOPE,
-                                                     TOOL_WRITE_SCOPE);
+  /**
+   * The scopes the authorization server grants for the MCP application, read
+   * by OAuthSettingService#getScopes from the same property
+   */
+  public static final String MCP_SERVER_SCOPES_PROPERTY = "meeds.oauth.app.scopes.mcp-server";
 
   @Value("${meeds.oauth.server-base-url}")
   private String                    oauthIssuerUrl;
@@ -59,8 +62,19 @@ public class McpProtectedResourceMetadataCustomizer implements Consumer<OAuth2Pr
     // certificate (RFC 8705), contrary to Spring Security's default claim
     builder.resource(mcpUrl)
            .authorizationServer(oauthIssuerUrl)
-           .scopes(scopes -> scopes.addAll(SCOPES))
+           .scopes(scopes -> scopes.addAll(getScopes()))
            .tlsClientCertificateBoundAccessTokens(false);
+  }
+
+  private List<String> getScopes() {
+    List<String> scopes = new ArrayList<>();
+    scopes.add(OidcScopes.OPENID);
+    Arrays.stream(StringUtils.split(StringUtils.defaultString(PropertyManager.getProperty(MCP_SERVER_SCOPES_PROPERTY)), ','))
+          .map(String::trim)
+          .filter(StringUtils::isNotBlank)
+          .forEach(scopes::add);
+    scopes.add(Utils.OFFLINE_ACCESS_SCOPE);
+    return scopes;
   }
 
 }

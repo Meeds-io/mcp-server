@@ -51,6 +51,7 @@ import org.springframework.security.core.Authentication;
 import org.springframework.security.core.GrantedAuthority;
 import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.security.web.SecurityFilterChain;
+import org.springframework.security.web.authentication.logout.LogoutFilter;
 import org.springframework.util.Assert;
 import org.springframework.web.servlet.function.RouterFunction;
 import org.springframework.web.servlet.function.ServerResponse;
@@ -65,6 +66,7 @@ import io.meeds.mcp.server.service.McpServerToolService;
 import io.meeds.mcp.server.service.McpToolApprovalService;
 import io.meeds.mcp.server.service.McpToolCallbackProviderService;
 import io.meeds.mcp.server.web.McpBearerAuthenticationEntryPoint;
+import io.meeds.mcp.server.web.McpDisabledProtectedResourceMetadataFilter;
 import io.meeds.mcp.server.web.McpProtectedResourceMetadataCustomizer;
 
 import io.modelcontextprotocol.json.jackson3.JacksonMcpJsonMapper;
@@ -103,10 +105,12 @@ public class McpServiceIntegrationTestConfiguration {
                                              McpServerOauthOpaqueTokenIntrospector opaqueTokenIntrospector,
                                              @Qualifier("mcpServerAuthenticationEntryPoint")
                                              McpBearerAuthenticationEntryPoint authenticationEntryPoint,
-                                             McpProtectedResourceMetadataCustomizer protectedResourceMetadataCustomizer) {
+                                             McpProtectedResourceMetadataCustomizer protectedResourceMetadataCustomizer,
+                                             McpServerToolService mcpServerToolService) {
     return http.securityMatcher("/**")
                .csrf(csrf -> csrf.disable())
                .cors(Customizer.withDefaults())
+               .addFilterAfter(new McpDisabledProtectedResourceMetadataFilter(mcpServerToolService), LogoutFilter.class)
                .authorizeHttpRequests(authorize -> authorize.requestMatchers("/.well-known/**")
                                                             .permitAll()
                                                             .anyRequest()
