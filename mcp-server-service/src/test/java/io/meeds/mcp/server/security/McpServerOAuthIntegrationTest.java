@@ -290,6 +290,21 @@ class McpServerOAuthIntegrationTest extends McpServiceIntegrationTestSupport {
   }
 
   @Test
+  @DisplayName("A disabled MCP server leaves the other requests to the security chain")
+  void disabledMcpServerLeavesTheOtherRequestsToTheSecurityChain() throws Exception {
+    mcpServerToolService.disableMcpServer();
+    try {
+      mvc.perform(post(MCP_ENDPOINT)
+                                    .header(HttpHeaders.ACCEPT, ACCEPT_HEADER_VALUE)
+                                    .contentType(APPLICATION_JSON)
+                                    .content(initializeRequest()))
+         .andExpect(status().isUnauthorized());
+    } finally {
+      mcpServerToolService.enableMcpServer();
+    }
+  }
+
+  @Test
   @DisplayName("Anonymous MCP request is rejected")
   void anonymousMcpRequestIsRejected() throws Exception {
     mvc.perform(post(MCP_ENDPOINT)
