@@ -23,6 +23,8 @@ import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.when;
 
 import java.util.HashMap;
 import java.util.List;
@@ -32,9 +34,11 @@ import java.util.concurrent.atomic.AtomicReference;
 
 import org.junit.jupiter.api.Test;
 
+import io.modelcontextprotocol.server.McpAsyncServer;
 import io.modelcontextprotocol.server.McpRequestHandler;
 import io.modelcontextprotocol.spec.McpSchema;
 import io.modelcontextprotocol.spec.McpSchema.CallToolRequest;
+import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
 
 class McpToolArgumentUtilsTest {
@@ -218,6 +222,49 @@ class McpToolArgumentUtilsTest {
     handler.handle(null, params).block();
 
     assertSame(params, received.get());
+  }
+
+  /**
+   * The session's {@code tools/call} handler is replaced by one that drops
+   * the {@code null} optional arguments, resolving the tool on the server
+   * obtained once, and the other handlers are kept.
+   */
+  @Test
+  @SuppressWarnings("unchecked")
+  void toolsCallHandlerIsWrappedInPlace() {
+    AtomicReference<Object> received = new AtomicReference<>();
+    McpRequestHandler<String> toolsList = (exchange, params) -> Mono.just("list");
+    Map<String, McpRequestHandler<?>> handlers = new HashMap<>();
+    handlers.put(McpSchema.METHOD_TOOLS_CALL, recording(received));
+    handlers.put(McpSchema.METHOD_TOOLS_LIST, toolsList);
+    McpAsyncServer server = mock(McpAsyncServer.class);
+    when(server.listTools()).thenAnswer(invocation -> Flux.just(tool("other_tool"), tool(TOOL_NAME)));
+    AtomicInteger serverLookups = new AtomicInteger();
+
+    McpToolArgumentUtils.wrapToolsCallHandler(handlers, () -> {
+      serverLookups.incrementAndGet();
+      return server;
+    });
+    McpRequestHandler<String> toolsCall = (McpRequestHandler<String>) handlers.get(McpSchema.METHOD_TOOLS_CALL);
+    toolsCall.handle(null, params(arguments(SUMMARY, "Meeting", SPACE_ID, null))).block();
+    Map<String, Object> firstArguments = (Map<String, Object>) ((Map<String, Object>) received.get()).get("arguments");
+    toolsCall.handle(null, params(arguments(SUMMARY, "Other", SPACE_ID, null))).block();
+
+    assertSame(toolsList, handlers.get(McpSchema.METHOD_TOOLS_LIST));
+    assertFalse(firstArguments.containsKey(SPACE_ID));
+    assertEquals(1, serverLookups.get(), "The server must be looked up once, then kept");
+  }
+
+  /**
+   * Without a {@code tools/call} handler, nothing is added.
+   */
+  @Test
+  void handlersWithoutToolsCallAreLeftUnchanged() {
+    Map<String, McpRequestHandler<?>> handlers = new HashMap<>();
+
+    McpToolArgumentUtils.wrapToolsCallHandler(handlers, () -> mock(McpAsyncServer.class));
+
+    assertTrue(handlers.isEmpty());
   }
 
   /**

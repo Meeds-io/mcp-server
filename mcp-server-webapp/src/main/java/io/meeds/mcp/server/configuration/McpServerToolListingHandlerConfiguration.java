@@ -301,18 +301,14 @@ public class McpServerToolListingHandlerConfiguration {
      * @return a copy of its request handlers with {@code tools/list} replaced
      *         by {@link #toolsListRequestHandler()}, and {@code tools/call}
      *         wrapped by
-     *         {@link McpToolArgumentUtils#withoutNullOptionalArguments} so that
+     *         {@link McpToolArgumentUtils#wrapToolsCallHandler} so that
      *         the SDK's input validation, and then the tool, receive no
      *         {@code null} for an argument the tool's schema declares optional
      */
     private Map<String, McpRequestHandler<?>> retrieveRequestHandlers(DefaultMcpStreamableServerSessionFactory sessionFactory) {
       Map<String, McpRequestHandler<?>> handlers = new HashMap<>(getField(sessionFactory, "requestHandlers"));
       handlers.put(McpSchema.METHOD_TOOLS_LIST, toolsListRequestHandler());
-      McpRequestHandler<?> toolsCallHandler = handlers.get(McpSchema.METHOD_TOOLS_CALL);
-      if (toolsCallHandler != null) {
-        handlers.put(McpSchema.METHOD_TOOLS_CALL,
-                     McpToolArgumentUtils.withoutNullOptionalArguments(toolsCallHandler, this::findTool));
-      }
+      McpToolArgumentUtils.wrapToolsCallHandler(handlers, this::getAsyncServer);
       return handlers;
     }
 
@@ -405,20 +401,12 @@ public class McpServerToolListingHandlerConfiguration {
     }
 
     /**
-     * Resolves a tool by name among the tools the MCP server exposes, without
-     * blocking the calling thread.
-     *
-     * @param toolName the tool name
-     * @return the tool, or an empty {@link Mono} when no tool has that name
+     * @return the async MCP server: the async bean when the application is
+     *         configured with one, otherwise the one the sync server wraps
      */
-    private Mono<Tool> findTool(String toolName) {
+    private McpAsyncServer getAsyncServer() {
       McpAsyncServer asyncServer = getMcpAsyncServer();
-      if (asyncServer == null) {
-        asyncServer = getMcpSyncServer().getAsyncServer();
-      }
-      return asyncServer.listTools()
-                        .filter(tool -> toolName.equals(tool.name()))
-                        .next();
+      return asyncServer == null ? getMcpSyncServer().getAsyncServer() : asyncServer;
     }
 
     /**
