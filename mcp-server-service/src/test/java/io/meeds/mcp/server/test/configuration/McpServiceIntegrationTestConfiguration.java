@@ -283,29 +283,17 @@ public class McpServiceIntegrationTestConfiguration {
     private Map<String, McpRequestHandler<?>> retrieveRequestHandlers(DefaultMcpStreamableServerSessionFactory sessionFactory) {
       Map<String, McpRequestHandler<?>> handlers = new HashMap<>(getField(sessionFactory, "requestHandlers"));
       handlers.put(McpSchema.METHOD_TOOLS_LIST, toolsListRequestHandler());
-      McpRequestHandler<?> toolsCallHandler = handlers.get(McpSchema.METHOD_TOOLS_CALL);
-      if (toolsCallHandler != null) {
-        handlers.put(McpSchema.METHOD_TOOLS_CALL,
-                     McpToolArgumentUtils.withoutNullOptionalArguments(toolsCallHandler, this::findTool));
-      }
+      McpToolArgumentUtils.wrapToolsCallHandler(handlers, this::getAsyncServer);
       return handlers;
     }
 
     /**
-     * Resolves a tool by name among the tools the MCP server exposes, as the
-     * production session factory does.
-     *
-     * @param toolName the tool name
-     * @return the tool, or an empty {@link Mono} when no tool has that name
+     * @return the async MCP server: the async bean when the application is
+     *         configured with one, otherwise the one the sync server wraps
      */
-    private Mono<Tool> findTool(String toolName) {
+    private McpAsyncServer getAsyncServer() {
       McpAsyncServer asyncServer = getMcpAsyncServer();
-      if (asyncServer == null) {
-        asyncServer = getMcpSyncServer().getAsyncServer();
-      }
-      return asyncServer.listTools()
-                        .filter(tool -> toolName.equals(tool.name()))
-                        .next();
+      return asyncServer == null ? getMcpSyncServer().getAsyncServer() : asyncServer;
     }
 
     @SuppressWarnings("unchecked")

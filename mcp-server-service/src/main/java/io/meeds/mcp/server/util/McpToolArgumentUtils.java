@@ -23,8 +23,11 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
+import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.Function;
+import java.util.function.Supplier;
 
+import io.modelcontextprotocol.server.McpAsyncServer;
 import io.modelcontextprotocol.server.McpRequestHandler;
 import io.modelcontextprotocol.spec.McpSchema;
 import io.modelcontextprotocol.spec.McpSchema.CallToolRequest;
@@ -71,6 +74,35 @@ public final class McpToolArgumentUtils {
    * Utility class, not instantiated.
    */
   private McpToolArgumentUtils() {
+  }
+
+  /**
+   * Replaces, in a session's request handlers, the SDK's {@code tools/call}
+   * handler by {@link #withoutNullOptionalArguments(McpRequestHandler, Function)},
+   * resolving each tool among the tools the MCP server exposes. The server is
+   * obtained from {@code asyncServerSupplier} on the first call that needs a
+   * tool, then kept. Handlers without a {@code tools/call} entry (no tool
+   * capability) are left unchanged.
+   *
+   * @param handlers            the session's request handlers, by method,
+   *                            modified in place
+   * @param asyncServerSupplier supplies the MCP server whose tools are
+   *                            resolved, called once, lazily, since the
+   *                            server bean does not exist yet when the
+   *                            session factory is built
+   */
+  public static void wrapToolsCallHandler(Map<String, McpRequestHandler<?>> handlers,
+                                          Supplier<McpAsyncServer> asyncServerSupplier) {
+    McpRequestHandler<?> toolsCallHandler = handlers.get(McpSchema.METHOD_TOOLS_CALL);
+    if (toolsCallHandler == null) {
+      return;
+    }
+    AtomicReference<McpAsyncServer> asyncServer = new AtomicReference<>();
+    Function<String, Mono<McpSchema.Tool>> toolResolver = toolName -> {
+      McpAsyncServer server = asyncServer.updateAndGet(cached -> cached == null ? asyncServerSupplier.get() : cached);
+      return server.listTools().filter(tool -> toolName.equals(tool.name())).next();
+    };
+    handlers.put(McpSchema.METHOD_TOOLS_CALL, withoutNullOptionalArguments(toolsCallHandler, toolResolver));
   }
 
   /**

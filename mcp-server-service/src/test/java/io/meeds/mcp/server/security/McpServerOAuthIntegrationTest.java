@@ -346,6 +346,7 @@ class McpServerOAuthIntegrationTest extends McpServiceIntegrationTestSupport {
     assertThat(result.getResponse().getContentAsString()).contains(IS_ERROR_TRUE_MESSAGE)
                                                          .contains(VALIDATION_FAILED_MESSAGE)
                                                          .contains("/message: null found")
+                                                         .doesNotContain("/space_id")
                                                          .doesNotContain("optional:");
   }
 
