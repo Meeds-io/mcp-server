@@ -42,6 +42,7 @@ import org.springframework.web.servlet.function.RouterFunction;
 import org.springframework.web.servlet.function.ServerResponse;
 
 import io.meeds.mcp.server.service.McpServerToolService;
+import io.meeds.mcp.server.util.McpToolArgumentUtils;
 
 import io.modelcontextprotocol.json.jackson3.JacksonMcpJsonMapper;
 import io.modelcontextprotocol.server.McpAsyncServer;
@@ -64,7 +65,9 @@ import tools.jackson.databind.json.JsonMapper;
  * overrides
  * io.modelcontextprotocol.server.transport.WebMvcStreamableServerTransportProvider
  * in order to be able to override the MCP Tools Listing Handler. This will
- * allow to list the Tools switch the elected scope.
+ * allow to list the Tools switch the elected scope. It also wraps the
+ * {@code tools/call} handler so that a {@code null} sent for an optional
+ * argument is dropped before the SDK validates the arguments.
  */
 @Configuration
 @EnableConfigurationProperties({ McpServerProperties.class, McpServerStreamableHttpProperties.class })
@@ -207,7 +210,9 @@ public class McpServerToolListingHandlerConfiguration {
 
     /**
      * Copies the SDK factory's handlers, replacing the {@code tools/list} one
-     * with {@link #toolsListRequestHandler()}.
+     * with {@link #toolsListRequestHandler()} and wrapping the
+     * {@code tools/call} one so that it never sees a {@code null} optional
+     * argument.
      *
      * @param sessionFactory the SDK factory whose handlers are read
      * @param appContext     the application context the MCP server and tool
@@ -294,11 +299,20 @@ public class McpServerToolListingHandlerConfiguration {
     /**
      * @param sessionFactory the SDK factory
      * @return a copy of its request handlers with {@code tools/list} replaced
-     *         by {@link #toolsListRequestHandler()}
+     *         by {@link #toolsListRequestHandler()}, and {@code tools/call}
+     *         wrapped by
+     *         {@link McpToolArgumentUtils#withoutNullOptionalArguments} so that
+     *         the SDK's input validation, and then the tool, receive no
+     *         {@code null} for an argument the tool's schema declares optional
      */
     private Map<String, McpRequestHandler<?>> retrieveRequestHandlers(DefaultMcpStreamableServerSessionFactory sessionFactory) {
       Map<String, McpRequestHandler<?>> handlers = new HashMap<>(getField(sessionFactory, "requestHandlers"));
       handlers.put(McpSchema.METHOD_TOOLS_LIST, toolsListRequestHandler());
+      McpRequestHandler<?> toolsCallHandler = handlers.get(McpSchema.METHOD_TOOLS_CALL);
+      if (toolsCallHandler != null) {
+        handlers.put(McpSchema.METHOD_TOOLS_CALL,
+                     McpToolArgumentUtils.withoutNullOptionalArguments(toolsCallHandler, this::findTool));
+      }
       return handlers;
     }
 
@@ -388,6 +402,23 @@ public class McpServerToolListingHandlerConfiguration {
                                  asyncServer.listTools()
                                             .collectList()
                                             .block();
+    }
+
+    /**
+     * Resolves a tool by name among the tools the MCP server exposes, without
+     * blocking the calling thread.
+     *
+     * @param toolName the tool name
+     * @return the tool, or an empty {@link Mono} when no tool has that name
+     */
+    private Mono<Tool> findTool(String toolName) {
+      McpAsyncServer asyncServer = getMcpAsyncServer();
+      if (asyncServer == null) {
+        asyncServer = getMcpSyncServer().getAsyncServer();
+      }
+      return asyncServer.listTools()
+                        .filter(tool -> toolName.equals(tool.name()))
+                        .next();
     }
 
     /**

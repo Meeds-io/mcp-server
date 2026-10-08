@@ -65,6 +65,7 @@ import io.meeds.mcp.server.service.McpInternalOAuthClientService;
 import io.meeds.mcp.server.service.McpServerToolService;
 import io.meeds.mcp.server.service.McpToolApprovalService;
 import io.meeds.mcp.server.service.McpToolCallbackProviderService;
+import io.meeds.mcp.server.util.McpToolArgumentUtils;
 import io.meeds.mcp.server.web.McpBearerAuthenticationEntryPoint;
 import io.meeds.mcp.server.web.McpDisabledProtectedResourceMetadataFilter;
 import io.meeds.mcp.server.web.McpProtectedResourceMetadataCustomizer;
@@ -273,7 +274,29 @@ public class McpServiceIntegrationTestConfiguration {
     private Map<String, McpRequestHandler<?>> retrieveRequestHandlers(DefaultMcpStreamableServerSessionFactory sessionFactory) {
       Map<String, McpRequestHandler<?>> handlers = new HashMap<>(getField(sessionFactory, "requestHandlers"));
       handlers.put(McpSchema.METHOD_TOOLS_LIST, toolsListRequestHandler());
+      McpRequestHandler<?> toolsCallHandler = handlers.get(McpSchema.METHOD_TOOLS_CALL);
+      if (toolsCallHandler != null) {
+        handlers.put(McpSchema.METHOD_TOOLS_CALL,
+                     McpToolArgumentUtils.withoutNullOptionalArguments(toolsCallHandler, this::findTool));
+      }
       return handlers;
+    }
+
+    /**
+     * Resolves a tool by name among the tools the MCP server exposes, as the
+     * production session factory does.
+     *
+     * @param toolName the tool name
+     * @return the tool, or an empty {@link Mono} when no tool has that name
+     */
+    private Mono<Tool> findTool(String toolName) {
+      McpAsyncServer asyncServer = getMcpAsyncServer();
+      if (asyncServer == null) {
+        asyncServer = getMcpSyncServer().getAsyncServer();
+      }
+      return asyncServer.listTools()
+                        .filter(tool -> toolName.equals(tool.name()))
+                        .next();
     }
 
     @SuppressWarnings("unchecked")
