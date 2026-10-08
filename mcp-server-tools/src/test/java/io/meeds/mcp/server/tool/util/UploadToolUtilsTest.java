@@ -55,6 +55,7 @@ import org.exoplatform.upload.UploadService;
 
 import io.meeds.commons.http.SafeFetchPolicy;
 import io.meeds.commons.http.SafeFetchPolicyBuilder;
+import io.meeds.commons.http.SafeFetchTestPolicies;
 import io.meeds.commons.http.SafeHttpFetcher;
 
 import com.sun.net.httpserver.HttpExchange;
@@ -127,11 +128,21 @@ class UploadToolUtilsTest {
    * @return the builder, for a scenario to change
    */
   private SafeFetchPolicyBuilder policy() {
+    return SafeFetchTestPolicies.exemptAddresses(unexemptedPolicy(), Set.of(stub));
+  }
+
+  /**
+   * The upload policy over the table of names with no address exempted: any
+   * port, no redirect, short timeouts, at most the production ceiling read.
+   *
+   * @return the builder, for a scenario to change
+   */
+  private SafeFetchPolicyBuilder unexemptedPolicy() {
     return SafeFetchPolicy.builder()
                           .anyPort()
                           .maxRedirects(0)
+                          .maxBytes(UploadToolUtils.MAX_FETCH_BYTES)
                           .resolver(this::resolve)
-                          .exemptAddresses(Set.of(stub))
                           .connectTimeout(Duration.ofSeconds(2))
                           .readTimeout(Duration.ofSeconds(2))
                           .totalTimeout(Duration.ofSeconds(5));
@@ -286,7 +297,7 @@ class UploadToolUtilsTest {
     assertEquals("Invalid URL.", refusal("not a url"));
     assertEquals("The URL must not carry credentials.", refusal("http://user:secret@public.test:" + port + "/x"));
     assertEquals("Could not fetch the URL: unknown host.", refusal(url("nowhere.test", "/x")));
-    SafeHttpFetcher jdk = new SafeHttpFetcher(policy().resolver(InetAddress::getAllByName).exemptAddresses(Set.of()).build());
+    SafeHttpFetcher jdk = new SafeHttpFetcher(unexemptedPolicy().resolver(InetAddress::getAllByName).build());
     try {
       for (String literal : new String[] { "http://127.0.0.1/x", "http://192.168.0.10/x", "http://169.254.169.254/latest/meta-data",
           "http://[::1]/x", "http://100.64.0.1/x" }) {
@@ -338,6 +349,39 @@ class UploadToolUtilsTest {
     assertThrows(IllegalArgumentException.class, () -> UploadToolUtils.fetchUrl(fetcher, url("private.test", "/blob"), UploadToolUtils.DEFAULT_MAX_BYTES, "x.bin"));
     assertEquals("The file URL returned HTTP 404.",
                  assertThrows(IllegalArgumentException.class, () -> UploadToolUtils.fetchUrl(fetcher, url("public.test", "/none"), UploadToolUtils.DEFAULT_MAX_BYTES, "x.bin")).getMessage());
+  }
+
+  /**
+   * The shared fetcher reads up to the largest limit a caller passes, 15 MB
+   * (the onlyoffice image tools), so that no caller is capped below its own
+   * limit: a 15 MB caller gets a body over the 10 MB default.
+   */
+  @Test
+  void theSharedFetcherReadsUpToTheLargestCallerLimit() {
+    assertEquals(15L * 1024 * 1024, UploadToolUtils.sharedFetcher().getPolicy().getMaxBytes());
+    assertEquals(UploadToolUtils.MAX_FETCH_BYTES, UploadToolUtils.sharedFetcher().getPolicy().getMaxBytes());
+    byte[] eleven = new byte[11 * 1024 * 1024];
+    eleven[0] = 1;
+    bodies.put("/eleven.bin", eleven);
+    assertEquals(eleven.length,
+                 UploadToolUtils.fetchUrl(fetcher, url("public.test", "/eleven.bin"), 15L * 1024 * 1024, "x.bin").bytes().length);
+  }
+
+  /**
+   * A caller asking more than the fetcher reads is refused at the fetcher's
+   * limit, and the message names that limit, not the caller's.
+   */
+  @Test
+  void aBodyOverTheFetcherLimitNamesThatLimit() {
+    SafeHttpFetcher small = new SafeHttpFetcher(policy().maxBytes(1024L * 1024).build());
+    bodies.put("/big.bin", new byte[1024 * 1024 + 1]);
+    try {
+      assertEquals("The file exceeds the maximum allowed size (1 MB).",
+                   assertThrows(IllegalArgumentException.class,
+                                () -> UploadToolUtils.fetchUrl(small, url("public.test", "/big.bin"), 20L * 1024 * 1024, "x.bin")).getMessage());
+    } finally {
+      small.close();
+    }
   }
 
   /**
