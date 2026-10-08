@@ -67,7 +67,7 @@ import io.meeds.commons.http.SafeHttpFetcher;
  * opens, so the address checked is the address dialled — a name answering a
  * public address once and an internal one at the next lookup is refused at
  * the connection. No redirect is followed; the body is bounded by the caller's
- * limit and the whole read by a deadline.
+ * limit, within the fetcher's own ceiling, and the whole read by a deadline.
  */
 public final class UploadToolUtils {
 
@@ -75,6 +75,14 @@ public final class UploadToolUtils {
 
   /** 10 MB default ceiling for a fetched/decoded image. */
   public static final long    DEFAULT_MAX_BYTES        = 10L * 1024 * 1024;
+
+  /**
+   * Largest body the shared fetcher reads, whatever a caller asks: 15 MB, the
+   * largest limit a caller passes (the onlyoffice image tools), so that no
+   * caller is capped below its own limit. A request narrows the policy's
+   * limit, never widens it.
+   */
+  static final long           MAX_FETCH_BYTES          = 15L * 1024 * 1024;
 
   private static final int    CONNECT_TIMEOUT_SECONDS  = 10;
 
@@ -91,7 +99,8 @@ public final class UploadToolUtils {
 
   /**
    * The one fetcher of every URL a tool is given: public http/https on any
-   * port, no redirect followed, the timeouts above. Shared for the JVM's life,
+   * port, no redirect followed, at most {@link #MAX_FETCH_BYTES} read, the
+   * timeouts above. Shared for the JVM's life,
    * so it is never closed; its only thread is a daemon.
    */
   private static final SafeHttpFetcher FETCHER = new SafeHttpFetcher(SafeFetchPolicy.builder()
@@ -99,7 +108,7 @@ public final class UploadToolUtils {
                                                                                       .userAgent(USER_AGENT)
                                                                                       .anyPort()
                                                                                       .maxRedirects(0)
-                                                                                      .maxBytes(DEFAULT_MAX_BYTES)
+                                                                                      .maxBytes(MAX_FETCH_BYTES)
                                                                                       .connectTimeout(Duration.ofSeconds(CONNECT_TIMEOUT_SECONDS))
                                                                                       .readTimeout(Duration.ofSeconds(READ_TIMEOUT_SECONDS))
                                                                                       .totalTimeout(Duration.ofSeconds(TOTAL_TIMEOUT_SECONDS))
@@ -109,6 +118,15 @@ public final class UploadToolUtils {
    * Not instantiated.
    */
   private UploadToolUtils() {
+  }
+
+  /**
+   * The shared fetcher, so that a test can read the policy it runs under.
+   *
+   * @return the fetcher of every URL a tool is given
+   */
+  static SafeHttpFetcher sharedFetcher() {
+    return FETCHER;
   }
 
   /** A downloaded image: its bytes, resolved mime type and a file name. */
@@ -344,7 +362,8 @@ public final class UploadToolUtils {
    *
    * @param fetcher the fetcher
    * @param url the URL as given
-   * @param maxBytes the most bytes read
+   * @param maxBytes the most bytes read, capped at the policy's
+   *          {@link #MAX_FETCH_BYTES}
    * @param what "image" or "file", for the messages
    * @return the 2xx answer
    */
@@ -361,7 +380,8 @@ public final class UploadToolUtils {
       case UNRESOLVABLE -> "Could not fetch the URL: unknown host.";
       case HTTP_ERROR -> "The " + what + " URL returned HTTP " + e.getStatus() + ".";
       case TOO_MANY_REDIRECTS -> "The " + what + " URL redirects, which is not followed; provide the final URL.";
-      case TOO_LARGE -> "The file exceeds the maximum allowed size (" + (maxBytes / (1024 * 1024)) + " MB).";
+      case TOO_LARGE -> "The file exceeds the maximum allowed size ("
+          + (Math.min(maxBytes, fetcher.getPolicy().getMaxBytes()) / (1024 * 1024)) + " MB).";
       case TIMEOUT -> "Could not fetch the URL: it did not answer in time.";
       case CONTENT_TYPE_NOT_ALLOWED, UNREACHABLE -> "Could not fetch the URL.";
       }, e);
