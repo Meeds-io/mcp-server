@@ -77,6 +77,8 @@ class UploadToolUtilsTest {
 
   private final Map<String, String>        types   = new HashMap<>();
 
+  private final Map<String, String>        moved   = new HashMap<>();
+
   private final List<String>               hits    = new CopyOnWriteArrayList<>();
 
   private HttpServer                       server;
@@ -190,7 +192,10 @@ class UploadToolUtilsTest {
       if (types.containsKey(path)) {
         exchange.getResponseHeaders().add("Content-Type", types.get(path));
       }
-      if (body == null) {
+      if (moved.containsKey(path)) {
+        exchange.getResponseHeaders().add("Location", moved.get(path));
+        exchange.sendResponseHeaders(302, -1);
+      } else if (body == null) {
         exchange.sendResponseHeaders(404, -1);
       } else {
         exchange.sendResponseHeaders(200, body.length == 0 ? -1 : body.length);
@@ -325,6 +330,10 @@ class UploadToolUtilsTest {
     bodies.put("/text", "plain text bytes here, not an image".getBytes());
     types.put("/text", "text/plain");
     assertEquals("The URL does not point to a supported image.", refusal(url("public.test", "/text")));
+    bodies.put("/target.png", PNG);
+    moved.put("/redirect", url("public.test", "/target.png"));
+    assertEquals("The image URL redirects, which is not followed; provide the final URL.", refusal(url("public.test", "/redirect")));
+    assertFalse(hits.contains("/target.png"), "a redirect target is never requested");
   }
 
   /**
@@ -354,12 +363,14 @@ class UploadToolUtilsTest {
   /**
    * The shared fetcher reads up to the largest limit a caller passes, 15 MB
    * (the onlyoffice image tools), so that no caller is capped below its own
-   * limit: a 15 MB caller gets a body over the 10 MB default.
+   * limit: a 15 MB caller gets a body over the 10 MB default. It follows no
+   * redirect.
    */
   @Test
   void theSharedFetcherReadsUpToTheLargestCallerLimit() {
     assertEquals(15L * 1024 * 1024, UploadToolUtils.sharedFetcher().getPolicy().getMaxBytes());
     assertEquals(UploadToolUtils.MAX_FETCH_BYTES, UploadToolUtils.sharedFetcher().getPolicy().getMaxBytes());
+    assertEquals(0, UploadToolUtils.sharedFetcher().getPolicy().getMaxRedirects(), "no redirect is followed");
     byte[] eleven = new byte[11 * 1024 * 1024];
     eleven[0] = 1;
     bodies.put("/eleven.bin", eleven);
