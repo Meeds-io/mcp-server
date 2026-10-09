@@ -545,6 +545,100 @@ class McpToolCallbackProviderServiceTest {
   }
 
   /**
+   * An agent account's write needs its own grant whatever the internal
+   * client's scope: under a plain write scope, which skips the approval
+   * branch, an ungranted write is refused before it runs, traced as denied,
+   * with the no-approver explanation. Mutant: the agent check removed, which
+   * ran the write ungranted.
+   */
+  @Test
+  void call_agentWriteUnderPlainWriteScopeWithoutGrant_refusedAsDenied() {// NOSONAR
+    bindAgentAccount();
+    when(mcpServerToolService.isRequireApproval(eq(TOOL_METHOD), any())).thenReturn(false);
+    when(mcpServerToolService.isWriteTool(TOOL_METHOD)).thenReturn(true);
+    MockHttpServletRequest request = new MockHttpServletRequest();
+    request.addHeader(TOOL_CONTEXT_ID_PARAM, TOOL_CONTEXT_ID);
+    RequestContextHolder.setRequestAttributes(new ServletRequestAttributes(request));
+    addAgentAccountHeaders(request);
+
+    UserToolRefusedException e = assertThrows(UserToolRefusedException.class, () -> toolCallback.call(TOOL_INPUT));
+
+    assertTrue(e.getMessage().contains("nobody can approve it"), e.getMessage());
+    ArgumentCaptor<McpToolGrantRequest> grantRequest = ArgumentCaptor.forClass(McpToolGrantRequest.class);
+    verify(mcpToolGrantService).findApplicableGrant(grantRequest.capture(), any());
+    assertEquals("agent-user:EMAIL_ASSISTANT", grantRequest.getValue().agentNameId());
+    verify(mcpToolApprovalService).traceToolExecution(argThatIs(UserToolRequestType.TOOL_EXECUTION_DENIED));
+    verify(mcpToolApprovalService, never()).traceToolExecution(argThatIs(UserToolRequestType.TOOL_EXECUTION_START));
+    verify(mcpToolApprovalService, never()).requestApproval(any(), any(), any(), any(), any(), any(), anyBoolean(), any());
+  }
+
+  /**
+   * An agent account's write under a plain write scope runs under its own
+   * grant, traced as granted, its use recorded. Mutant: the grant ignored,
+   * which refused every agent write under that scope.
+   */
+  @Test
+  void call_agentWriteUnderPlainWriteScopeWithGrant_runs() {// NOSONAR
+    bindAgentAccount();
+    when(mcpServerToolService.isRequireApproval(eq(TOOL_METHOD), any())).thenReturn(false);
+    when(mcpServerToolService.isWriteTool(TOOL_METHOD)).thenReturn(true);
+    MockHttpServletRequest request = new MockHttpServletRequest();
+    request.addHeader(TOOL_CONTEXT_ID_PARAM, TOOL_CONTEXT_ID);
+    RequestContextHolder.setRequestAttributes(new ServletRequestAttributes(request));
+    addAgentAccountHeaders(request);
+    McpToolGrant grant = McpToolGrant.builder().id(9L).ownerType(McpToolGrantOwnerType.USER).build();
+    when(mcpToolGrantService.findApplicableGrant(any(), any())).thenReturn(grant);
+
+    String output = toolCallback.call(TOOL_INPUT);
+
+    assertTrue(output.contains("Hello Bob"), output);
+    verify(mcpToolGrantService).recordUse(eq(grant), any());
+    verify(mcpToolApprovalService).traceToolExecution(org.mockito.ArgumentMatchers.argThat(execution -> execution != null
+        && execution.getToolExecutionType() == UserToolRequestType.TOOL_EXECUTION_GRANTED
+        && Long.valueOf(9L).equals(execution.getGrantId())));
+  }
+
+  /**
+   * An agent account's read tool runs as for anyone: no grant is looked up.
+   * Mutant: every agent call treated as a write.
+   */
+  @Test
+  void call_agentReadUnderPlainWriteScope_runsWithoutGrantLookup() {// NOSONAR
+    bindAgentAccount();
+    when(mcpServerToolService.isRequireApproval(eq(TOOL_METHOD), any())).thenReturn(false);
+    when(mcpServerToolService.isWriteTool(TOOL_METHOD)).thenReturn(false);
+    MockHttpServletRequest request = new MockHttpServletRequest();
+    request.addHeader(TOOL_CONTEXT_ID_PARAM, TOOL_CONTEXT_ID);
+    RequestContextHolder.setRequestAttributes(new ServletRequestAttributes(request));
+    addAgentAccountHeaders(request);
+
+    String output = toolCallback.call(TOOL_INPUT);
+
+    assertTrue(output.contains("Hello Bob"), output);
+    verify(mcpToolGrantService, never()).findApplicableGrant(any(), any());
+  }
+
+  /**
+   * A person's write under a plain write scope keeps today's behaviour
+   * exactly: it runs unasked, with no grant lookup and no write check.
+   * Mutant: the agent check applied to every actor.
+   */
+  @Test
+  void call_personWriteUnderPlainWriteScope_unchanged() {// NOSONAR
+    when(mcpServerToolService.isRequireApproval(eq(TOOL_METHOD), any())).thenReturn(false);
+    lenient().when(mcpServerToolService.isWriteTool(TOOL_METHOD)).thenReturn(true);
+    MockHttpServletRequest request = bindRequest(TOOL_CONTEXT_ID, CONVERSATION_ID);
+    addIdentityHeaders(request, USERNAME, "USER", USERNAME, null, USERNAME, "[\"COMPLETION\"]", "CHAT", "COMPLETION");
+
+    String output = toolCallback.call(TOOL_INPUT);
+
+    assertTrue(output.contains("Hello Bob"), output);
+    verify(mcpToolGrantService, never()).findApplicableGrant(any(), any());
+    verify(mcpToolApprovalService, never()).traceToolExecution(argThatIs(UserToolRequestType.TOOL_EXECUTION_DENIED));
+    verify(mcpToolApprovalService).traceToolExecution(argThatIs(UserToolRequestType.TOOL_EXECUTION_FINISHED));
+  }
+
+  /**
    * Binds the agent account as the user the call runs as.
    */
   private void bindAgentAccount() {

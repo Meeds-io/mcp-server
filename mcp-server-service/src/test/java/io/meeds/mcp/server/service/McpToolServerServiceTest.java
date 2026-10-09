@@ -255,6 +255,41 @@ class McpToolServerServiceTest {
     verify(mcpServerToolService).getToolDefinition(TOOL_NAME);
   }
 
+  /**
+   * A tool writes by its definition alone, whatever the token holds: its
+   * read-only annotation decides, else its approval flag; an unknown tool is
+   * a write, so it never runs unchecked. Mutants: an annotation ignored; an
+   * unknown tool answered as a read.
+   */
+  @Test
+  void aToolWritesByItsDefinitionAlone() {
+    io.modelcontextprotocol.spec.McpSchema.ToolAnnotations readOnly = mock(io.modelcontextprotocol.spec.McpSchema.ToolAnnotations.class);
+    when(readOnly.readOnlyHint()).thenReturn(true);
+    io.modelcontextprotocol.spec.McpSchema.ToolAnnotations writes = mock(io.modelcontextprotocol.spec.McpSchema.ToolAnnotations.class);
+    when(writes.readOnlyHint()).thenReturn(false);
+    SimpleToolDefinition annotatedRead = mock(SimpleToolDefinition.class);
+    when(annotatedRead.getAnnotations()).thenReturn(readOnly);
+    lenient().when(annotatedRead.isRequireApproval()).thenReturn(true);
+    SimpleToolDefinition annotatedWrite = mock(SimpleToolDefinition.class);
+    when(annotatedWrite.getAnnotations()).thenReturn(writes);
+    SimpleToolDefinition gated = mock(SimpleToolDefinition.class);
+    when(gated.isRequireApproval()).thenReturn(true);
+    SimpleToolDefinition plain = mock(SimpleToolDefinition.class);
+    when(plain.isRequireApproval()).thenReturn(false);
+
+    doReturn(annotatedRead).when(mcpServerToolService).getToolDefinitionByMethodName("read");
+    doReturn(annotatedWrite).when(mcpServerToolService).getToolDefinitionByMethodName("write");
+    doReturn(gated).when(mcpServerToolService).getToolDefinitionByMethodName("gated");
+    doReturn(plain).when(mcpServerToolService).getToolDefinitionByMethodName("plain");
+    doReturn(null).when(mcpServerToolService).getToolDefinitionByMethodName("unknown");
+
+    assertFalse(mcpServerToolService.isWriteTool("read"));
+    assertTrue(mcpServerToolService.isWriteTool("write"));
+    assertTrue(mcpServerToolService.isWriteTool("gated"));
+    assertFalse(mcpServerToolService.isWriteTool("plain"));
+    assertTrue(mcpServerToolService.isWriteTool("unknown"));
+  }
+
   @Test
   void shouldAllowWhenToolRequiresApprovalAndUserHasWriteScope() {
     SimpleToolDefinition toolDefinition = mock(SimpleToolDefinition.class);
