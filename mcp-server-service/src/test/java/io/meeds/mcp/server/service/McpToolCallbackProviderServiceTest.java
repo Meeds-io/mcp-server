@@ -35,10 +35,12 @@ import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 import java.time.Instant;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 
@@ -292,7 +294,7 @@ class McpToolCallbackProviderServiceTest {
     @SuppressWarnings("unchecked")
     ArgumentCaptor<Map<String, Object>> arguments = ArgumentCaptor.forClass(Map.class);
     verify(mcpToolGrantService).findApplicableGrant(any(), arguments.capture());
-    Map<String, Object> expected = new java.util.HashMap<>();
+    Map<String, Object> expected = new HashMap<>();
     expected.put("name", "Bob");
     expected.put("title", null);
     assertEquals(expected, arguments.getValue());
@@ -314,7 +316,7 @@ class McpToolCallbackProviderServiceTest {
 
     @SuppressWarnings("unchecked")
     ArgumentCaptor<Map<String, Object>> arguments = ArgumentCaptor.forClass(Map.class);
-    verify(mcpToolGrantService, org.mockito.Mockito.times(2)).findApplicableGrant(any(), arguments.capture());
+    verify(mcpToolGrantService, times(2)).findApplicableGrant(any(), arguments.capture());
     assertEquals(Map.of("userName", "Bob"), arguments.getAllValues().get(0));
     assertEquals(Map.of("userName", "Bob"), arguments.getAllValues().get(1));
   }
