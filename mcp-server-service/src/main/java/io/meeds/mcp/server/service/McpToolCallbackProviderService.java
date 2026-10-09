@@ -32,6 +32,7 @@ import static io.meeds.mcp.server.util.McpToolUtils.toSnakeCase;
 
 import java.lang.reflect.Method;
 import java.lang.reflect.Modifier;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Map.Entry;
@@ -41,7 +42,6 @@ import java.util.function.Function;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
 
-import org.apache.commons.lang3.ObjectUtils;
 import org.apache.commons.lang3.StringUtils;
 import org.springframework.ai.chat.model.ToolContext;
 import org.springframework.ai.tool.ToolCallback;
@@ -464,15 +464,23 @@ public class McpToolCallbackProviderService implements ToolCallbackProvider {
     }
 
     /**
+     * Renames the call arguments to the camel-case keys the tool method uses.
+     * An argument the model set to null is kept, as the tool's optional
+     * parameter it fills. When a snake-case and a camel-case key name the
+     * same argument, the first one with a value wins.
+     *
      * @param toolArguments the call arguments with the schema's keys
      * @return the arguments with the camel-case keys the tool method uses
      */
     private Map<String, Object> transformSnakeToCamelCaseArguments(Map<String, Object> toolArguments) {
-      return toolArguments.entrySet()
-                          .stream()
-                          .collect(Collectors.toMap(e -> toCamelCase(e.getKey()),
-                                                    Entry::getValue,
-                                                    ObjectUtils::firstNonNull));
+      Map<String, Object> arguments = new LinkedHashMap<>();
+      for (Entry<String, Object> argument : toolArguments.entrySet()) {
+        String key = toCamelCase(argument.getKey());
+        if (arguments.get(key) == null) {
+          arguments.put(key, argument.getValue());
+        }
+      }
+      return arguments;
     }
   }
 
