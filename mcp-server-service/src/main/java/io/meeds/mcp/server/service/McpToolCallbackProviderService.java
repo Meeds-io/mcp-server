@@ -68,6 +68,7 @@ import org.exoplatform.services.security.ConversationState;
 import org.exoplatform.services.security.Identity;
 
 import io.meeds.common.ContainerTransactional;
+import io.meeds.mcp.server.constant.PrincipalKind;
 import io.meeds.mcp.server.constant.UserToolRequestType;
 import io.meeds.mcp.server.model.ActingIdentity;
 import io.meeds.mcp.server.model.McpToolGrant;
@@ -319,19 +320,24 @@ public class McpToolCallbackProviderService implements ToolCallbackProvider {
           // can't show a card (a plain write token, as external MCP clients
           // hold) is refused rather than run unasked
           throw new IllegalAccessException(LLM_ALWAYS_ASK_EXPLANATION.formatted(toolMethod.getName()));
-        } else if (alwaysAsk || mcpServerToolService.isRequireApproval(toolMethod.getName(), authentication)) {
-          approveCall(id,
-                      new McpToolGrantRequest(id,
-                                              userIdentity.getUserId(),
-                                              toolName,
-                                              toolInput,
-                                              actingIdentity == null ? getCurrentAgentNameId() : actingIdentity.grantScope(),
-                                              conversationId,
-                                              getClientId(authentication),
-                                              isCurrentCallRetry(),
-                                              actingIdentity),
-                      alwaysAsk,
-                      executionBuilder);
+        }
+        McpToolGrantRequest grantRequest = new McpToolGrantRequest(id,
+                                                                   userIdentity.getUserId(),
+                                                                   toolName,
+                                                                   toolInput,
+                                                                   actingIdentity == null ? getCurrentAgentNameId() :
+                                                                                          actingIdentity.grantScope(),
+                                                                   conversationId,
+                                                                   getClientId(authentication),
+                                                                   isCurrentCallRetry(),
+                                                                   actingIdentity);
+        if (alwaysAsk || mcpServerToolService.isRequireApproval(toolMethod.getName(), authentication)) {
+          approveCall(id, grantRequest, alwaysAsk, executionBuilder);
+        } else if (isAgentActor(actingIdentity) && mcpServerToolService.isWriteTool(toolMethod.getName())) {
+          // an agent account writes only under its own grants, whatever scope
+          // the internal client's token holds: a plain write scope, which
+          // skips the approval branch, never lets it write ungranted
+          approveAgentWrite(grantRequest, executionBuilder);
         }
         mcpToolApprovalService.traceToolExecution(executionBuilder.toolExecutionType(UserToolRequestType.TOOL_EXECUTION_START)
                                                                   .build());
@@ -412,6 +418,56 @@ public class McpToolCallbackProviderService implements ToolCallbackProvider {
     }
 
     /**
+     * @param actingIdentity the acting identity, may be null
+     * @return true when an agent account acts as itself
+     */
+    private static boolean isAgentActor(ActingIdentity actingIdentity) {
+      return actingIdentity != null && actingIdentity.actor().kind() == PrincipalKind.AGENT;
+    }
+
+    /**
+     * Decides a write an agent account makes as itself outside the approval
+     * branch: a standing approval covering it lets it run, traced as granted;
+     * otherwise nobody can approve it and it is refused, traced as denied.
+     *
+     * @param grantRequest     the call as the server resolved it
+     * @param executionBuilder the trace builder of the call
+     * @throws UserToolRefusedException when no grant covers the call
+     */
+    private void approveAgentWrite(McpToolGrantRequest grantRequest, UserToolExecutionBuilder executionBuilder) {
+      McpToolGrant grant = mcpToolGrantService == null ? null :
+                                                       mcpToolGrantService.findApplicableGrant(grantRequest,
+                                                                                               grantArguments(grantRequest.toolInput()));
+      if (grant == null) {
+        throw new UserToolRefusedException(LLM_NO_APPROVER_EXPLANATION.formatted(toolMethod.getName()));
+      }
+      runUnderGrant(grant, grantRequest, executionBuilder);
+    }
+
+    /**
+     * Lets a call run under the standing approval that covers it: its use
+     * recorded and logged, the step traced as granted.
+     *
+     * @param grant            the covering grant
+     * @param grantRequest     the call as the server resolved it
+     * @param executionBuilder the trace builder of the call
+     */
+    private void runUnderGrant(McpToolGrant grant, McpToolGrantRequest grantRequest, UserToolExecutionBuilder executionBuilder) {
+      executionBuilder.grantId(grant.getId()).grantOwnerType(grant.getOwnerType().name());
+      mcpToolGrantService.recordUse(grant, grantRequest);
+      log.info("Tool '{}' run for user '{}' under standing approval '{}' ({}, agent: {}, conversation: {}, client: {})",
+               grantRequest.toolName(),
+               grantRequest.username(),
+               grant.getId(),
+               grant.getOwnerType(),
+               grantRequest.agentNameId(),
+               grantRequest.conversationId(),
+               grantRequest.clientId());
+      mcpToolApprovalService.traceToolExecution(executionBuilder.toolExecutionType(UserToolRequestType.TOOL_EXECUTION_GRANTED)
+                                                                .build());
+    }
+
+    /**
      * Copies who acts, for whom, through which agents and on which trigger
      * into the trace of the call.
      *
@@ -452,18 +508,7 @@ public class McpToolCallbackProviderService implements ToolCallbackProvider {
                                                                      mcpToolGrantService.findApplicableGrant(grantRequest,
                                                                                                              toolArguments);
       if (grant != null) {
-        executionBuilder.grantId(grant.getId()).grantOwnerType(grant.getOwnerType().name());
-        mcpToolGrantService.recordUse(grant, grantRequest);
-        log.info("Tool '{}' run for user '{}' under standing approval '{}' ({}, agent: {}, conversation: {}, client: {})",
-                 grantRequest.toolName(),
-                 grantRequest.username(),
-                 grant.getId(),
-                 grant.getOwnerType(),
-                 grantRequest.agentNameId(),
-                 grantRequest.conversationId(),
-                 grantRequest.clientId());
-        mcpToolApprovalService.traceToolExecution(executionBuilder.toolExecutionType(UserToolRequestType.TOOL_EXECUTION_GRANTED)
-                                                                  .build());
+        runUnderGrant(grant, grantRequest, executionBuilder);
         return;
       }
       ActingIdentity actingIdentity = grantRequest.actingIdentity();
