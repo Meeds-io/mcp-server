@@ -18,6 +18,9 @@
  */
 package io.meeds.mcp.server.service;
 
+import static io.meeds.mcp.server.util.McpToolUtils.AI_AGENT_TOOL_ACTOR_KIND_PARAM;
+import static io.meeds.mcp.server.util.McpToolUtils.AI_AGENT_TOOL_ACTOR_USER_NAME_PARAM;
+import static io.meeds.mcp.server.util.McpToolUtils.AI_AGENT_TOOL_AGENT_CHAIN_PARAM;
 import static io.meeds.mcp.server.util.McpToolUtils.AI_AGENT_TOOL_AGENT_NAME_ID_PARAM;
 import static io.meeds.mcp.server.util.McpToolUtils.AI_AGENT_TOOL_APPROVED_PARAM;
 import static io.meeds.mcp.server.util.McpToolUtils.AI_AGENT_TOOL_CONVERSATION_ID_PARAM;
@@ -34,10 +37,13 @@ import static io.meeds.mcp.server.util.McpToolUtils.AI_AGENT_TOOL_GRANT_OWNER_TY
 import static io.meeds.mcp.server.util.McpToolUtils.AI_AGENT_TOOL_ID_PARAM;
 import static io.meeds.mcp.server.util.McpToolUtils.AI_AGENT_TOOL_INPUT_PARAM;
 import static io.meeds.mcp.server.util.McpToolUtils.AI_AGENT_TOOL_NAME_PARAM;
+import static io.meeds.mcp.server.util.McpToolUtils.AI_AGENT_TOOL_ON_BEHALF_OF_PARAM;
+import static io.meeds.mcp.server.util.McpToolUtils.AI_AGENT_TOOL_ORIGIN_PARAM;
 import static io.meeds.mcp.server.util.McpToolUtils.AI_AGENT_TOOL_OUTPUT_PARAM;
 import static io.meeds.mcp.server.util.McpToolUtils.AI_AGENT_TOOL_START_TIME_PARAM;
 import static io.meeds.mcp.server.util.McpToolUtils.AI_AGENT_TOOL_TYPE_PARAM;
 import static io.meeds.mcp.server.util.McpToolUtils.AI_AGENT_TOOL_USERNAME_PARAM;
+import static io.meeds.mcp.server.util.McpToolUtils.toAgentChainJson;
 
 import java.util.Collection;
 import java.util.HashMap;
@@ -63,6 +69,7 @@ import org.exoplatform.ws.frameworks.cometd.ContinuationService;
 
 import io.meeds.common.ContainerTransactional;
 import io.meeds.mcp.server.constant.UserToolRequestType;
+import io.meeds.mcp.server.model.ActingIdentity;
 import io.meeds.mcp.server.model.McpToolGrant;
 import io.meeds.mcp.server.model.McpToolGrantChoice;
 import io.meeds.mcp.server.model.McpToolGrantConstraint;
@@ -223,10 +230,10 @@ public class McpToolApprovalService {
       userAnswers.remove(id);
     }
     if (approvalAnswer.isAnswered()) {
-      sendApprovalAnswer(id, conversationId, toolName, toolInput, username, approvalAnswer);
+      sendApprovalAnswer(id, conversationId, toolName, toolInput, username, approvalAnswer, grantRequest);
       return approvalAnswer.isApproved();
     } else { // Timed out
-      sendApprovalTimeout(id, conversationId, toolName, toolInput, username);
+      sendApprovalTimeout(id, conversationId, toolName, toolInput, username, grantRequest);
       throw new UserToolTimeoutException("Tool execution timeout. As LLM, please answer the user as follows: I couldn’t proceed as no confirmation was received within some minutes.");
     }
   }
@@ -289,7 +296,9 @@ public class McpToolApprovalService {
   /**
    * Publishes one step of a tool call to the user's chat and to the platform
    * listeners ({@code ai-agent-tool-execution}). A call run under a standing
-   * approval carries the grant id and its owner type.
+   * approval carries the grant id and its owner type; a call whose acting
+   * identity is known carries who acted, for whom, through which agents and
+   * on which trigger. The event's source stays the subject of the call.
    *
    * @param toolExecution the step to publish
    */
@@ -309,6 +318,15 @@ public class McpToolApprovalService {
     if (toolExecution.getGrantId() != null) {
       parameters.put(AI_AGENT_TOOL_GRANT_ID_PARAM, String.valueOf(toolExecution.getGrantId()));
       parameters.put(AI_AGENT_TOOL_GRANT_OWNER_TYPE_PARAM, StringUtils.defaultIfBlank(toolExecution.getGrantOwnerType(), ""));
+    }
+    if (toolExecution.getActorUserName() != null) {
+      parameters.put(AI_AGENT_TOOL_ACTOR_USER_NAME_PARAM, toolExecution.getActorUserName());
+      parameters.put(AI_AGENT_TOOL_ACTOR_KIND_PARAM, StringUtils.defaultString(toolExecution.getActorKind()));
+      parameters.put(AI_AGENT_TOOL_AGENT_CHAIN_PARAM, toAgentChainJson(toolExecution.getAgentChain()));
+      parameters.put(AI_AGENT_TOOL_ORIGIN_PARAM, StringUtils.defaultString(toolExecution.getOrigin()));
+      if (toolExecution.getOnBehalfOf() != null) {
+        parameters.put(AI_AGENT_TOOL_ON_BEHALF_OF_PARAM, toolExecution.getOnBehalfOf());
+      }
     }
     continuationService.sendMessage(username,
                                     COMETD_CHANNEL,
@@ -391,6 +409,7 @@ public class McpToolApprovalService {
       parameters.put(AI_AGENT_TOOL_GRANT_CONSTRAINT_KIND_PARAM, offeredConstraint.kind());
       parameters.put(AI_AGENT_TOOL_GRANT_CONSTRAINT_VALUE_PARAM, offeredConstraint.value());
     }
+    putActingIdentity(parameters, grantRequest);
     continuationService.sendMessage(username,
                                     COMETD_CHANNEL,
                                     JsonUtils.toJsonString(parameters));
@@ -406,13 +425,15 @@ public class McpToolApprovalService {
    * @param toolInput      the call input shown
    * @param username       the user asked
    * @param approvalAnswer the answer
+   * @param grantRequest   the call as the server resolved it, may be null
    */
-  private void sendApprovalAnswer(String id,
+  private void sendApprovalAnswer(String id, // NOSONAR the card's parts, each one its own
                                   String conversationId,
                                   String toolName,
                                   String toolInput,
                                   String username,
-                                  UserToolApprovalAnswer approvalAnswer) {
+                                  UserToolApprovalAnswer approvalAnswer,
+                                  McpToolGrantRequest grantRequest) {
     Map<String, String> parameters = new HashMap<>();
     parameters.put(AI_AGENT_TOOL_ID_PARAM, id);
     parameters.put(AI_AGENT_TOOL_CONVERSATION_ID_PARAM, StringUtils.defaultIfBlank(conversationId, ""));
@@ -429,6 +450,7 @@ public class McpToolApprovalService {
         parameters.put(AI_AGENT_TOOL_GRANT_EXPIRES_AT_PARAM, String.valueOf(grant.getExpiresAt().toEpochMilli()));
       }
     }
+    putActingIdentity(parameters, grantRequest);
     continuationService.sendMessage(username,
                                     COMETD_CHANNEL,
                                     JsonUtils.toJsonString(parameters));
@@ -443,28 +465,53 @@ public class McpToolApprovalService {
    * @param toolName       the tool name shown
    * @param toolInput      the call input shown
    * @param username       the user asked
+   * @param grantRequest   the call as the server resolved it, may be null
    */
   private void sendApprovalTimeout(String id,
                                    String conversationId,
                                    String toolName,
                                    String toolInput,
-                                   String username) {
-    Map<String, String> parameters = Map.of(AI_AGENT_TOOL_ID_PARAM,
-                                            id,
-                                            AI_AGENT_TOOL_CONVERSATION_ID_PARAM,
-                                            StringUtils.defaultIfBlank(conversationId, ""),
-                                            AI_AGENT_TOOL_TYPE_PARAM,
-                                            UserToolRequestType.APPROVAL_TIMEOUT.name(),
-                                            AI_AGENT_TOOL_NAME_PARAM,
-                                            StringUtils.defaultIfBlank(toolName, ""),
-                                            AI_AGENT_TOOL_INPUT_PARAM,
-                                            String.valueOf(toolInput),
-                                            AI_AGENT_TOOL_USERNAME_PARAM,
-                                            StringUtils.defaultIfBlank(username, ""));
+                                   String username,
+                                   McpToolGrantRequest grantRequest) {
+    Map<String, String> parameters = new HashMap<>(Map.of(AI_AGENT_TOOL_ID_PARAM,
+                                                          id,
+                                                          AI_AGENT_TOOL_CONVERSATION_ID_PARAM,
+                                                          StringUtils.defaultIfBlank(conversationId, ""),
+                                                          AI_AGENT_TOOL_TYPE_PARAM,
+                                                          UserToolRequestType.APPROVAL_TIMEOUT.name(),
+                                                          AI_AGENT_TOOL_NAME_PARAM,
+                                                          StringUtils.defaultIfBlank(toolName, ""),
+                                                          AI_AGENT_TOOL_INPUT_PARAM,
+                                                          String.valueOf(toolInput),
+                                                          AI_AGENT_TOOL_USERNAME_PARAM,
+                                                          StringUtils.defaultIfBlank(username, "")));
+    putActingIdentity(parameters, grantRequest);
     continuationService.sendMessage(username,
                                     COMETD_CHANNEL,
                                     JsonUtils.toJsonString(parameters));
     listenerService.broadcast(AI_AGENT_TOOL_EXECUTION_EVENT, username, parameters);
+  }
+
+  /**
+   * Adds to a card's payload who is about to act, for whom, through which
+   * agents and on which trigger, when the server resolved it; the card then
+   * names them without guessing.
+   *
+   * @param parameters   the payload
+   * @param grantRequest the call as the server resolved it, may be null
+   */
+  private static void putActingIdentity(Map<String, String> parameters, McpToolGrantRequest grantRequest) {
+    ActingIdentity actingIdentity = grantRequest == null ? null : grantRequest.actingIdentity();
+    if (actingIdentity == null) {
+      return;
+    }
+    parameters.put(AI_AGENT_TOOL_ACTOR_USER_NAME_PARAM, actingIdentity.actor().username());
+    parameters.put(AI_AGENT_TOOL_ACTOR_KIND_PARAM, actingIdentity.actor().kind().name());
+    parameters.put(AI_AGENT_TOOL_AGENT_CHAIN_PARAM, toAgentChainJson(actingIdentity.chain()));
+    parameters.put(AI_AGENT_TOOL_ORIGIN_PARAM, actingIdentity.origin().name());
+    if (actingIdentity.onBehalfOf() != null) {
+      parameters.put(AI_AGENT_TOOL_ON_BEHALF_OF_PARAM, actingIdentity.onBehalfOf());
+    }
   }
 
   /**

@@ -240,23 +240,65 @@ class McpToolGrantServiceTest {
 
   /**
    * A constrained grant applies only when the tool's evaluator confirms the
-   * call stays within it, and fails closed otherwise.
+   * call stays within it, and fails closed otherwise. The server asks
+   * {@code matchesGrant}, handing the evaluator the whole grant.
    */
   @Test
   void constraintIsCheckedByTheToolsEvaluator() {
     McpToolGrant constrained = userGrant().constraint(DOMAIN).build();
     when(provider.findGrants(USER, TOOL)).thenReturn(List.of(constrained));
 
-    when(evaluator.matches(TOOL, ARGUMENTS, DOMAIN)).thenReturn(true);
+    when(evaluator.matchesGrant(TOOL, ARGUMENTS, constrained)).thenReturn(true);
     assertThat(service.findApplicableGrant(request(false), ARGUMENTS)).isSameAs(constrained);
 
-    when(evaluator.matches(TOOL, ARGUMENTS, DOMAIN)).thenReturn(false);
+    when(evaluator.matchesGrant(TOOL, ARGUMENTS, constrained)).thenReturn(false);
     assertThat(service.findApplicableGrant(request(false), ARGUMENTS)).isNull();
 
-    when(evaluator.matches(TOOL, ARGUMENTS, DOMAIN)).thenThrow(new IllegalArgumentException("bad address"));
+    when(evaluator.matchesGrant(TOOL, ARGUMENTS, constrained)).thenThrow(new IllegalArgumentException("bad address"));
     assertThat(service.findApplicableGrant(request(false), ARGUMENTS)).isNull();
 
     assertThat(service.findApplicableGrant(request(false), null)).isNull();
+  }
+
+  /**
+   * An evaluator that implements only the constraint form keeps deciding: the
+   * default {@code matchesGrant} checks the grant's constraint through
+   * {@code matches}, so an evaluator written before the grant form existed
+   * behaves as it did.
+   */
+  @Test
+  void constraintOnlyEvaluatorStillDecidesThroughTheDefaultGrantForm() {
+    McpToolGrantConstraintEvaluator constraintOnly = org.mockito.Mockito.mock(McpToolGrantConstraintEvaluator.class,
+                                                                              org.mockito.Mockito.CALLS_REAL_METHODS);
+    org.mockito.Mockito.doReturn(true).when(constraintOnly).supports(TOOL);
+    lenient().when(evaluators.orderedStream()).thenAnswer(invocation -> Stream.of(constraintOnly));
+    McpToolGrant constrained = userGrant().constraint(DOMAIN).build();
+    when(provider.findGrants(USER, TOOL)).thenReturn(List.of(constrained));
+
+    org.mockito.Mockito.doReturn(true).when(constraintOnly).matches(TOOL, ARGUMENTS, DOMAIN);
+    assertThat(service.findApplicableGrant(request(false), ARGUMENTS)).isSameAs(constrained);
+
+    org.mockito.Mockito.doReturn(false).when(constraintOnly).matches(TOOL, ARGUMENTS, DOMAIN);
+    assertThat(service.findApplicableGrant(request(false), ARGUMENTS)).isNull();
+  }
+
+  /**
+   * The evaluator receives the grant as the store returned it, its creator
+   * included, so a check that reads who granted (a manager's membership) can
+   * be made on every use.
+   */
+  @Test
+  void evaluatorReceivesTheGrantWithItsCreator() {
+    McpToolGrant constrained = userGrant().constraint(DOMAIN).createdBy("manager").build();
+    when(provider.findGrants(USER, TOOL)).thenReturn(List.of(constrained));
+    when(evaluator.matchesGrant(any(), any(), any())).thenReturn(true);
+
+    service.findApplicableGrant(request(false), ARGUMENTS);
+
+    ArgumentCaptor<McpToolGrant> grant = ArgumentCaptor.forClass(McpToolGrant.class);
+    verify(evaluator).matchesGrant(org.mockito.ArgumentMatchers.eq(TOOL), org.mockito.ArgumentMatchers.eq(ARGUMENTS), grant.capture());
+    assertThat(grant.getValue().getCreatedBy()).isEqualTo("manager");
+    assertThat(grant.getValue().getConstraint()).isEqualTo(DOMAIN);
   }
 
   /**
