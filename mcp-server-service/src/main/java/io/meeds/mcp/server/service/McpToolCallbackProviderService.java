@@ -209,7 +209,7 @@ public class McpToolCallbackProviderService implements ToolCallbackProvider {
                                                              "Tool '%s' requires the user's approval, which can only be requested from a Meeds AI chat conversation, and this call carries no conversation. As LLM, tell the user that this tool can't be executed from here.";
 
     private static final String          LLM_NO_APPROVER_EXPLANATION      =
-                                                             "Tool '%s' requires an approval, and this call is made by an agent acting as itself, for whom nobody can approve it. As LLM, tell the user that this tool can't be executed from here.";
+                                                             "Tool '%s' requires an approval, and this call is made by an agent acting as itself, for whom nobody can approve it. As LLM, state in your answer that this tool can't be run without a standing approval.";
 
     private final McpServerToolService   mcpServerToolService;
 
