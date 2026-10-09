@@ -333,10 +333,11 @@ public class McpToolCallbackProviderService implements ToolCallbackProvider {
                                                                    actingIdentity);
         if (alwaysAsk || mcpServerToolService.isRequireApproval(toolMethod.getName(), authentication)) {
           approveCall(id, grantRequest, alwaysAsk, executionBuilder);
-        } else if (isAgentActor(actingIdentity) && mcpServerToolService.isWriteTool(toolMethod.getName())) {
-          // an agent account writes only under its own grants, whatever scope
-          // the internal client's token holds: a plain write scope, which
-          // skips the approval branch, never lets it write ungranted
+        } else if (isAgentActor(actingIdentity) && mcpServerToolService.isApprovalGatedTool(toolMethod.getName())) {
+          // an agent account runs an approval-gated tool only under its own
+          // grants, whatever scope the internal client's token holds: a plain
+          // write scope, which skips the approval branch, never lets it run
+          // one ungranted
           approveAgentWrite(grantRequest, executionBuilder);
         }
         mcpToolApprovalService.traceToolExecution(executionBuilder.toolExecutionType(UserToolRequestType.TOOL_EXECUTION_START)
@@ -426,9 +427,10 @@ public class McpToolCallbackProviderService implements ToolCallbackProvider {
     }
 
     /**
-     * Decides a write an agent account makes as itself outside the approval
-     * branch: a standing approval covering it lets it run, traced as granted;
-     * otherwise nobody can approve it and it is refused, traced as denied.
+     * Decides an approval-gated call an agent account makes as itself outside
+     * the approval branch (a token without the approval scope): a standing
+     * approval covering it lets it run, traced as granted; otherwise nobody
+     * can approve it and it is refused, traced as denied.
      *
      * @param grantRequest     the call as the server resolved it
      * @param executionBuilder the trace builder of the call

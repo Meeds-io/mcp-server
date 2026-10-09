@@ -545,17 +545,17 @@ class McpToolCallbackProviderServiceTest {
   }
 
   /**
-   * An agent account's write needs its own grant whatever the internal
-   * client's scope: under a plain write scope, which skips the approval
-   * branch, an ungranted write is refused before it runs, traced as denied,
-   * with the no-approver explanation. Mutant: the agent check removed, which
-   * ran the write ungranted.
+   * An agent account's call to a require_approval tool needs its own grant
+   * whatever the internal client's scope: under a plain write scope, which
+   * skips the approval branch, an ungranted call is refused before it runs,
+   * traced as denied, with the no-approver explanation. Mutant: the agent
+   * check removed, which ran it ungranted.
    */
   @Test
-  void call_agentWriteUnderPlainWriteScopeWithoutGrant_refusedAsDenied() {// NOSONAR
+  void call_agentGatedToolUnderPlainWriteScopeWithoutGrant_refusedAsDenied() {// NOSONAR
     bindAgentAccount();
     when(mcpServerToolService.isRequireApproval(eq(TOOL_METHOD), any())).thenReturn(false);
-    when(mcpServerToolService.isWriteTool(TOOL_METHOD)).thenReturn(true);
+    when(mcpServerToolService.isApprovalGatedTool(TOOL_METHOD)).thenReturn(true);
     MockHttpServletRequest request = new MockHttpServletRequest();
     request.addHeader(TOOL_CONTEXT_ID_PARAM, TOOL_CONTEXT_ID);
     RequestContextHolder.setRequestAttributes(new ServletRequestAttributes(request));
@@ -573,15 +573,15 @@ class McpToolCallbackProviderServiceTest {
   }
 
   /**
-   * An agent account's write under a plain write scope runs under its own
-   * grant, traced as granted, its use recorded. Mutant: the grant ignored,
-   * which refused every agent write under that scope.
+   * An agent account's call to a require_approval tool under a plain write
+   * scope runs under its own grant, traced as granted, its use recorded.
+   * Mutant: the grant ignored, which refused every such call.
    */
   @Test
-  void call_agentWriteUnderPlainWriteScopeWithGrant_runs() {// NOSONAR
+  void call_agentGatedToolUnderPlainWriteScopeWithGrant_runs() {// NOSONAR
     bindAgentAccount();
     when(mcpServerToolService.isRequireApproval(eq(TOOL_METHOD), any())).thenReturn(false);
-    when(mcpServerToolService.isWriteTool(TOOL_METHOD)).thenReturn(true);
+    when(mcpServerToolService.isApprovalGatedTool(TOOL_METHOD)).thenReturn(true);
     MockHttpServletRequest request = new MockHttpServletRequest();
     request.addHeader(TOOL_CONTEXT_ID_PARAM, TOOL_CONTEXT_ID);
     RequestContextHolder.setRequestAttributes(new ServletRequestAttributes(request));
@@ -599,14 +599,15 @@ class McpToolCallbackProviderServiceTest {
   }
 
   /**
-   * An agent account's read tool runs as for anyone: no grant is looked up.
-   * Mutant: every agent call treated as a write.
+   * An agent account's call to a tool that asks for no approval, an ungated
+   * write such as setting a category, runs as a person's would: no grant is
+   * looked up. Mutant: every agent call gated.
    */
   @Test
-  void call_agentReadUnderPlainWriteScope_runsWithoutGrantLookup() {// NOSONAR
+  void call_agentUngatedWriteUnderPlainWriteScope_runsWithoutGrantLookup() {// NOSONAR
     bindAgentAccount();
     when(mcpServerToolService.isRequireApproval(eq(TOOL_METHOD), any())).thenReturn(false);
-    when(mcpServerToolService.isWriteTool(TOOL_METHOD)).thenReturn(false);
+    when(mcpServerToolService.isApprovalGatedTool(TOOL_METHOD)).thenReturn(false);
     MockHttpServletRequest request = new MockHttpServletRequest();
     request.addHeader(TOOL_CONTEXT_ID_PARAM, TOOL_CONTEXT_ID);
     RequestContextHolder.setRequestAttributes(new ServletRequestAttributes(request));
@@ -619,14 +620,14 @@ class McpToolCallbackProviderServiceTest {
   }
 
   /**
-   * A person's write under a plain write scope keeps today's behaviour
-   * exactly: it runs unasked, with no grant lookup and no write check.
+   * A person's call to a require_approval tool under a plain write scope
+   * keeps today's behaviour exactly: it runs unasked, with no grant lookup.
    * Mutant: the agent check applied to every actor.
    */
   @Test
-  void call_personWriteUnderPlainWriteScope_unchanged() {// NOSONAR
+  void call_personGatedToolUnderPlainWriteScope_unchanged() {// NOSONAR
     when(mcpServerToolService.isRequireApproval(eq(TOOL_METHOD), any())).thenReturn(false);
-    lenient().when(mcpServerToolService.isWriteTool(TOOL_METHOD)).thenReturn(true);
+    lenient().when(mcpServerToolService.isApprovalGatedTool(TOOL_METHOD)).thenReturn(true);
     MockHttpServletRequest request = bindRequest(TOOL_CONTEXT_ID, CONVERSATION_ID);
     addIdentityHeaders(request, USERNAME, "USER", USERNAME, null, USERNAME, "[\"COMPLETION\"]", "CHAT", "COMPLETION");
 
