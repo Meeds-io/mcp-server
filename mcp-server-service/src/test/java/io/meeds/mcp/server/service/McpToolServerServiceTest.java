@@ -256,38 +256,26 @@ class McpToolServerServiceTest {
   }
 
   /**
-   * A tool writes by its definition alone, whatever the token holds: its
-   * read-only annotation decides, else its approval flag; an unknown tool is
-   * a write, so it never runs unchecked. Mutants: an annotation ignored; an
-   * unknown tool answered as a read.
+   * A tool is approval-gated by its definition's require_approval flag alone,
+   * with no token at hand, while the scope-aware form still needs the
+   * approval scope; an unknown tool is not gated, as in the scope-aware form.
+   * Mutants: the flag ignored; the scope read into the definition check.
    */
   @Test
-  void aToolWritesByItsDefinitionAlone() {
-    io.modelcontextprotocol.spec.McpSchema.ToolAnnotations readOnly = mock(io.modelcontextprotocol.spec.McpSchema.ToolAnnotations.class);
-    when(readOnly.readOnlyHint()).thenReturn(true);
-    io.modelcontextprotocol.spec.McpSchema.ToolAnnotations writes = mock(io.modelcontextprotocol.spec.McpSchema.ToolAnnotations.class);
-    when(writes.readOnlyHint()).thenReturn(false);
-    SimpleToolDefinition annotatedRead = mock(SimpleToolDefinition.class);
-    when(annotatedRead.getAnnotations()).thenReturn(readOnly);
-    lenient().when(annotatedRead.isRequireApproval()).thenReturn(true);
-    SimpleToolDefinition annotatedWrite = mock(SimpleToolDefinition.class);
-    when(annotatedWrite.getAnnotations()).thenReturn(writes);
+  void aToolIsApprovalGatedByItsDefinitionAlone() {
     SimpleToolDefinition gated = mock(SimpleToolDefinition.class);
     when(gated.isRequireApproval()).thenReturn(true);
-    SimpleToolDefinition plain = mock(SimpleToolDefinition.class);
-    when(plain.isRequireApproval()).thenReturn(false);
-
-    doReturn(annotatedRead).when(mcpServerToolService).getToolDefinitionByMethodName("read");
-    doReturn(annotatedWrite).when(mcpServerToolService).getToolDefinitionByMethodName("write");
+    SimpleToolDefinition ungated = mock(SimpleToolDefinition.class);
+    when(ungated.isRequireApproval()).thenReturn(false);
     doReturn(gated).when(mcpServerToolService).getToolDefinitionByMethodName("gated");
-    doReturn(plain).when(mcpServerToolService).getToolDefinitionByMethodName("plain");
+    doReturn(ungated).when(mcpServerToolService).getToolDefinitionByMethodName("ungated");
     doReturn(null).when(mcpServerToolService).getToolDefinitionByMethodName("unknown");
+    when(authentication.getAuthorities()).thenAnswer(invocation -> List.of(new SimpleGrantedAuthority(WRITE_SCOPE_AUTHORITY)));
 
-    assertFalse(mcpServerToolService.isWriteTool("read"));
-    assertTrue(mcpServerToolService.isWriteTool("write"));
-    assertTrue(mcpServerToolService.isWriteTool("gated"));
-    assertFalse(mcpServerToolService.isWriteTool("plain"));
-    assertTrue(mcpServerToolService.isWriteTool("unknown"));
+    assertTrue(mcpServerToolService.isApprovalGatedTool("gated"));
+    assertFalse(mcpServerToolService.isApprovalGatedTool("ungated"));
+    assertFalse(mcpServerToolService.isApprovalGatedTool("unknown"));
+    assertFalse(mcpServerToolService.isRequireApproval("gated", authentication), "a plain write token skips the approval branch");
   }
 
   @Test

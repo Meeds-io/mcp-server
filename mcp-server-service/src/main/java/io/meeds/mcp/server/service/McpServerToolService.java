@@ -146,12 +146,24 @@ public class McpServerToolService {
    * @return true when the call must be approved by the user first
    */
   public boolean isRequireApproval(String methodName, Authentication authentication) {
-    SimpleToolDefinition toolDefinition = getToolDefinitionByMethodName(methodName);
-    return toolDefinition != null
-           && toolDefinition.isRequireApproval()
+    return isApprovalGatedTool(methodName)
            && authentication.getAuthorities()
                             .stream()
                             .anyMatch(a -> WRITE_APPROVE_SCOPE_AUTHORITY.equals(a.getAuthority()));
+  }
+
+  /**
+   * Tells whether a tool's definition asks for approval
+   * ({@code require_approval}), whatever the caller's token holds: the flag
+   * {@link #isRequireApproval(String, Authentication)} reads before it looks
+   * at the token's scope.
+   *
+   * @param methodName the tool's Java method name
+   * @return true when the tool is known and its definition asks for approval
+   */
+  public boolean isApprovalGatedTool(String methodName) {
+    SimpleToolDefinition toolDefinition = getToolDefinitionByMethodName(methodName);
+    return toolDefinition != null && toolDefinition.isRequireApproval();
   }
 
   /**
@@ -331,32 +343,11 @@ public class McpServerToolService {
                                         .stream()
                                         .anyMatch(a -> WRITE_SCOPE_AUTHORITY.equals(a.getAuthority())
                                                        || WRITE_APPROVE_SCOPE_AUTHORITY.equals(a.getAuthority()));
-    boolean readOnlyTool = isReadOnly(toolDefinition);
-    return (readOnlyTool && canRead) || (!readOnlyTool && canWrite);
-  }
-
-  /**
-   * Tells whether a tool writes, by its definition alone and whatever the
-   * caller's token holds: the rule {@link #isAllowedTool(SimpleToolDefinition,
-   * Authentication)} applies to the write scope. An unknown tool is answered
-   * as a write, so it never runs unchecked.
-   *
-   * @param methodName the tool's Java method name
-   * @return true unless the definition says the tool only reads
-   */
-  public boolean isWriteTool(String methodName) {
-    SimpleToolDefinition toolDefinition = getToolDefinitionByMethodName(methodName);
-    return toolDefinition == null || !isReadOnly(toolDefinition);
-  }
-
-  /**
-   * @param toolDefinition a tool definition
-   * @return its {@code readOnlyHint} annotation, else true when it asks for
-   *         no approval
-   */
-  private static boolean isReadOnly(SimpleToolDefinition toolDefinition) {
     Boolean readOnlyTool = toolDefinition.getAnnotations() == null ? null : toolDefinition.getAnnotations().readOnlyHint();
-    return readOnlyTool == null ? !toolDefinition.isRequireApproval() : readOnlyTool;
+    if (readOnlyTool == null) {
+      readOnlyTool = !toolDefinition.isRequireApproval();
+    }
+    return (readOnlyTool && canRead) || (!readOnlyTool && canWrite);
   }
 
   /**
