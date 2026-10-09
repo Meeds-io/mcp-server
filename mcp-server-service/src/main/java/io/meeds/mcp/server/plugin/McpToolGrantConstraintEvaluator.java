@@ -20,6 +20,7 @@ package io.meeds.mcp.server.plugin;
 
 import java.util.Map;
 
+import io.meeds.mcp.server.model.McpToolGrant;
 import io.meeds.mcp.server.model.McpToolGrantConstraint;
 
 /**
@@ -79,5 +80,23 @@ public interface McpToolGrantConstraintEvaluator {
    * @return true only when the call provably satisfies the constraint
    */
   boolean matches(String toolName, Map<String, Object> arguments, McpToolGrantConstraint constraint);
+
+  /**
+   * Tells whether a call stays within a grant's argument limit, with the whole
+   * grant at hand, for an evaluator whose check also reads who created the
+   * grant. The server calls this method; by default it checks the grant's
+   * constraint alone through
+   * {@link #matches(String, Map, McpToolGrantConstraint)}. Its name differs
+   * from {@code matches} on purpose: an overload would make a call passing
+   * {@code null} as the third argument ambiguous.
+   *
+   * @param toolName  the MCP tool name
+   * @param arguments the call arguments as the tool receives them
+   * @param grant     the grant, never null, whose constraint is never null
+   * @return true only when the call provably satisfies the grant's limit
+   */
+  default boolean matchesGrant(String toolName, Map<String, Object> arguments, McpToolGrant grant) {
+    return matches(toolName, arguments, grant.getConstraint());
+  }
 
 }

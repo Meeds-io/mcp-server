@@ -33,6 +33,10 @@ package io.meeds.mcp.server.model;
  * @param conversationId the chat conversation, or null outside a chat
  * @param clientId       the OAuth client that owns the token, may be null
  * @param retry          whether the call belongs to a retried answer
+ * @param actingIdentity who executes the call, for whom and through which
+ *                         agents, or null when the server resolved none;
+ *                         {@code username} is its subject and
+ *                         {@code agentNameId} its grant scope
  */
 public record McpToolGrantRequest(String requestId,
                                   String username,
@@ -41,5 +45,31 @@ public record McpToolGrantRequest(String requestId,
                                   String agentNameId,
                                   String conversationId,
                                   String clientId,
-                                  boolean retry) {
+                                  boolean retry,
+                                  ActingIdentity actingIdentity) {
+
+  /**
+   * A call with no resolved acting identity, as add-ons built it before the
+   * identity existed.
+   *
+   * @param requestId      the call identifier
+   * @param username       the user the tool runs as
+   * @param toolName       the MCP tool name (snake case)
+   * @param toolInput      the call arguments as received (JSON)
+   * @param agentNameId    the calling agent, or null when unknown
+   * @param conversationId the chat conversation, or null outside a chat
+   * @param clientId       the OAuth client that owns the token, may be null
+   * @param retry          whether the call belongs to a retried answer
+   */
+  public McpToolGrantRequest(String requestId, // NOSONAR the call's parts, each one its own
+                             String username,
+                             String toolName,
+                             String toolInput,
+                             String agentNameId,
+                             String conversationId,
+                             String clientId,
+                             boolean retry) {
+    this(requestId, username, toolName, toolInput, agentNameId, conversationId, clientId, retry, null);
+  }
+
 }

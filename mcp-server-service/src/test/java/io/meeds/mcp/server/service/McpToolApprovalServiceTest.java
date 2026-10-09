@@ -31,6 +31,7 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 import java.lang.reflect.Field;
+import java.util.List;
 import java.util.Map;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.Future;
@@ -55,7 +56,9 @@ import org.exoplatform.ws.frameworks.cometd.ContinuationService;
 
 import io.meeds.mcp.server.constant.McpToolGrantOwnerType;
 import io.meeds.mcp.server.constant.McpToolGrantScope;
+import io.meeds.mcp.server.constant.Origin;
 import io.meeds.mcp.server.constant.UserToolRequestType;
+import io.meeds.mcp.server.model.ActingIdentity;
 import io.meeds.mcp.server.model.McpToolGrant;
 import io.meeds.mcp.server.model.McpToolGrantChoice;
 import io.meeds.mcp.server.model.McpToolGrantConstraint;
@@ -523,6 +526,95 @@ class McpToolApprovalServiceTest {
                                               .contains("\"grantMaxDays\":\"14\"");
     assertThat(messages.getAllValues().get(1)).contains("\"grantId\":\"44\"")
                                               .contains("\"grantExpiresAt\":\"1000\"");
+  }
+
+  /**
+   * Every step of a call whose acting identity is known names who acted, for
+   * whom, through which agents (a JSON array) and on which trigger; a step
+   * without one carries none of these keys, and the event's source stays the
+   * subject.
+   */
+  @Test
+  @SuppressWarnings("unchecked")
+  void traceCarriesTheActingIdentity() {
+    UserToolExecution execution = UserToolExecution.builder()
+                                                   .id(REQUEST_ID)
+                                                   .username(USERNAME)
+                                                   .toolName("testTool")
+                                                   .toolExecutionType(UserToolRequestType.TOOL_EXECUTION_START)
+                                                   .startTime(System.currentTimeMillis())
+                                                   .actorUserName(USERNAME)
+                                                   .actorKind("USER")
+                                                   .onBehalfOf(USERNAME)
+                                                   .agentChain(List.of("COMPLETION", "A,B"))
+                                                   .origin("CHAT")
+                                                   .build();
+
+    service.traceToolExecution(execution);
+    service.traceToolExecution(UserToolExecution.builder()
+                                                .id(REQUEST_ID)
+                                                .username(USERNAME)
+                                                .toolName("testTool")
+                                                .toolExecutionType(UserToolRequestType.TOOL_EXECUTION_START)
+                                                .startTime(System.currentTimeMillis())
+                                                .build());
+
+    ArgumentCaptor<Map<String, String>> events = ArgumentCaptor.forClass(Map.class);
+    verify(listenerService, times(2)).broadcast(eq(AI_AGENT_TOOL_EXECUTION_EVENT), eq(USERNAME), events.capture());
+    assertThat(events.getAllValues().get(0)).containsEntry("actorUserName", USERNAME)
+                                            .containsEntry("actorKind", "USER")
+                                            .containsEntry("onBehalfOf", USERNAME)
+                                            .containsEntry("agentChain", "[\"COMPLETION\",\"A,B\"]")
+                                            .containsEntry("origin", "CHAT");
+    assertThat(events.getAllValues().get(1)).doesNotContainKeys("actorUserName", "actorKind", "onBehalfOf", "agentChain", "origin");
+  }
+
+  /**
+   * T11: the card, its answer and its timeout carry the acting identity the
+   * server resolved, so the drawer names who is about to act and for whom
+   * without guessing; an agent acting as itself carries no person.
+   */
+  @Test
+  @SneakyThrows
+  @SuppressWarnings("unchecked")
+  void cardAnswerAndTimeoutCarryTheActingIdentity() {
+    ActingIdentity actingIdentity = ActingIdentity.person(USERNAME, Origin.CHAT).withHop("COMPLETION").withHop("EMAIL_ASSISTANT");
+    McpToolGrantRequest grantRequest = new McpToolGrantRequest(REQUEST_ID,
+                                                               USERNAME,
+                                                               "send_email",
+                                                               "{}",
+                                                               "EMAIL_ASSISTANT",
+                                                               "conv",
+                                                               "mcp-internal",
+                                                               false,
+                                                               actingIdentity);
+    when(continuationBayeux.isSubscribed(USERNAME, WS_CLIENT_ID)).thenReturn(true);
+
+    Future<Boolean> answered = CompletableFuture.supplyAsync(() -> service.requestApproval(REQUEST_ID,
+                                                                                           "conv",
+                                                                                           "sendEmail",
+                                                                                           "{}",
+                                                                                           USERNAME,
+                                                                                           grantRequest,
+                                                                                           false,
+                                                                                           null));
+    awaitRequestRegistered(REQUEST_ID);
+    service.receiveAnswer(REQUEST_ID, WS_CLIENT_ID, true);
+    assertThat(answered.get(1, TimeUnit.SECONDS)).isTrue();
+    assertThatThrownBy(() -> service.requestApproval("timed-out", "conv", "sendEmail", "{}", USERNAME, grantRequest, false, null))
+                                                                                                                              .isInstanceOf(UserToolTimeoutException.class);
+
+    ArgumentCaptor<Map<String, String>> events = ArgumentCaptor.forClass(Map.class);
+    verify(listenerService, atLeastOnce()).broadcast(eq(AI_AGENT_TOOL_EXECUTION_EVENT), eq(USERNAME), events.capture());
+    List<Map<String, String>> payloads = events.getAllValues();
+    assertThat(payloads).extracting(payload -> payload.get("type"))
+                        .contains("APPROVAL_REQUEST", "APPROVAL_ANSWER", "APPROVAL_TIMEOUT");
+    assertThat(payloads).allSatisfy(payload -> assertThat(payload).containsEntry("actorUserName", USERNAME)
+                                                                  .containsEntry("actorKind", "USER")
+                                                                  .containsEntry("onBehalfOf", USERNAME)
+                                                                  .containsEntry("agentChain",
+                                                                                 "[\"COMPLETION\",\"EMAIL_ASSISTANT\"]")
+                                                                  .containsEntry("origin", "CHAT"));
   }
 
   /**

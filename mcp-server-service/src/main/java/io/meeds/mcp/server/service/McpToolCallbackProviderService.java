@@ -22,6 +22,7 @@ import static io.meeds.mcp.server.util.McpServerUtils.getMimeType;
 import static io.meeds.mcp.server.util.McpServerUtils.toAsyncToolSpecification;
 import static io.meeds.mcp.server.util.McpServerUtils.toSyncToolSpecification;
 import static io.meeds.mcp.server.util.McpToolUtils.getClientId;
+import static io.meeds.mcp.server.util.McpToolUtils.getCurrentActingIdentity;
 import static io.meeds.mcp.server.util.McpToolUtils.getCurrentAgentNameId;
 import static io.meeds.mcp.server.util.McpToolUtils.getCurrentConversationId;
 import static io.meeds.mcp.server.util.McpToolUtils.getCurrentUserName;
@@ -68,12 +69,14 @@ import org.exoplatform.services.security.Identity;
 
 import io.meeds.common.ContainerTransactional;
 import io.meeds.mcp.server.constant.UserToolRequestType;
+import io.meeds.mcp.server.model.ActingIdentity;
 import io.meeds.mcp.server.model.McpToolGrant;
 import io.meeds.mcp.server.model.McpToolGrantConstraint;
 import io.meeds.mcp.server.model.McpToolGrantRequest;
 import io.meeds.mcp.server.model.UserToolDeniedException;
 import io.meeds.mcp.server.model.UserToolExecution;
 import io.meeds.mcp.server.model.UserToolExecution.UserToolExecutionBuilder;
+import io.meeds.mcp.server.model.UserToolRefusedException;
 import io.meeds.mcp.server.model.UserToolTimeoutException;
 import io.meeds.mcp.server.plugin.McpToolPlugin;
 
@@ -205,6 +208,9 @@ public class McpToolCallbackProviderService implements ToolCallbackProvider {
     private static final String          LLM_NO_CONVERSATION_EXPLANATION  =
                                                              "Tool '%s' requires the user's approval, which can only be requested from a Meeds AI chat conversation, and this call carries no conversation. As LLM, tell the user that this tool can't be executed from here.";
 
+    private static final String          LLM_NO_APPROVER_EXPLANATION      =
+                                                             "Tool '%s' requires an approval, and this call is made by an agent acting as itself, for whom nobody can approve it. As LLM, tell the user that this tool can't be executed from here.";
+
     private final McpServerToolService   mcpServerToolService;
 
     private final McpToolApprovalService mcpToolApprovalService;
@@ -271,9 +277,15 @@ public class McpToolCallbackProviderService implements ToolCallbackProvider {
     }
 
     /**
-     * Runs one tool call as the user: the scope check, then for an
-     * approval-gated or "always ask" tool the standing approval or the card,
-     * then the tool itself, each step traced to the user's chat.
+     * Runs one tool call as the user: the acting identity check, the scope
+     * check, then for an approval-gated or "always ask" tool the standing
+     * approval or the card, then the tool itself, each step traced to the
+     * user's chat with who acted, for whom and through which agents.
+     * <p>
+     * The bound ACL identity is the acting identity's subject, and nothing
+     * else: the call is refused, traced as an error, when the identity the
+     * server resolved names another account than the one the call runs as,
+     * or a combination the server refuses.
      *
      * @param toolInput    the call input
      * @param toolContext  the Spring AI tool context
@@ -295,6 +307,8 @@ public class McpToolCallbackProviderService implements ToolCallbackProvider {
                                                                    .startTime(System.currentTimeMillis())
                                                                    .toolInput(toolInput);
       try {
+        ActingIdentity actingIdentity = resolveActingIdentity(userIdentity.getUserId());
+        withActingIdentity(executionBuilder, actingIdentity);
         if (!mcpServerToolService.isAllowedTool(toolMethod.getName(), authentication)) {
           throw new IllegalAccessException("Tool '%s' execution isn't allowed switch selected scopes".formatted(toolMethod.getName()));
         }
@@ -311,10 +325,11 @@ public class McpToolCallbackProviderService implements ToolCallbackProvider {
                                               userIdentity.getUserId(),
                                               toolName,
                                               toolInput,
-                                              getCurrentAgentNameId(),
+                                              actingIdentity == null ? getCurrentAgentNameId() : actingIdentity.grantScope(),
                                               conversationId,
                                               getClientId(authentication),
-                                              isCurrentCallRetry()),
+                                              isCurrentCallRetry(),
+                                              actingIdentity),
                       alwaysAsk,
                       executionBuilder);
         }
@@ -335,7 +350,7 @@ public class McpToolCallbackProviderService implements ToolCallbackProvider {
                   toolInput,
                   toolOutput);
         return toolOutput;
-      } catch (UserToolDeniedException e) {
+      } catch (UserToolDeniedException | UserToolRefusedException e) {
         mcpToolApprovalService.traceToolExecution(executionBuilder.toolExecutionType(UserToolRequestType.TOOL_EXECUTION_DENIED)
                                                                   .completed(true)
                                                                   .build());
@@ -376,11 +391,51 @@ public class McpToolCallbackProviderService implements ToolCallbackProvider {
     }
 
     /**
+     * Resolves the acting identity of the call and checks it against the
+     * account the call runs as.
+     *
+     * @param username the account the call runs as
+     * @return the acting identity, or null when the server resolved none (a
+     *         call without a user)
+     * @throws IllegalStateException when the identity's subject isn't that
+     *                                 account, or the server refuses the
+     *                                 identity the internal client sent
+     */
+    private ActingIdentity resolveActingIdentity(String username) {
+      ActingIdentity actingIdentity = getCurrentActingIdentity();
+      if (actingIdentity != null && !StringUtils.equals(actingIdentity.subject(), username)) {
+        throw new IllegalStateException("Tool '%s' call refused: its acting identity is for '%s', the call runs as '%s'".formatted(toolMethod.getName(),
+                                                                                                                                 actingIdentity.subject(),
+                                                                                                                                 username));
+      }
+      return actingIdentity;
+    }
+
+    /**
+     * Copies who acts, for whom, through which agents and on which trigger
+     * into the trace of the call.
+     *
+     * @param executionBuilder the trace builder of the call
+     * @param actingIdentity   the acting identity, may be null
+     */
+    private static void withActingIdentity(UserToolExecutionBuilder executionBuilder, ActingIdentity actingIdentity) {
+      if (actingIdentity != null) {
+        executionBuilder.actorUserName(actingIdentity.actor().username())
+                        .actorKind(actingIdentity.actor().kind().name())
+                        .onBehalfOf(actingIdentity.onBehalfOf())
+                        .agentChain(actingIdentity.chain())
+                        .origin(actingIdentity.origin().name());
+      }
+    }
+
+    /**
      * Decides an approval-gated call: a standing approval covering it lets it
-     * run (traced as granted, its use recorded and logged), otherwise the user
-     * is asked on a card in the conversation, which may offer "Always allow".
-     * An "always ask" tool never uses a standing approval and never offers
-     * one.
+     * run (traced as granted, its use recorded and logged), otherwise the
+     * person the call is for is asked on a card in the conversation, which may
+     * offer "Always allow". An "always ask" tool never uses a standing
+     * approval and never offers one. A call made by an agent acting as itself
+     * has nobody to ask: without a covering grant it is refused before any
+     * wait, and traced as denied.
      *
      * @param id               the call identifier
      * @param grantRequest     the call as the server resolved it
@@ -411,10 +466,15 @@ public class McpToolCallbackProviderService implements ToolCallbackProvider {
                                                                   .build());
         return;
       }
+      ActingIdentity actingIdentity = grantRequest.actingIdentity();
+      boolean noApprover = actingIdentity != null && actingIdentity.onBehalfOf() == null;
       if (StringUtils.isBlank(grantRequest.conversationId())) {
         // The approval card lives in the chat conversation: without one,
         // nobody could ever answer and the request would only time out
-        throw new IllegalStateException(LLM_NO_CONVERSATION_EXPLANATION.formatted(toolMethod.getName()));
+        String explanation = LLM_NO_CONVERSATION_EXPLANATION.formatted(toolMethod.getName());
+        throw noApprover ? new UserToolRefusedException(explanation) : new IllegalStateException(explanation);
+      } else if (noApprover) {
+        throw new UserToolRefusedException(LLM_NO_APPROVER_EXPLANATION.formatted(toolMethod.getName()));
       }
       boolean grantable = !alwaysAsk
                           && mcpToolGrantService != null
@@ -429,7 +489,8 @@ public class McpToolCallbackProviderService implements ToolCallbackProvider {
                                                                 grantRequest.conversationId(),
                                                                 toolMethod.getName(),
                                                                 grantRequest.toolInput(),
-                                                                grantRequest.username(),
+                                                                actingIdentity == null ? grantRequest.username() :
+                                                                                       actingIdentity.onBehalfOf(),
                                                                 grantRequest,
                                                                 grantable,
                                                                 offeredConstraint);
