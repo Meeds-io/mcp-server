@@ -35,10 +35,12 @@ import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 import java.time.Instant;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 
@@ -260,6 +262,63 @@ class McpToolCallbackProviderServiceTest {
     assertEquals(MCP_OAUTH2_CLIENT_CREDENTIALS_REGISTRATION_ID, call.clientId());
     assertTrue(call.retry());
     assertEquals(Map.of("userName", "Bob"), arguments.getValue());
+  }
+
+  /**
+   * A call whose model set an argument to null runs, and the tool receives
+   * the null. Mutant: the arguments merged with a collector that rejects a
+   * null value, which fails the call.
+   */
+  @Test
+  void call_argumentSetToNull_runsWithTheNull() {// NOSONAR
+    when(mcpServerToolService.isRequireApproval(eq(TOOL_METHOD), any())).thenReturn(false);
+
+    String output = toolCallback.call("{\"name\":null}");
+
+    assertTrue(output.contains("Hello null"), output);
+    verify(mcpToolApprovalService, never()).traceToolExecution(argThatIs(UserToolRequestType.TOOL_EXECUTION_ERROR));
+  }
+
+  /**
+   * The standing-approval decision of a call carrying a null argument gets
+   * its arguments, the null kept, so an argument limit can still apply.
+   * Mutant: the arguments lost (null), so no standing approval ever applies.
+   */
+  @Test
+  void call_argumentSetToNull_grantDecisionGetsTheArguments() {// NOSONAR
+    bindRequest(TOOL_CONTEXT_ID, CONVERSATION_ID);
+    when(mcpToolApprovalService.requestApproval(any(), any(), any(), any(), any(), any(), anyBoolean(), any())).thenReturn(true);
+
+    toolCallback.call("{\"name\":\"Bob\",\"title\":null}");
+
+    @SuppressWarnings("unchecked")
+    ArgumentCaptor<Map<String, Object>> arguments = ArgumentCaptor.forClass(Map.class);
+    verify(mcpToolGrantService).findApplicableGrant(any(), arguments.capture());
+    Map<String, Object> expected = new HashMap<>();
+    expected.put("name", "Bob");
+    expected.put("title", null);
+    assertEquals(expected, arguments.getValue());
+  }
+
+  /**
+   * When a snake-case and a camel-case key name the same argument, a value
+   * wins over a null whatever their order. Mutants: the later key always
+   * wins; the first key always wins.
+   */
+  @Test
+  void call_sameArgumentTwice_aValueWinsOverANull() {// NOSONAR
+    bindRequest(TOOL_CONTEXT_ID, CONVERSATION_ID);
+    when(mcpToolApprovalService.requestApproval(any(), any(), any(), any(), any(), any(), anyBoolean(), any())).thenReturn(true);
+
+    toolCallback.call("{\"user_name\":null,\"userName\":\"Bob\"}");
+    ConversationState.setCurrent(new ConversationState(new Identity(USERNAME)));
+    toolCallback.call("{\"userName\":\"Bob\",\"user_name\":null}");
+
+    @SuppressWarnings("unchecked")
+    ArgumentCaptor<Map<String, Object>> arguments = ArgumentCaptor.forClass(Map.class);
+    verify(mcpToolGrantService, times(2)).findApplicableGrant(any(), arguments.capture());
+    assertEquals(Map.of("userName", "Bob"), arguments.getAllValues().get(0));
+    assertEquals(Map.of("userName", "Bob"), arguments.getAllValues().get(1));
   }
 
   /**

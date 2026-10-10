@@ -32,6 +32,9 @@ import io.meeds.mcp.server.model.McpToolGrantConstraint;
  * them (camel-case keys, values as parsed from the call input). Both must fail
  * closed: an argument they cannot read with certainty means "no constraint
  * offered" and "does not match".
+ * A key may map to {@code null}: the tool receives it as an omitted argument,
+ * and an evaluator reads it the same way, with {@code get}, never
+ * {@code containsKey}.
  * <p>
  * A contributor is a dedicated Spring {@code @Service} with an explicit,
  * unique bean name, non-final (the Kernel/Spring bridge exports it to the MCP
