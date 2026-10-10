@@ -476,9 +476,7 @@ public class McpToolCallbackProviderService implements ToolCallbackProvider {
       Map<String, Object> arguments = new LinkedHashMap<>();
       for (Entry<String, Object> argument : toolArguments.entrySet()) {
         String key = toCamelCase(argument.getKey());
-        if (arguments.get(key) == null) {
-          arguments.put(key, argument.getValue());
-        }
+        arguments.putIfAbsent(key, argument.getValue());
       }
       return arguments;
     }
