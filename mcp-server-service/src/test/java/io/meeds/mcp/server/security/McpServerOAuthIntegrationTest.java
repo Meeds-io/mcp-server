@@ -123,6 +123,10 @@ class McpServerOAuthIntegrationTest extends McpServiceIntegrationTestSupport {
 
   private static final String                   TEST_WRITE_TOOL_NAME    = "test_write_tool";
 
+  private static final String                   TEST_OPTIONAL_TOOL_NAME = "test_optional_tool";
+
+  private static final String                   VALIDATION_FAILED_MESSAGE = "input validation failed";
+
   private static final String                   IS_ERROR_FALSE_MESSAGE  = "\"isError\":false";
 
   private static final String                   IS_ERROR_TRUE_MESSAGE   = "\"isError\":true";
@@ -293,6 +297,57 @@ class McpServerOAuthIntegrationTest extends McpServiceIntegrationTestSupport {
     assertThat(result.getResponse().getContentAsString())
                                                          .contains("read:" + MESSAGE)
                                                          .contains(IS_ERROR_FALSE_MESSAGE);
+  }
+
+  @Test
+  @DisplayName("A null optional argument reaches the tool as absent instead of failing the input validation")
+  void nullOptionalArgumentIsDroppedBeforeValidation() throws Exception {
+    String token = issueToken(clientWithScopes("mcp-null-optional-" + UUID.randomUUID(), TOOL_READ_SCOPE));
+    String sessionId = initializeSession(token);
+
+    MvcResult result = callToolWithArguments(token,
+                                             sessionId,
+                                             TEST_OPTIONAL_TOOL_NAME,
+                                             "{ \"message\": \"hello\", \"space_id\": null }");
+
+    assertThat(result.getResponse().getContentAsString()).contains("optional:hello:null")
+                                                         .contains(IS_ERROR_FALSE_MESSAGE)
+                                                         .doesNotContain(VALIDATION_FAILED_MESSAGE);
+  }
+
+  @Test
+  @DisplayName("A non-null optional argument still reaches the tool")
+  void nonNullOptionalArgumentIsKept() throws Exception {
+    String token = issueToken(clientWithScopes("mcp-optional-set-" + UUID.randomUUID(), TOOL_READ_SCOPE));
+    String sessionId = initializeSession(token);
+
+    MvcResult result = callToolWithArguments(token,
+                                             sessionId,
+                                             TEST_OPTIONAL_TOOL_NAME,
+                                             "{ \"message\": \"hello\", \"space_id\": 42 }");
+
+    assertThat(result.getResponse().getContentAsString()).contains("optional:hello:42")
+                                                         .contains(IS_ERROR_FALSE_MESSAGE);
+  }
+
+  @Test
+  @DisplayName("A null required argument is still refused by the input validation")
+  void nullRequiredArgumentIsStillRefused() throws Exception {
+    String token = issueToken(clientWithScopes("mcp-null-required-" + UUID.randomUUID(), TOOL_READ_SCOPE));
+    String sessionId = initializeSession(token);
+
+    MvcResult result = callToolWithArguments(token,
+                                             sessionId,
+                                             TEST_OPTIONAL_TOOL_NAME,
+                                             "{ \"message\": null, \"space_id\": null }");
+
+    // The null itself is refused, not a missing property: the required
+    // argument reached the validation as sent
+    assertThat(result.getResponse().getContentAsString()).contains(IS_ERROR_TRUE_MESSAGE)
+                                                         .contains(VALIDATION_FAILED_MESSAGE)
+                                                         .contains("/message: null found")
+                                                         .doesNotContain("/space_id")
+                                                         .doesNotContain("optional:");
   }
 
   @Test
@@ -673,6 +728,40 @@ class McpServerOAuthIntegrationTest extends McpServiceIntegrationTestSupport {
                         }
                       }
                       """.formatted(toolName, message));
+  }
+
+  /**
+   * Performs a {@code tools/call} with the given raw JSON arguments, expected
+   * to reach the MCP server, whatever the call then answers.
+   *
+   * @param token         the bearer token
+   * @param sessionId     the MCP session id
+   * @param toolName      the tool to call
+   * @param argumentsJson the JSON object sent as the call's arguments
+   * @return the 200 result
+   * @throws Exception on a request failure
+   */
+  private MvcResult callToolWithArguments(String token,
+                                          String sessionId,
+                                          String toolName,
+                                          String argumentsJson) throws Exception {
+    return mvc.perform(post(MCP_ENDPOINT).header(AUTHORIZATION, bearer(token))
+                                         .header(MCP_SESSION_ID_HEADER, sessionId)
+                                         .header(HttpHeaders.ACCEPT, ACCEPT_HEADER_VALUE)
+                                         .contentType(APPLICATION_JSON)
+                                         .content("""
+                                             {
+                                               "jsonrpc": "2.0",
+                                               "id": "tool-call",
+                                               "method": "tools/call",
+                                               "params": {
+                                                 "name": "%s",
+                                                 "arguments": %s
+                                               }
+                                             }
+                                             """.formatted(toolName, argumentsJson)))
+              .andExpect(status().isOk())
+              .andReturn();
   }
 
   private String initializeSession(String token) throws Exception {

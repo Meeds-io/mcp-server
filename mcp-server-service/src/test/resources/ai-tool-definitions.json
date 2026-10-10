@@ -58,6 +58,28 @@
       "annotations": {
         "readOnlyHint": false
       }
+    },
+    {
+      "name": "test_optional_tool",
+      "title": "Test Optional Argument Tool",
+      "description": "Read-only MCP test tool with an optional integer argument",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "message": {
+            "type": "string"
+          },
+          "space_id": {
+            "type": "integer"
+          }
+        },
+        "required": ["message"]
+      },
+      "require_approval": false,
+      "disabled": false,
+      "annotations": {
+        "readOnlyHint": true
+      }
     }
   ]
 }

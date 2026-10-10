@@ -173,6 +173,17 @@ public abstract class McpServiceIntegrationTestSupport extends AbstractSpringTes
       return "approval:" + message;
     }
 
+    /**
+     * @param message the message to echo
+     * @param spaceId an optional identifier, {@code null} when the call
+     *                  omitted it
+     * @return the message and the identifier, prefixed to show which tool
+     *         answered
+     */
+    public String testOptionalTool(String message, Long spaceId) {
+      return "optional:" + message + ":" + spaceId;
+    }
+
   }
 
 }

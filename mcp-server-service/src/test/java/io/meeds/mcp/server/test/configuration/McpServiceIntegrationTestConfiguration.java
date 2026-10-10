@@ -65,6 +65,7 @@ import io.meeds.mcp.server.service.McpServerToolService;
 import io.meeds.mcp.server.service.McpToolApprovalService;
 import io.meeds.mcp.server.service.McpToolGrantService;
 import io.meeds.mcp.server.service.McpToolCallbackProviderService;
+import io.meeds.mcp.server.util.McpToolArgumentUtils;
 import io.meeds.mcp.server.web.McpBearerAuthenticationEntryPoint;
 
 import io.modelcontextprotocol.json.jackson3.JacksonMcpJsonMapper;
@@ -282,7 +283,17 @@ public class McpServiceIntegrationTestConfiguration {
     private Map<String, McpRequestHandler<?>> retrieveRequestHandlers(DefaultMcpStreamableServerSessionFactory sessionFactory) {
       Map<String, McpRequestHandler<?>> handlers = new HashMap<>(getField(sessionFactory, "requestHandlers"));
       handlers.put(McpSchema.METHOD_TOOLS_LIST, toolsListRequestHandler());
+      McpToolArgumentUtils.wrapToolsCallHandler(handlers, this::getAsyncServer);
       return handlers;
+    }
+
+    /**
+     * @return the async MCP server: the async bean when the application is
+     *         configured with one, otherwise the one the sync server wraps
+     */
+    private McpAsyncServer getAsyncServer() {
+      McpAsyncServer asyncServer = getMcpAsyncServer();
+      return asyncServer == null ? getMcpSyncServer().getAsyncServer() : asyncServer;
     }
 
     @SuppressWarnings("unchecked")
