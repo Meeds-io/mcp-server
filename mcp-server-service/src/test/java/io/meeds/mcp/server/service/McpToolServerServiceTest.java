@@ -255,6 +255,29 @@ class McpToolServerServiceTest {
     verify(mcpServerToolService).getToolDefinition(TOOL_NAME);
   }
 
+  /**
+   * A tool is approval-gated by its definition's require_approval flag alone,
+   * with no token at hand, while the scope-aware form still needs the
+   * approval scope; an unknown tool is not gated, as in the scope-aware form.
+   * Mutants: the flag ignored; the scope read into the definition check.
+   */
+  @Test
+  void aToolIsApprovalGatedByItsDefinitionAlone() {
+    SimpleToolDefinition gated = mock(SimpleToolDefinition.class);
+    when(gated.isRequireApproval()).thenReturn(true);
+    SimpleToolDefinition ungated = mock(SimpleToolDefinition.class);
+    when(ungated.isRequireApproval()).thenReturn(false);
+    doReturn(gated).when(mcpServerToolService).getToolDefinitionByMethodName("gated");
+    doReturn(ungated).when(mcpServerToolService).getToolDefinitionByMethodName("ungated");
+    doReturn(null).when(mcpServerToolService).getToolDefinitionByMethodName("unknown");
+    when(authentication.getAuthorities()).thenAnswer(invocation -> List.of(new SimpleGrantedAuthority(WRITE_SCOPE_AUTHORITY)));
+
+    assertTrue(mcpServerToolService.isApprovalGatedTool("gated"));
+    assertFalse(mcpServerToolService.isApprovalGatedTool("ungated"));
+    assertFalse(mcpServerToolService.isApprovalGatedTool("unknown"));
+    assertFalse(mcpServerToolService.isRequireApproval("gated", authentication), "a plain write token skips the approval branch");
+  }
+
   @Test
   void shouldAllowWhenToolRequiresApprovalAndUserHasWriteScope() {
     SimpleToolDefinition toolDefinition = mock(SimpleToolDefinition.class);

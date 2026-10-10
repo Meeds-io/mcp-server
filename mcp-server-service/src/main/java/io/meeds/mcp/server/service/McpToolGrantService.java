@@ -308,26 +308,27 @@ public class McpToolGrantService {
     } else if (grant.getConstraint() == null) {
       return true;
     } else {
-      return matchesConstraint(grant.getConstraint(), request.toolName(), arguments);
+      return matchesConstraint(grant, request.toolName(), arguments);
     }
   }
 
   /**
-   * Asks the tool's evaluator whether the call satisfies a constraint, failing
-   * closed when there is no evaluator or it fails.
+   * Asks the tool's evaluator whether the call satisfies a grant's constraint,
+   * handing it the whole grant, failing closed when there is no evaluator or
+   * it fails.
    *
-   * @param constraint the grant's constraint
-   * @param toolName   the MCP tool name
-   * @param arguments  the call arguments as the tool receives them
+   * @param grant     the grant, whose constraint is set
+   * @param toolName  the MCP tool name
+   * @param arguments the call arguments as the tool receives them
    * @return true only when the evaluator confirms the call stays within it
    */
-  private boolean matchesConstraint(McpToolGrantConstraint constraint, String toolName, Map<String, Object> arguments) {
+  private boolean matchesConstraint(McpToolGrant grant, String toolName, Map<String, Object> arguments) {
     McpToolGrantConstraintEvaluator evaluator = getEvaluator(toolName);
     if (evaluator == null || arguments == null) {
       return false;
     }
     try {
-      return evaluator.matches(toolName, arguments, constraint);
+      return evaluator.matchesGrant(toolName, arguments, grant);
     } catch (RuntimeException e) {
       log.warn("Argument limit of tool '{}' couldn't be checked, the grant doesn't apply", toolName, e);
       return false;

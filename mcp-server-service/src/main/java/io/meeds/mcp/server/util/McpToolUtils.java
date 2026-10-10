@@ -24,6 +24,7 @@ import java.lang.reflect.Field;
 import java.net.URL;
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
+import java.util.ArrayList;
 import java.util.Base64;
 import java.util.Calendar;
 import java.util.Collections;
@@ -44,6 +45,7 @@ import org.springframework.security.core.Authentication;
 import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.security.oauth2.core.OAuth2TokenIntrospectionClaimNames;
 import org.springframework.security.oauth2.server.resource.authentication.BearerTokenAuthentication;
+import org.springframework.web.context.request.RequestAttributes;
 import org.springframework.web.context.request.RequestContextHolder;
 import org.springframework.web.context.request.ServletRequestAttributes;
 
@@ -57,12 +59,19 @@ import org.exoplatform.services.organization.OrganizationService;
 import org.exoplatform.services.organization.UserProfile;
 import org.exoplatform.services.security.ConversationState;
 
+import io.meeds.mcp.server.constant.Origin;
+import io.meeds.mcp.server.constant.PrincipalKind;
+import io.meeds.mcp.server.model.ActingIdentity;
+import io.meeds.mcp.server.model.PrincipalRef;
 import io.meeds.mcp.server.model.SimpleToolDefinition;
 import io.meeds.mcp.server.model.ToolDefinitionMethods;
 
 import jakarta.servlet.http.HttpServletRequest;
 import lombok.SneakyThrows;
 import lombok.extern.slf4j.Slf4j;
+import tools.jackson.core.JacksonException;
+import tools.jackson.databind.JsonNode;
+import tools.jackson.databind.json.JsonMapper;
 
 @Slf4j
 public class McpToolUtils {
@@ -97,6 +106,31 @@ public class McpToolUtils {
    * answer, trusted under the same gate as {@link #TOOL_CONTEXT_USER_NAME_PARAM}.
    */
   public static final String        TOOL_CONTEXT_RETRY_MESSAGE_ID_PARAM           = "retryMessageId";
+
+  /**
+   * Header of the internal client naming the login of the account that
+   * executes the call; it and the other acting-identity headers are trusted
+   * under the same gate as {@link #TOOL_CONTEXT_USER_NAME_PARAM}.
+   */
+  public static final String        TOOL_CONTEXT_ACTOR_USER_NAME_PARAM            = "actorUserName";
+
+  /** Header of the internal client: the {@link PrincipalKind} of the actor. */
+  public static final String        TOOL_CONTEXT_ACTOR_KIND_PARAM                 = "actorKind";
+
+  /** Header of the internal client: the agent an agent account belongs to. */
+  public static final String        TOOL_CONTEXT_ACTOR_AGENT_NAME_ID_PARAM        = "actorAgentNameId";
+
+  /** Header of the internal client: the person the call is for, if any. */
+  public static final String        TOOL_CONTEXT_ON_BEHALF_OF_PARAM               = "onBehalfOf";
+
+  /**
+   * Header of the internal client: the agent chain, a JSON array of agent name
+   * ids ({@link #toAgentChainJson(List)}).
+   */
+  public static final String        TOOL_CONTEXT_AGENT_CHAIN_PARAM                = "agentChain";
+
+  /** Header of the internal client: the {@link Origin} of the call. */
+  public static final String        TOOL_CONTEXT_ORIGIN_PARAM                     = "origin";
 
   public static final String        TOOL_CONTEXT_ID                               = UUID.randomUUID().toString();
 
@@ -148,6 +182,21 @@ public class McpToolUtils {
   /** Event parameter: the agent the call is made for, when known. */
   public static final String        AI_AGENT_TOOL_AGENT_NAME_ID_PARAM             = "agentNameId";
 
+  /** Event parameter: the login of the account that executed the call. */
+  public static final String        AI_AGENT_TOOL_ACTOR_USER_NAME_PARAM           = "actorUserName";
+
+  /** Event parameter: whether that account is a person's or an agent's. */
+  public static final String        AI_AGENT_TOOL_ACTOR_KIND_PARAM                = "actorKind";
+
+  /** Event parameter: the person the call is for, absent for nobody. */
+  public static final String        AI_AGENT_TOOL_ON_BEHALF_OF_PARAM              = "onBehalfOf";
+
+  /** Event parameter: the agent chain, a JSON array of agent name ids. */
+  public static final String        AI_AGENT_TOOL_AGENT_CHAIN_PARAM               = "agentChain";
+
+  /** Event parameter: what triggered the call. */
+  public static final String        AI_AGENT_TOOL_ORIGIN_PARAM                    = "origin";
+
   /** Event parameter: the argument limit kind the card may offer. */
   public static final String        AI_AGENT_TOOL_GRANT_CONSTRAINT_KIND_PARAM     = "grantConstraintKind";
 
@@ -155,6 +204,11 @@ public class McpToolUtils {
   public static final String        AI_AGENT_TOOL_GRANT_CONSTRAINT_VALUE_PARAM    = "grantConstraintValue";
 
   private static final ObjectMapper OBJECT_MAPPER                                 = new ObjectMapper();
+
+  private static final JsonMapper   CHAIN_MAPPER                                  = JsonMapper.builder().build();
+
+  /** The request attribute holding the acting identity resolved for a call. */
+  private static final String       ACTING_IDENTITY_ATTRIBUTE                     = ActingIdentity.class.getName();
 
   private static final String       PROFILE_TIMEZONE                              = "user.timeZone";
 
@@ -345,6 +399,173 @@ public class McpToolUtils {
     } else {
       return authentication.getName();
     }
+  }
+
+  /**
+   * Resolves who executes the current Tool call, for whom, through which
+   * agents and on which trigger. For the internal client-credentials call
+   * only (the gate of {@link #getInternalToolCallRequest()}), the identity is
+   * read from its headers: the acting-identity headers when it sends them,
+   * else the legacy {@link #TOOL_CONTEXT_USER_NAME_PARAM} and
+   * {@link #TOOL_CONTEXT_AGENT_NAME_ID_PARAM} ones, the person in a chat with
+   * the named agent appended, or with the named source scope (a value holding
+   * {@value ActingIdentity#SOURCE_SCOPE_SEPARATOR}, never an agent hop). For
+   * any other caller the identity is the token's user acting for themself
+   * through an external client, whatever headers it sends. The identity is
+   * resolved once per request and kept as a request attribute, so a tool
+   * reading it during the call sees the one the server checked.
+   *
+   * @return the acting identity, or null when no user can be resolved
+   * @throws IllegalStateException when the internal client sends an identity
+   *                                 the server refuses: an incomplete or
+   *                                 malformed one, or an agent account acting
+   *                                 for a person
+   */
+  public static ActingIdentity getCurrentActingIdentity() {
+    RequestAttributes requestAttributes = RequestContextHolder.getRequestAttributes();
+    Object cached = requestAttributes == null ? null :
+                                              requestAttributes.getAttribute(ACTING_IDENTITY_ATTRIBUTE,
+                                                                             RequestAttributes.SCOPE_REQUEST);
+    if (cached instanceof ActingIdentity actingIdentity) {
+      return actingIdentity;
+    }
+    ActingIdentity actingIdentity = resolveActingIdentity();
+    if (requestAttributes != null && actingIdentity != null) {
+      requestAttributes.setAttribute(ACTING_IDENTITY_ATTRIBUTE, actingIdentity, RequestAttributes.SCOPE_REQUEST);
+    }
+    return actingIdentity;
+  }
+
+  /**
+   * Serializes an agent chain the way the acting-identity header and the
+   * execution events carry it: a JSON array, since an agent name id may hold
+   * a comma.
+   *
+   * @param chain the agent name ids, may be null
+   * @return the JSON array, {@code []} for a null chain
+   */
+  @SneakyThrows
+  public static String toAgentChainJson(List<String> chain) {
+    return CHAIN_MAPPER.writeValueAsString(chain == null ? List.of() : chain);
+  }
+
+  /**
+   * Parses an agent chain serialized by {@link #toAgentChainJson(List)}.
+   *
+   * @param value the JSON array
+   * @return the agent name ids, in order
+   * @throws IllegalArgumentException when the value isn't a JSON array of
+   *                                    agent name ids: blank, not an array,
+   *                                    an element that isn't a string, or one
+   *                                    that is blank or holds
+   *                                    {@value ActingIdentity#SOURCE_SCOPE_SEPARATOR}
+   */
+  public static List<String> parseAgentChain(String value) {
+    if (StringUtils.isBlank(value)) {
+      throw new IllegalArgumentException("No agent chain");
+    }
+    JsonNode node;
+    try {
+      node = CHAIN_MAPPER.readTree(value);
+    } catch (JacksonException e) {
+      throw new IllegalArgumentException("The agent chain isn't JSON", e);
+    }
+    if (node == null || !node.isArray()) {
+      throw new IllegalArgumentException("The agent chain isn't a JSON array");
+    }
+    List<String> chain = new ArrayList<>();
+    for (JsonNode element : node) {
+      if (!element.isString()
+          || StringUtils.isBlank(element.stringValue())
+          || element.stringValue().contains(ActingIdentity.SOURCE_SCOPE_SEPARATOR)) {
+        throw new IllegalArgumentException("The agent chain holds an element that isn't an agent name id");
+      }
+      chain.add(element.stringValue());
+    }
+    return chain;
+  }
+
+  /**
+   * Resolves the acting identity of the current call without the request
+   * attribute, see {@link #getCurrentActingIdentity()}.
+   *
+   * @return the acting identity, or null when no user can be resolved
+   */
+  private static ActingIdentity resolveActingIdentity() {
+    Authentication authentication = SecurityContextHolder.getContext().getAuthentication();
+    if (authentication == null) {
+      return null;
+    } else if (isInternalClientAuthentication(authentication)) {
+      HttpServletRequest request = getInternalToolCallRequest();
+      String userName = request == null ? null : StringUtils.trimToNull(request.getHeader(TOOL_CONTEXT_USER_NAME_PARAM));
+      if (userName == null) {
+        return null;
+      } else if (request.getHeader(TOOL_CONTEXT_ACTOR_KIND_PARAM) == null) {
+        return legacyActingIdentity(userName, StringUtils.trimToNull(request.getHeader(TOOL_CONTEXT_AGENT_NAME_ID_PARAM)));
+      } else {
+        return headerActingIdentity(request);
+      }
+    } else {
+      return StringUtils.isBlank(authentication.getName()) ? null : ActingIdentity.external(authentication.getName());
+    }
+  }
+
+  /**
+   * Builds the acting identity of an internal client that sends only the
+   * legacy headers: the person in a chat, with the named agent appended, or
+   * with the named source scope, which is never an agent hop.
+   *
+   * @param userName    the user header
+   * @param agentNameId the agent header, may be null
+   * @return the acting identity
+   */
+  private static ActingIdentity legacyActingIdentity(String userName, String agentNameId) {
+    ActingIdentity person = ActingIdentity.person(userName, Origin.CHAT);
+    if (agentNameId == null) {
+      return person;
+    } else if (agentNameId.contains(ActingIdentity.SOURCE_SCOPE_SEPARATOR)) {
+      return person.withGrantScope(agentNameId);
+    } else {
+      return person.withHop(agentNameId);
+    }
+  }
+
+  /**
+   * Builds the acting identity the internal client sends in its headers.
+   *
+   * @param request the internal client's request
+   * @return the acting identity
+   * @throws IllegalStateException when the headers are incomplete or
+   *                                 malformed, or name a combination the model
+   *                                 refuses
+   */
+  private static ActingIdentity headerActingIdentity(HttpServletRequest request) {
+    try {
+      PrincipalRef actor = new PrincipalRef(toEnum(PrincipalKind.class, request.getHeader(TOOL_CONTEXT_ACTOR_KIND_PARAM)),
+                                            StringUtils.trimToNull(request.getHeader(TOOL_CONTEXT_ACTOR_USER_NAME_PARAM)),
+                                            StringUtils.trimToNull(request.getHeader(TOOL_CONTEXT_ACTOR_AGENT_NAME_ID_PARAM)));
+      return new ActingIdentity(actor,
+                                StringUtils.trimToNull(request.getHeader(TOOL_CONTEXT_ON_BEHALF_OF_PARAM)),
+                                parseAgentChain(request.getHeader(TOOL_CONTEXT_AGENT_CHAIN_PARAM)),
+                                toEnum(Origin.class, request.getHeader(TOOL_CONTEXT_ORIGIN_PARAM)),
+                                request.getHeader(TOOL_CONTEXT_AGENT_NAME_ID_PARAM));
+    } catch (IllegalArgumentException e) {
+      throw new IllegalStateException("The acting identity of the call is refused: %s".formatted(e.getMessage()), e);
+    }
+  }
+
+  /**
+   * @param <E>       the enum type
+   * @param enumClass the enum class
+   * @param value     the header value
+   * @return the constant the value names
+   * @throws IllegalArgumentException when the value is missing or names none
+   */
+  private static <E extends Enum<E>> E toEnum(Class<E> enumClass, String value) {
+    if (StringUtils.isBlank(value)) {
+      throw new IllegalArgumentException("No %s".formatted(enumClass.getSimpleName()));
+    }
+    return Enum.valueOf(enumClass, value.trim());
   }
 
   /**

@@ -19,11 +19,18 @@
 package io.meeds.mcp.server.service;
 
 import static io.meeds.mcp.server.util.McpToolUtils.MCP_OAUTH2_CLIENT_CREDENTIALS_REGISTRATION_ID;
+import static io.meeds.mcp.server.util.McpToolUtils.TOOL_CONTEXT_ACTOR_AGENT_NAME_ID_PARAM;
+import static io.meeds.mcp.server.util.McpToolUtils.TOOL_CONTEXT_ACTOR_KIND_PARAM;
+import static io.meeds.mcp.server.util.McpToolUtils.TOOL_CONTEXT_ACTOR_USER_NAME_PARAM;
+import static io.meeds.mcp.server.util.McpToolUtils.TOOL_CONTEXT_AGENT_CHAIN_PARAM;
 import static io.meeds.mcp.server.util.McpToolUtils.TOOL_CONTEXT_AGENT_NAME_ID_PARAM;
 import static io.meeds.mcp.server.util.McpToolUtils.TOOL_CONTEXT_CONVERSATION_ID_PARAM;
 import static io.meeds.mcp.server.util.McpToolUtils.TOOL_CONTEXT_ID;
 import static io.meeds.mcp.server.util.McpToolUtils.TOOL_CONTEXT_ID_PARAM;
+import static io.meeds.mcp.server.util.McpToolUtils.TOOL_CONTEXT_ON_BEHALF_OF_PARAM;
+import static io.meeds.mcp.server.util.McpToolUtils.TOOL_CONTEXT_ORIGIN_PARAM;
 import static io.meeds.mcp.server.util.McpToolUtils.TOOL_CONTEXT_RETRY_MESSAGE_ID_PARAM;
+import static io.meeds.mcp.server.util.McpToolUtils.TOOL_CONTEXT_USER_NAME_PARAM;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNull;
@@ -69,12 +76,15 @@ import org.exoplatform.services.security.ConversationState;
 import org.exoplatform.services.security.Identity;
 
 import io.meeds.mcp.server.constant.McpToolGrantOwnerType;
+import io.meeds.mcp.server.constant.Origin;
 import io.meeds.mcp.server.constant.UserToolRequestType;
+import io.meeds.mcp.server.model.ActingIdentity;
 import io.meeds.mcp.server.model.McpToolGrant;
 import io.meeds.mcp.server.model.McpToolGrantConstraint;
 import io.meeds.mcp.server.model.McpToolGrantRequest;
 import io.meeds.mcp.server.model.SimpleToolDefinition;
 import io.meeds.mcp.server.model.UserToolExecution;
+import io.meeds.mcp.server.model.UserToolRefusedException;
 import io.meeds.mcp.server.plugin.McpToolPlugin;
 
 /**
@@ -458,6 +468,298 @@ class McpToolCallbackProviderServiceTest {
 
     assertTrue(output.contains("Hello Bob"), output);
     verify(mcpToolGrantService, never()).findApplicableGrant(any(), any());
+  }
+
+  /**
+   * R3 on the server: an internal client sending an agent account acting for
+   * a person is refused before anything runs, and traced as an error.
+   */
+  @Test
+  void call_agentAccountActingForAPerson_refusedAndTracedAsError() {// NOSONAR
+    MockHttpServletRequest request = bindRequest(TOOL_CONTEXT_ID, CONVERSATION_ID);
+    addIdentityHeaders(request, USERNAME, "AGENT", "agent-mail", "EMAIL_ASSISTANT", USERNAME, "[\"EMAIL_ASSISTANT\"]", "MENTION", null);
+
+    assertThrows(IllegalStateException.class, () -> toolCallback.call(TOOL_INPUT));
+
+    verify(mcpToolApprovalService).traceToolExecution(argThatIs(UserToolRequestType.TOOL_EXECUTION_ERROR));
+    verify(mcpToolApprovalService, never()).traceToolExecution(argThatIs(UserToolRequestType.TOOL_EXECUTION_START));
+  }
+
+  /**
+   * R1: the call runs as the acting identity's subject and nothing else; an
+   * identity naming another account than the one the call runs as is
+   * refused, traced as an error.
+   */
+  @Test
+  void call_actingIdentityForAnotherAccount_refusedAndTracedAsError() {// NOSONAR
+    MockHttpServletRequest request = bindRequest(TOOL_CONTEXT_ID, CONVERSATION_ID);
+    addIdentityHeaders(request, "mary", "USER", "mary", null, "mary", "[]", "CHAT", null);
+
+    IllegalStateException e = assertThrows(IllegalStateException.class, () -> toolCallback.call(TOOL_INPUT));
+
+    assertTrue(e.getMessage().contains("mary"), e.getMessage());
+    verify(mcpToolApprovalService).traceToolExecution(argThatIs(UserToolRequestType.TOOL_EXECUTION_ERROR));
+    verify(mcpToolApprovalService, never()).traceToolExecution(argThatIs(UserToolRequestType.TOOL_EXECUTION_START));
+  }
+
+  /**
+   * The acting identity the server resolved reaches the grant decision (its
+   * grant scope as the agent), the card (pushed to the person the call is
+   * for) and every step of the trace.
+   */
+  @Test
+  void call_actingIdentityReachesGrantCardAndTrace() {// NOSONAR
+    MockHttpServletRequest request = bindRequest(TOOL_CONTEXT_ID, CONVERSATION_ID);
+    addIdentityHeaders(request, USERNAME, "USER", USERNAME, null, USERNAME, "[\"COMPLETION\",\"EMAIL_ASSISTANT\"]", "CHAT", "EMAIL_ASSISTANT");
+    when(mcpToolApprovalService.requestApproval(any(), any(), any(), any(), any(), any(), anyBoolean(), any())).thenReturn(true);
+
+    toolCallback.call(TOOL_INPUT);
+
+    ActingIdentity expected = ActingIdentity.person(USERNAME, Origin.CHAT).withHop("COMPLETION").withHop("EMAIL_ASSISTANT");
+    ArgumentCaptor<McpToolGrantRequest> grantRequest = ArgumentCaptor.forClass(McpToolGrantRequest.class);
+    verify(mcpToolGrantService).findApplicableGrant(grantRequest.capture(), any());
+    assertEquals(expected, grantRequest.getValue().actingIdentity());
+    assertEquals("EMAIL_ASSISTANT", grantRequest.getValue().agentNameId());
+    assertEquals(USERNAME, grantRequest.getValue().username());
+    verify(mcpToolApprovalService).requestApproval(anyString(),
+                                                   eq(CONVERSATION_ID),
+                                                   eq(TOOL_METHOD),
+                                                   anyString(),
+                                                   eq(USERNAME),
+                                                   eq(grantRequest.getValue()),
+                                                   anyBoolean(),
+                                                   any());
+    verify(mcpToolApprovalService).traceToolExecution(org.mockito.ArgumentMatchers.argThat(execution -> execution != null
+        && execution.getToolExecutionType() == UserToolRequestType.TOOL_EXECUTION_FINISHED
+        && USERNAME.equals(execution.getUsername())
+        && USERNAME.equals(execution.getActorUserName())
+        && "USER".equals(execution.getActorKind())
+        && USERNAME.equals(execution.getOnBehalfOf())
+        && List.of("COMPLETION", "EMAIL_ASSISTANT").equals(execution.getAgentChain())
+        && "CHAT".equals(execution.getOrigin())));
+  }
+
+  /**
+   * T3: an agent account acting as itself has nobody to approve its write;
+   * the grant lookup comes first, then the call is refused before any card or
+   * wait, traced as denied.
+   */
+  @Test
+  void call_agentActingAsItselfWithoutGrant_refusedAsDeniedWithoutCard() {// NOSONAR
+    bindAgentAccount();
+    MockHttpServletRequest request = bindRequest(TOOL_CONTEXT_ID, CONVERSATION_ID);
+    addAgentAccountHeaders(request);
+
+    UserToolRefusedException e = assertThrows(UserToolRefusedException.class, () -> toolCallback.call(TOOL_INPUT));
+
+    assertTrue(e.getMessage().contains("nobody"), e.getMessage());
+    verify(mcpToolGrantService).findApplicableGrant(any(), any());
+    verify(mcpToolApprovalService, never()).requestApproval(any(), any(), any(), any(), any(), any(), anyBoolean(), any());
+    verify(mcpToolApprovalService).traceToolExecution(argThatIs(UserToolRequestType.TOOL_EXECUTION_DENIED));
+    verify(mcpToolApprovalService, never()).traceToolExecution(argThatIs(UserToolRequestType.TOOL_EXECUTION_ERROR));
+  }
+
+  /**
+   * An unattended agent-account run carries no conversation: the existing
+   * no-conversation refusal fires first, and for an agent acting as itself it
+   * is traced as denied.
+   */
+  @Test
+  void call_agentActingAsItselfWithoutConversation_refusedAsDenied() {// NOSONAR
+    bindAgentAccount();
+    MockHttpServletRequest request = new MockHttpServletRequest();
+    request.addHeader(TOOL_CONTEXT_ID_PARAM, TOOL_CONTEXT_ID);
+    RequestContextHolder.setRequestAttributes(new ServletRequestAttributes(request));
+    addAgentAccountHeaders(request);
+
+    UserToolRefusedException e = assertThrows(UserToolRefusedException.class, () -> toolCallback.call(TOOL_INPUT));
+
+    assertTrue(e.getMessage().contains("conversation"), e.getMessage());
+    verify(mcpToolApprovalService, never()).requestApproval(any(), any(), any(), any(), any(), any(), anyBoolean(), any());
+    verify(mcpToolApprovalService).traceToolExecution(argThatIs(UserToolRequestType.TOOL_EXECUTION_DENIED));
+    verify(mcpToolApprovalService, never()).traceToolExecution(argThatIs(UserToolRequestType.TOOL_EXECUTION_ERROR));
+  }
+
+  /**
+   * An agent account acting as itself writes under its own grant: the grant
+   * lookup decides before any refusal.
+   */
+  @Test
+  void call_agentActingAsItselfUnderItsGrant_runs() {// NOSONAR
+    bindAgentAccount();
+    MockHttpServletRequest request = new MockHttpServletRequest();
+    request.addHeader(TOOL_CONTEXT_ID_PARAM, TOOL_CONTEXT_ID);
+    RequestContextHolder.setRequestAttributes(new ServletRequestAttributes(request));
+    addAgentAccountHeaders(request);
+    McpToolGrant grant = McpToolGrant.builder().id(8L).ownerType(McpToolGrantOwnerType.USER).build();
+    when(mcpToolGrantService.findApplicableGrant(any(), any())).thenReturn(grant);
+
+    String output = toolCallback.call(TOOL_INPUT);
+
+    assertTrue(output.contains("Hello Bob"), output);
+    ArgumentCaptor<McpToolGrantRequest> grantRequest = ArgumentCaptor.forClass(McpToolGrantRequest.class);
+    verify(mcpToolGrantService).findApplicableGrant(grantRequest.capture(), any());
+    assertEquals("agent-user:EMAIL_ASSISTANT", grantRequest.getValue().agentNameId());
+    assertEquals("agent-mail", grantRequest.getValue().username());
+  }
+
+  /**
+   * An agent account's call to a require_approval tool needs its own grant
+   * whatever the internal client's scope: under a plain write scope, which
+   * skips the approval branch, an ungranted call is refused before it runs,
+   * traced as denied, with the no-approver explanation. Mutant: the agent
+   * check removed, which ran it ungranted.
+   */
+  @Test
+  void call_agentGatedToolUnderPlainWriteScopeWithoutGrant_refusedAsDenied() {// NOSONAR
+    bindAgentAccount();
+    when(mcpServerToolService.isRequireApproval(eq(TOOL_METHOD), any())).thenReturn(false);
+    when(mcpServerToolService.isApprovalGatedTool(TOOL_METHOD)).thenReturn(true);
+    MockHttpServletRequest request = new MockHttpServletRequest();
+    request.addHeader(TOOL_CONTEXT_ID_PARAM, TOOL_CONTEXT_ID);
+    RequestContextHolder.setRequestAttributes(new ServletRequestAttributes(request));
+    addAgentAccountHeaders(request);
+
+    UserToolRefusedException e = assertThrows(UserToolRefusedException.class, () -> toolCallback.call(TOOL_INPUT));
+
+    assertTrue(e.getMessage().contains("nobody can approve it"), e.getMessage());
+    ArgumentCaptor<McpToolGrantRequest> grantRequest = ArgumentCaptor.forClass(McpToolGrantRequest.class);
+    verify(mcpToolGrantService).findApplicableGrant(grantRequest.capture(), any());
+    assertEquals("agent-user:EMAIL_ASSISTANT", grantRequest.getValue().agentNameId());
+    verify(mcpToolApprovalService).traceToolExecution(argThatIs(UserToolRequestType.TOOL_EXECUTION_DENIED));
+    verify(mcpToolApprovalService, never()).traceToolExecution(argThatIs(UserToolRequestType.TOOL_EXECUTION_START));
+    verify(mcpToolApprovalService, never()).requestApproval(any(), any(), any(), any(), any(), any(), anyBoolean(), any());
+  }
+
+  /**
+   * An agent account's call to a require_approval tool under a plain write
+   * scope runs under its own grant, traced as granted, its use recorded.
+   * Mutant: the grant ignored, which refused every such call.
+   */
+  @Test
+  void call_agentGatedToolUnderPlainWriteScopeWithGrant_runs() {// NOSONAR
+    bindAgentAccount();
+    when(mcpServerToolService.isRequireApproval(eq(TOOL_METHOD), any())).thenReturn(false);
+    when(mcpServerToolService.isApprovalGatedTool(TOOL_METHOD)).thenReturn(true);
+    MockHttpServletRequest request = new MockHttpServletRequest();
+    request.addHeader(TOOL_CONTEXT_ID_PARAM, TOOL_CONTEXT_ID);
+    RequestContextHolder.setRequestAttributes(new ServletRequestAttributes(request));
+    addAgentAccountHeaders(request);
+    McpToolGrant grant = McpToolGrant.builder().id(9L).ownerType(McpToolGrantOwnerType.USER).build();
+    when(mcpToolGrantService.findApplicableGrant(any(), any())).thenReturn(grant);
+
+    String output = toolCallback.call(TOOL_INPUT);
+
+    assertTrue(output.contains("Hello Bob"), output);
+    verify(mcpToolGrantService).recordUse(eq(grant), any());
+    verify(mcpToolApprovalService).traceToolExecution(org.mockito.ArgumentMatchers.argThat(execution -> execution != null
+        && execution.getToolExecutionType() == UserToolRequestType.TOOL_EXECUTION_GRANTED
+        && Long.valueOf(9L).equals(execution.getGrantId())));
+  }
+
+  /**
+   * An agent account's call to a tool that asks for no approval, an ungated
+   * write such as setting a category, runs as a person's would: no grant is
+   * looked up. Mutant: every agent call gated.
+   */
+  @Test
+  void call_agentUngatedWriteUnderPlainWriteScope_runsWithoutGrantLookup() {// NOSONAR
+    bindAgentAccount();
+    when(mcpServerToolService.isRequireApproval(eq(TOOL_METHOD), any())).thenReturn(false);
+    when(mcpServerToolService.isApprovalGatedTool(TOOL_METHOD)).thenReturn(false);
+    MockHttpServletRequest request = new MockHttpServletRequest();
+    request.addHeader(TOOL_CONTEXT_ID_PARAM, TOOL_CONTEXT_ID);
+    RequestContextHolder.setRequestAttributes(new ServletRequestAttributes(request));
+    addAgentAccountHeaders(request);
+
+    String output = toolCallback.call(TOOL_INPUT);
+
+    assertTrue(output.contains("Hello Bob"), output);
+    verify(mcpToolGrantService, never()).findApplicableGrant(any(), any());
+  }
+
+  /**
+   * A person's call to a require_approval tool under a plain write scope
+   * keeps today's behaviour exactly: it runs unasked, with no grant lookup.
+   * Mutant: the agent check applied to every actor.
+   */
+  @Test
+  void call_personGatedToolUnderPlainWriteScope_unchanged() {// NOSONAR
+    when(mcpServerToolService.isRequireApproval(eq(TOOL_METHOD), any())).thenReturn(false);
+    lenient().when(mcpServerToolService.isApprovalGatedTool(TOOL_METHOD)).thenReturn(true);
+    MockHttpServletRequest request = bindRequest(TOOL_CONTEXT_ID, CONVERSATION_ID);
+    addIdentityHeaders(request, USERNAME, "USER", USERNAME, null, USERNAME, "[\"COMPLETION\"]", "CHAT", "COMPLETION");
+
+    String output = toolCallback.call(TOOL_INPUT);
+
+    assertTrue(output.contains("Hello Bob"), output);
+    verify(mcpToolGrantService, never()).findApplicableGrant(any(), any());
+    verify(mcpToolApprovalService, never()).traceToolExecution(argThatIs(UserToolRequestType.TOOL_EXECUTION_DENIED));
+    verify(mcpToolApprovalService).traceToolExecution(argThatIs(UserToolRequestType.TOOL_EXECUTION_FINISHED));
+  }
+
+  /**
+   * Binds the agent account as the user the call runs as.
+   */
+  private void bindAgentAccount() {
+    ConversationState.setCurrent(new ConversationState(new Identity("agent-mail")));
+    when(userAcl.getUserIdentity("agent-mail")).thenReturn(new Identity("agent-mail"));
+  }
+
+  /**
+   * Adds the headers of the agent account acting as itself.
+   *
+   * @param request the request
+   */
+  private static void addAgentAccountHeaders(MockHttpServletRequest request) {
+    addIdentityHeaders(request,
+                       "agent-mail",
+                       "AGENT",
+                       "agent-mail",
+                       "EMAIL_ASSISTANT",
+                       null,
+                       "[\"EMAIL_ASSISTANT\"]",
+                       "MENTION",
+                       "agent-user:EMAIL_ASSISTANT");
+  }
+
+  /**
+   * Adds the internal client's user and acting-identity headers, each one
+   * only when given.
+   *
+   * @param request       the request
+   * @param userName      the user header
+   * @param kind          the actor kind
+   * @param actorUserName the actor login
+   * @param actorAgent    the actor agent
+   * @param onBehalfOf    the person
+   * @param chain         the chain
+   * @param origin        the origin
+   * @param grantScope    the grant scope, sent as the agent header
+   */
+  private static void addIdentityHeaders(MockHttpServletRequest request, // NOSONAR the headers, each one its own
+                                         String userName,
+                                         String kind,
+                                         String actorUserName,
+                                         String actorAgent,
+                                         String onBehalfOf,
+                                         String chain,
+                                         String origin,
+                                         String grantScope) {
+    Map<String, String> headers = new java.util.HashMap<>();
+    headers.put(TOOL_CONTEXT_USER_NAME_PARAM, userName);
+    headers.put(TOOL_CONTEXT_ACTOR_KIND_PARAM, kind);
+    headers.put(TOOL_CONTEXT_ACTOR_USER_NAME_PARAM, actorUserName);
+    headers.put(TOOL_CONTEXT_ACTOR_AGENT_NAME_ID_PARAM, actorAgent);
+    headers.put(TOOL_CONTEXT_ON_BEHALF_OF_PARAM, onBehalfOf);
+    headers.put(TOOL_CONTEXT_AGENT_CHAIN_PARAM, chain);
+    headers.put(TOOL_CONTEXT_ORIGIN_PARAM, origin);
+    headers.put(TOOL_CONTEXT_AGENT_NAME_ID_PARAM, grantScope);
+    headers.forEach((name, value) -> {
+      if (value != null) {
+        request.addHeader(name, value);
+      }
+    });
   }
 
   @Test

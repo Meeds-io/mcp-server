@@ -146,12 +146,24 @@ public class McpServerToolService {
    * @return true when the call must be approved by the user first
    */
   public boolean isRequireApproval(String methodName, Authentication authentication) {
-    SimpleToolDefinition toolDefinition = getToolDefinitionByMethodName(methodName);
-    return toolDefinition != null
-           && toolDefinition.isRequireApproval()
+    return isApprovalGatedTool(methodName)
            && authentication.getAuthorities()
                             .stream()
                             .anyMatch(a -> WRITE_APPROVE_SCOPE_AUTHORITY.equals(a.getAuthority()));
+  }
+
+  /**
+   * Tells whether a tool's definition asks for approval
+   * ({@code require_approval}), whatever the caller's token holds: the flag
+   * {@link #isRequireApproval(String, Authentication)} reads before it looks
+   * at the token's scope.
+   *
+   * @param methodName the tool's Java method name
+   * @return true when the tool is known and its definition asks for approval
+   */
+  public boolean isApprovalGatedTool(String methodName) {
+    SimpleToolDefinition toolDefinition = getToolDefinitionByMethodName(methodName);
+    return toolDefinition != null && toolDefinition.isRequireApproval();
   }
 
   /**

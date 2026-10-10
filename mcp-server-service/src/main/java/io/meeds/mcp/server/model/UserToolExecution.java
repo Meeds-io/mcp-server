@@ -18,6 +18,8 @@
  */
 package io.meeds.mcp.server.model;
 
+import java.util.List;
+
 import io.meeds.mcp.server.constant.UserToolRequestType;
 
 import lombok.AllArgsConstructor;
@@ -56,6 +58,21 @@ public class UserToolExecution {
 
   /** The owner type of {@link #grantId}'s grant, or null. */
   private String              grantOwnerType;
+
+  /** The login of the account that executed the call, or null when unknown. */
+  private String              actorUserName;
+
+  /** Whether that account is a person's or an agent's, or null when unknown. */
+  private String              actorKind;
+
+  /** The person the call was for, null when an agent acted as itself. */
+  private String              onBehalfOf;
+
+  /** The agents from the entry point to the calling one, null when unknown. */
+  private List<String>        agentChain;
+
+  /** What triggered the call, or null when unknown. */
+  private String              origin;
 
   // Workaround javadoc error not reading lombok classes
   public static class UserToolExecutionBuilder { // NOSONAR
