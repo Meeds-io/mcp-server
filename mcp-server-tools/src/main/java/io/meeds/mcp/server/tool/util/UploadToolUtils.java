@@ -233,8 +233,9 @@ public final class UploadToolUtils {
    * @param fileService the files
    * @param aclIdentity the user the attachment is read as
    * @param source the one source of the image
-   * @param maxBytes the most bytes accepted; a URL is read up to at most
-   *          {@link #MAX_FETCH_BYTES} (15 MB), whatever this asks
+   * @param maxBytes the most bytes accepted from a URL or base64 (a URL is read
+   *          up to at most {@link #MAX_FETCH_BYTES}, 15 MB, whatever this
+   *          asks); an attachment is not bounded here
    * @return the resolved image bytes, mime type and file name
    * @throws IllegalAccessException when the user may not read the attachment
    * @throws ObjectNotFoundException when the attachment has no file
