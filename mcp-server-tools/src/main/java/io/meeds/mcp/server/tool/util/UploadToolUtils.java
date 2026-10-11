@@ -101,9 +101,9 @@ public final class UploadToolUtils {
   private static final int    MAX_CONNECTIONS          = 64;
 
   /**
-   * Connections to one host: above the client's default of 2, a third
-   * concurrent fetch of the same host would wait for a lease and fail as a
-   * host that did not answer in time.
+   * Connections to one host: with the policy builder's default of 2, a
+   * third concurrent fetch of the same host would wait for a lease and fail
+   * as a host that did not answer in time.
    */
   private static final int    MAX_CONNECTIONS_PER_HOST = 8;
 
