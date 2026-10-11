@@ -247,9 +247,8 @@ class UploadToolUtilsTest {
   /**
    * A name resolving to an internal address — a private one, loopback, the
    * cloud metadata address — is refused by the lookup the connection makes,
-   * and the stub never sees a request. The pin of the pitfall where the guard
-   * checked one answer and the client connected with another: the check now
-   * runs inside the client's resolver.
+   * and the stub never sees a request. Pins the address check inside the
+   * client's resolver: the address judged is the address dialled.
    */
   @Test
   void fetchImageRefusesAnInternalAddressAtConnection() {

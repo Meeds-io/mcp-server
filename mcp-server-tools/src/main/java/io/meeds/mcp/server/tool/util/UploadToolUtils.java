@@ -82,7 +82,7 @@ public final class UploadToolUtils {
    * caller is capped below its own limit. A request narrows the policy's
    * limit, never widens it.
    */
-  static final long           MAX_FETCH_BYTES          = 15L * 1024 * 1024;
+  public static final long    MAX_FETCH_BYTES          = 15L * 1024 * 1024;
 
   private static final int    CONNECT_TIMEOUT_SECONDS  = 10;
 
@@ -199,7 +199,8 @@ public final class UploadToolUtils {
    * @param uploadService the upload registry
    * @param imageUrl the public http(s) URL, or null
    * @param imageBase64 the base64 bytes, or null
-   * @param maxBytes the most bytes accepted
+   * @param maxBytes the most bytes accepted; a URL is read up to at most
+   *          {@link #MAX_FETCH_BYTES} (15 MB), whatever this asks
    * @return the generated <code>uploadId</code> to pass to a consumer API
    */
   public static String materializeFromUrlOrBase64(UploadService uploadService,
@@ -232,7 +233,8 @@ public final class UploadToolUtils {
    * @param fileService the files
    * @param aclIdentity the user the attachment is read as
    * @param source the one source of the image
-   * @param maxBytes the most bytes accepted
+   * @param maxBytes the most bytes accepted; a URL is read up to at most
+   *          {@link #MAX_FETCH_BYTES} (15 MB), whatever this asks
    * @return the resolved image bytes, mime type and file name
    * @throws IllegalAccessException when the user may not read the attachment
    * @throws ObjectNotFoundException when the attachment has no file
@@ -305,7 +307,8 @@ public final class UploadToolUtils {
    * Downloads an image over http(s) through the platform's guarded fetcher.
    *
    * @param url the http(s) URL
-   * @param maxBytes the most bytes read before failing
+   * @param maxBytes the most bytes accepted; a URL is read up to at most
+   *          {@link #MAX_FETCH_BYTES} (15 MB), whatever this asks
    * @return the image
    */
   public static FetchedContent fetchImage(String url, long maxBytes) {
@@ -340,7 +343,8 @@ public final class UploadToolUtils {
    * generic file upload tools.
    *
    * @param url the http(s) URL to download
-   * @param maxBytes the maximum number of bytes to read before failing
+   * @param maxBytes the most bytes accepted; a URL is read up to at most
+   *          {@link #MAX_FETCH_BYTES} (15 MB), whatever this asks
    * @param defaultFileName a file name to use when the URL path has none
    * @return the downloaded bytes, resolved mime type and file name
    */
