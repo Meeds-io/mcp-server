@@ -93,6 +93,20 @@ public final class UploadToolUtils {
 
   private static final String USER_AGENT               = "Meeds-MCP-Server-Upload/1.0";
 
+  /**
+   * Connections the shared fetcher keeps open in all: every upload tool of
+   * the JVM (activity, space, user, content, documents, notes, onlyoffice)
+   * fetches through it.
+   */
+  private static final int    MAX_CONNECTIONS          = 64;
+
+  /**
+   * Connections to one host: above the client's default of 2, a third
+   * concurrent fetch of the same host would wait for a lease and fail as a
+   * host that did not answer in time.
+   */
+  private static final int    MAX_CONNECTIONS_PER_HOST = 8;
+
   private static final FileAttribute<Set<PosixFilePermission>> OWNER_ONLY_PERMS =
                                                                                  PosixFilePermissions.asFileAttribute(EnumSet.of(PosixFilePermission.OWNER_READ,
                                                                                                                                   PosixFilePermission.OWNER_WRITE));
@@ -100,8 +114,9 @@ public final class UploadToolUtils {
   /**
    * The one fetcher of every URL a tool is given: public http/https on any
    * port, no redirect followed, at most {@link #MAX_FETCH_BYTES} read, the
-   * timeouts above. Shared for the JVM's life,
-   * so it is never closed; its only thread is a daemon.
+   * timeouts and connection bounds above. Shared for the JVM's life, so it is
+   * never closed: its pool and its deadline thread, a daemon, outlive a
+   * context reload.
    */
   private static final SafeHttpFetcher FETCHER = new SafeHttpFetcher(SafeFetchPolicy.builder()
                                                                                       .name("mcp-server-upload")
@@ -112,6 +127,7 @@ public final class UploadToolUtils {
                                                                                       .connectTimeout(Duration.ofSeconds(CONNECT_TIMEOUT_SECONDS))
                                                                                       .readTimeout(Duration.ofSeconds(READ_TIMEOUT_SECONDS))
                                                                                       .totalTimeout(Duration.ofSeconds(TOTAL_TIMEOUT_SECONDS))
+                                                                                      .maxConnections(MAX_CONNECTIONS, MAX_CONNECTIONS_PER_HOST)
                                                                                       .build());
 
   /**
