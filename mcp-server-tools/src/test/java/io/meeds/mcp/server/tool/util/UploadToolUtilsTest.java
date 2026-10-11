@@ -435,6 +435,9 @@ class UploadToolUtilsTest {
 
   // --- base64 --------------------------------------------------------------
 
+  /**
+   * Base64 decodes both as plain text and as a data URI.
+   */
   @Test
   void decodeBase64PlainAndDataUri() {
     byte[] raw = { 1, 2, 3, 4 };
@@ -443,6 +446,9 @@ class UploadToolUtilsTest {
     assertArrayEquals(raw, UploadToolUtils.decodeBase64("data:image/png;base64," + b64));
   }
 
+  /**
+   * Text that is not base64 is refused.
+   */
   @Test
   void decodeBase64InvalidFails() {
     assertThrows(IllegalArgumentException.class, () -> UploadToolUtils.decodeBase64("$$$not-base64$$$"));
@@ -450,6 +456,10 @@ class UploadToolUtilsTest {
 
   // --- mime sniffing -------------------------------------------------------
 
+  /**
+   * The image type is recognised from the leading bytes for PNG, JPEG, GIF and WebP, and
+   * nothing is guessed for other bytes.
+   */
   @Test
   void sniffImageMimeRecognisesFormats() {
     byte[] png = new byte[16];
@@ -475,6 +485,10 @@ class UploadToolUtilsTest {
 
   // --- materialize / release ----------------------------------------------
 
+  /**
+   * Bytes are staged in a temporary file and registered as an uploaded
+   * resource with their type.
+   */
   @Test
   void materializeRegistersUploadedResource() {
     UploadService uploadService = Mockito.mock(UploadService.class);
@@ -496,6 +510,10 @@ class UploadToolUtilsTest {
     staged.delete();
   }
 
+  /**
+   * Exactly one source is required: neither a URL nor base64, or both, is
+   * refused.
+   */
   @Test
   void materializeFromUrlOrBase64RequiresExactlyOneSource() {
     UploadService uploadService = Mockito.mock(UploadService.class);
@@ -506,6 +524,9 @@ class UploadToolUtilsTest {
                                                                  UploadToolUtils.DEFAULT_MAX_BYTES));
   }
 
+  /**
+   * A base64 image is registered as an upload.
+   */
   @Test
   void materializeFromBase64ImageWorks() {
     UploadService uploadService = Mockito.mock(UploadService.class);
@@ -519,6 +540,9 @@ class UploadToolUtilsTest {
     verify(uploadService).createUploadResource(Mockito.any(UploadResource.class));
   }
 
+  /**
+   * Base64 that is not an image is refused.
+   */
   @Test
   void materializeFromBase64NonImageFails() {
     UploadService uploadService = Mockito.mock(UploadService.class);
@@ -527,6 +551,9 @@ class UploadToolUtilsTest {
                  () -> UploadToolUtils.materializeFromUrlOrBase64(uploadService, null, b64, UploadToolUtils.DEFAULT_MAX_BYTES));
   }
 
+  /**
+   * Releasing an upload removes its resource.
+   */
   @Test
   void releaseRemovesUploadResource() {
     UploadService uploadService = Mockito.mock(UploadService.class);
@@ -536,6 +563,10 @@ class UploadToolUtilsTest {
 
   // --- FetchedContent (array-content equals/hashCode/toString) -------------
 
+  /**
+   * Two fetched contents are equal when their bytes are, not their arrays,
+   * and the text form gives the byte count, never the bytes.
+   */
   @Test
   void fetchedContentEqualityComparesArrayContentNotReference() {
     UploadToolUtils.FetchedContent a = new UploadToolUtils.FetchedContent(new byte[] { 1, 2, 3 }, "image/png", "a.png");
