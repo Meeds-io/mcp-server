@@ -396,6 +396,31 @@ class UploadToolUtilsTest {
   }
 
   /**
+   * The shared fetcher's policy, as the production code builds it: public
+   * http and https on any port, no internal address and no exemption, no
+   * redirect, at most 15 MB, 10 s to connect, 20 s between reads and 60 s in
+   * all, and a pool of 64 connections, 8 per host. A test policy that drifts
+   * from it cannot hide a change of the production one.
+   */
+  @Test
+  void theProductionPolicyIsPinned() {
+    SafeFetchPolicy production = UploadToolUtils.sharedFetcher().getPolicy();
+    assertEquals("mcp-server-upload", production.getName());
+    assertEquals(Set.of("http", "https"), production.getAllowedSchemes());
+    assertTrue(production.isAnyPortAllowed(), "any port");
+    assertFalse(production.isInternalAddressesAllowed(), "no internal address");
+    assertTrue(production.getExemptHosts().isEmpty(), "no exempted host");
+    assertTrue(production.getExemptAddresses().isEmpty(), "no exempted address");
+    assertEquals(0, production.getMaxRedirects(), "no redirect is followed");
+    assertEquals(15L * 1024 * 1024, production.getMaxBytes());
+    assertEquals(Duration.ofSeconds(10), production.getConnectTimeout());
+    assertEquals(Duration.ofSeconds(20), production.getReadTimeout());
+    assertEquals(Duration.ofSeconds(60), production.getTotalTimeout());
+    assertEquals(64, production.getMaxConnectionsTotal());
+    assertEquals(8, production.getMaxConnectionsPerRoute());
+  }
+
+  /**
    * The production entry points run under the shared fetcher, whose guard
    * refuses an internal literal without any network: the same refusal as
    * through the seam.
