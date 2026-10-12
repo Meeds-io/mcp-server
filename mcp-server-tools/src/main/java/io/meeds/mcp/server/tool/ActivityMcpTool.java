@@ -105,6 +105,9 @@ public class ActivityMcpTool implements McpToolPlugin {
   // a comment's id / metadata object id is the numeric id prefixed with "comment"
   private static final String     COMMENT_ID_PREFIX        = "comment";
 
+  /** Template parameter holding the current text of an edited comment. */
+  private static final String     COMMENT_TEMPLATE_PARAM   = "comment";
+
   @Autowired
   private ActivityManager         activityManager;
 
@@ -901,7 +904,7 @@ public class ActivityMcpTool implements McpToolPlugin {
     }
     commentActivity.getTemplateParams().put("original_comment", commentActivity.getTitle());
     String htmlComment = markdownToHtml(comment);
-    commentActivity.getTemplateParams().put("comment", htmlComment);
+    commentActivity.getTemplateParams().put(COMMENT_TEMPLATE_PARAM, htmlComment);
     commentActivity.setTitle(htmlComment);
     commentActivity.setUpdated(System.currentTimeMillis());
     activityManager.updateActivity(commentActivity, true);
