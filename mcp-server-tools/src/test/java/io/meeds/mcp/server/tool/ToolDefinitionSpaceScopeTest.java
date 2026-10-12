@@ -89,10 +89,10 @@ class ToolDefinitionSpaceScopeTest {
   private static final Set<String> PEOPLE_ARGUMENTS     = Set.of("usernames_to_invite", "attendee_usernames", "username");
 
   /**
-   * An argument shaped like a reference to a place or an object: an id, a
-   * folder, a space.
+   * An argument shaped like a reference to a place or an object: an id or
+   * ids, in snake or camel case, a folder, a space.
    */
-  private static final Pattern     REFERENCE_SHAPED     = Pattern.compile(".*(_id|_ids|folder|space).*");
+  private static final Pattern     REFERENCE_SHAPED     = Pattern.compile("(^|_)ids?$|[a-z]Ids?$|(?i:folder|space)");
 
   private static final JsonMapper  MAPPER               = JsonMapper.builder().build();
 
@@ -180,6 +180,12 @@ class ToolDefinitionSpaceScopeTest {
     });
     assertThat(isReferenceShaped(declaredTools().get("create_activity_comment"), "parent_comment_id")).isTrue();
     assertThat(isReferenceShaped(declaredTools().get("set_user_role_in_space"), "space_role")).isFalse();
+    for (String reference : List.of("id", "ids", "target_ids", "spaceId", "folderId", "targetIds", "parentFolder", "Space")) {
+      assertThat(isReferenceShaped(declaredTools().get("create_activity"), reference)).as(reference).isTrue();
+    }
+    for (String plain : List.of("username", "html_content", "comment", "valid", "kids_count")) {
+      assertThat(isReferenceShaped(declaredTools().get("create_activity"), plain)).as(plain).isFalse();
+    }
   }
 
   /**
@@ -205,7 +211,7 @@ class ToolDefinitionSpaceScopeTest {
    *         schema to fixed values
    */
   private static boolean isReferenceShaped(SimpleToolDefinition tool, String argument) {
-    return REFERENCE_SHAPED.matcher(argument).matches()
+    return REFERENCE_SHAPED.matcher(argument).find()
            && !PEOPLE_ARGUMENTS.contains(argument)
            && !properties(tool).path(argument).has("enum");
   }
