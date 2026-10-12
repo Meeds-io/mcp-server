@@ -119,9 +119,11 @@ class McpToolUtilsActingIdentityTest {
   }
 
   /**
-   * The internal client's space scope header is part of the identity it sends:
-   * read as the space id, kept with the rest, and required by an origin that
-   * answers in a space. Mutant: the header not read.
+   * The internal client's space scope header, {@code spaceScope}, is part of
+   * the identity it sends: read as the space id, kept with the rest, and
+   * required by an origin that answers in a space. Mutants: the header not
+   * read; the header read under another name than the one the ai add-on
+   * sends.
    */
   @Test
   void internalClientSpaceScopeIsRead() {
@@ -129,7 +131,7 @@ class McpToolUtilsActingIdentityTest {
                          McpToolUtils.MCP_OAUTH2_CLIENT_CREDENTIALS_REGISTRATION_ID);
     MockHttpServletRequest request = bindRequest(TOOL_CONTEXT_ID, USERNAME);
     addIdentityHeaders(request, PrincipalKind.USER.name(), USERNAME, null, USERNAME, "[\"COMPLETION\"]", "MENTION", "COMPLETION");
-    request.addHeader(TOOL_CONTEXT_SPACE_SCOPE_PARAM, "42");
+    request.addHeader("spaceScope", "42");
 
     ActingIdentity identity = McpToolUtils.getCurrentActingIdentity();
 
