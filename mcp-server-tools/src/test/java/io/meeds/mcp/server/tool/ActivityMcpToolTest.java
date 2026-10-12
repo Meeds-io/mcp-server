@@ -35,6 +35,8 @@ import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 
 import org.exoplatform.commons.exception.ObjectNotFoundException;
+import org.exoplatform.social.core.activity.model.ExoSocialActivity;
+import org.exoplatform.social.core.manager.ActivityManager;
 
 import io.meeds.mcp.server.tool.constant.Registration;
 import io.meeds.mcp.server.tool.constant.Visibility;
@@ -56,6 +58,9 @@ class ActivityMcpToolTest extends IntegrationTestBase {
 
   @Autowired
   private SpaceTemplateMcpTool spaceTemplateMcpTool;
+
+  @Autowired
+  private ActivityManager      activityManager;
 
   @Test
   void createGetUpdateAndDeleteActivity() throws Exception { // NOSONAR
@@ -190,6 +195,103 @@ class ActivityMcpToolTest extends IntegrationTestBase {
 
     assertNotNull(comments);
     assertTrue(comments.stream().anyMatch(c -> c.id() == comment.id()));
+  }
+
+  /**
+   * A comment written in Markdown is stored as the HTML the stream renders,
+   * as a post is: no literal asterisks or brackets reach the reader.
+   */
+  @Test
+  void createActivityCommentRendersMarkdownToHtml() throws Exception {
+    ActivityModel activity = activityMcpTool.createActivity(null, "Activity for a Markdown comment", null);
+
+    ActivityCommentModel comment = activityMcpTool.createActivityComment(activity.id(),
+                                                                         "A **bold** word and [a link](https://www.meeds.io)",
+                                                                         null);
+
+    String stored = activityManager.getActivity("comment" + comment.id()).getTitle();
+    assertTrue(stored.contains("<strong>bold</strong>"), stored);
+    assertTrue(stored.contains("<a href=\"https://www.meeds.io\""), stored);
+    assertTrue(stored.contains(">a link</a>"), stored);
+    assertFalse(stored.contains("**"), stored);
+    assertFalse(stored.contains("[a link]"), stored);
+  }
+
+  /**
+   * A threaded reply goes through the same rendering as a top-level comment.
+   */
+  @Test
+  void createActivityCommentReplyRendersMarkdownToHtml() throws Exception {
+    ActivityModel activity = activityMcpTool.createActivity(null, "Activity for a Markdown reply", null);
+    ActivityCommentModel parent = activityMcpTool.createActivityComment(activity.id(), "A question", null);
+
+    ActivityCommentModel reply = activityMcpTool.createActivityComment(activity.id(), "An *answer*", parent.id());
+
+    String stored = activityManager.getActivity("comment" + reply.id()).getTitle();
+    assertTrue(stored.contains("<em>answer</em>"), stored);
+  }
+
+  /**
+   * A comment that already carries HTML is not rendered as Markdown, so
+   * Markdown-looking text in it stays as written: rendering it would alter
+   * what the caller wrote. One case per marker the skip heuristic of
+   * {@code McpToolUtils#markdownToHtml} reads, each placed inline after
+   * Markdown emphasis, which a rendering would turn into {@code <strong>}.
+   * Social's own HTML sanitizer still normalises the stored markup, so the
+   * assertions read the emphasis, not the whole string.
+   */
+  @Test
+  void createActivityCommentKeepsHtmlUntouched() throws Exception {
+    ActivityModel activity = activityMcpTool.createActivity(null, "Activity for HTML comments", null);
+
+    for (String html : List.of("Keep **this** <p>as written</p>",
+                               "Keep **this** <ul>as written</ul>",
+                               "Keep **this** <li>as written</li>",
+                               "Keep **this** <div>as written</div>",
+                               "Keep **this** <img src=\"https://www.meeds.io/x.png\">")) {
+      ActivityCommentModel comment = activityMcpTool.createActivityComment(activity.id(), html, null);
+
+      String stored = activityManager.getActivity("comment" + comment.id()).getTitle();
+      assertTrue(stored.contains("**this**"), html + " -> " + stored);
+      assertFalse(stored.contains("<strong>"), html + " -> " + stored);
+    }
+  }
+
+  /**
+   * Editing a comment renders the new Markdown text as creating one does, in
+   * the title the stream displays and in the {@code comment} template
+   * parameter, and keeps the previous text as {@code original_comment}.
+   */
+  @Test
+  void updateCommentRendersMarkdownToHtml() throws Exception {
+    ActivityModel activity = activityMcpTool.createActivity(null, "Activity for an edited comment", null);
+    ActivityCommentModel comment = activityMcpTool.createActivityComment(activity.id(), "First version", null);
+    String firstVersion = activityManager.getActivity("comment" + comment.id()).getTitle();
+
+    activityMcpTool.updateComment(comment.id(), "A **bold** edit");
+
+    ExoSocialActivity stored = activityManager.getActivity("comment" + comment.id());
+    assertTrue(stored.getTitle().contains("<strong>bold</strong>"), stored.getTitle());
+    assertFalse(stored.getTitle().contains("**"), stored.getTitle());
+    String commentParam = stored.getTemplateParams().get("comment");
+    assertTrue(commentParam.contains("<strong>bold</strong>"), commentParam);
+    assertFalse(commentParam.contains("**"), commentParam);
+    assertEquals(firstVersion, stored.getTemplateParams().get("original_comment"));
+  }
+
+  /**
+   * Editing a comment with HTML does not render it as Markdown.
+   */
+  @Test
+  void updateCommentKeepsHtmlUntouched() throws Exception {
+    ActivityModel activity = activityMcpTool.createActivity(null, "Activity for an HTML edit", null);
+    ActivityCommentModel comment = activityMcpTool.createActivityComment(activity.id(), "First version", null);
+
+    activityMcpTool.updateComment(comment.id(), "Keep **this** <p>as written</p>");
+
+    String stored = activityManager.getActivity("comment" + comment.id()).getTitle();
+    assertTrue(stored.contains("**this**"), stored);
+    assertFalse(stored.contains("<strong>"), stored);
   }
 
   @Test
