@@ -54,7 +54,7 @@ import io.meeds.mcp.server.constant.PrincipalKind;
  * @param grantScope what the standing-approval lookup matches against: an
  *                     agent name id, or a source scope holding
  *                     {@value #SOURCE_SCOPE_SEPARATOR}; null for none
- * @param spaceScope  the id of the only space the call may read, null when
+ * @param spaceScope  the id of the only space the call may reach, null when
  *                     the call isn't limited to a space
  */
 public record ActingIdentity(PrincipalRef actor,
@@ -67,9 +67,8 @@ public record ActingIdentity(PrincipalRef actor,
   /**
    * The origins whose answer is posted in a space, read by every member of it:
    * an identity of one of them is always limited to that space, and only
-   * reads there. A write such a run wants is proposed to the person who
-   * asked; once approved it runs as a {@link Origin#PROPOSAL}, the only origin
-   * a write runs under while limited to a space.
+   * reads there: {@link Origin#PROPOSAL}, an approved proposal, is the only
+   * origin a write runs under while limited to a space.
    */
   public static final Set<Origin> READ_SCOPED_ORIGINS     = Set.copyOf(EnumSet.of(Origin.MENTION,
                                                                                   Origin.TASK_COMMENT,
@@ -93,7 +92,7 @@ public record ActingIdentity(PrincipalRef actor,
    * @param chain      the agents from the entry point to the calling one
    * @param origin     what triggered the call
    * @param grantScope the standing-approval scope, or null
-   * @param spaceScope  the only space the call may read, or null
+   * @param spaceScope  the only space the call may reach, or null
    * @throws IllegalArgumentException when a part is missing, a chain element
    *                                    is not an agent name id, a person acts
    *                                    for someone else, an agent account acts
@@ -164,7 +163,7 @@ public record ActingIdentity(PrincipalRef actor,
   /**
    * @param username  the person
    * @param origin    what triggered the call
-   * @param spaceScope the only space the call may read, or null
+   * @param spaceScope the only space the call may reach, or null
    * @return the person acting for themself, with no agent in the chain and no
    *         grant scope, limited to that space
    */
@@ -189,7 +188,7 @@ public record ActingIdentity(PrincipalRef actor,
    * @param username    the agent account's login
    * @param agentNameId the agent it is the account of
    * @param origin      what triggered the call
-   * @param spaceScope   the only space the call may read, or null
+   * @param spaceScope   the only space the call may reach, or null
    * @return the agent account acting as itself, the agent alone in the chain,
    *         its grants matched by the scope {@value #AGENT_USER_SCOPE_PREFIX}
    *         followed by its name id, limited to that space
