@@ -31,19 +31,19 @@ import org.mockito.junit.jupiter.MockitoExtension;
 import org.exoplatform.social.core.activity.model.ExoSocialActivity;
 import org.exoplatform.social.core.manager.ActivityManager;
 
-import io.meeds.mcp.server.tool.plugin.ActivityReadScopeResolver;
+import io.meeds.mcp.server.tool.plugin.ActivitySpaceScopeResolver;
 
 /**
- * Pins which space an activity belongs to for the read scope decision.
+ * Pins which space an activity belongs to for the space scope decision.
  */
 @ExtendWith(MockitoExtension.class)
-class ActivityReadScopeResolverTest {
+class ActivitySpaceScopeResolverTest {
 
   @Mock
   private ActivityManager           activityManager;
 
   @InjectMocks
-  private ActivityReadScopeResolver resolver;
+  private ActivitySpaceScopeResolver resolver;
 
   /**
    * An activity of a space's stream, a shared one included, belongs to that

@@ -30,10 +30,10 @@ import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.stereotype.Service;
 
 import io.meeds.mcp.server.model.ActingIdentity;
-import io.meeds.mcp.server.model.ReadScopeDeclaration;
-import io.meeds.mcp.server.model.ReadScopeRefusedException;
+import io.meeds.mcp.server.model.SpaceScopeDeclaration;
+import io.meeds.mcp.server.model.SpaceScopeRefusedException;
 import io.meeds.mcp.server.model.SimpleToolDefinition;
-import io.meeds.mcp.server.plugin.ReadScopeResolver;
+import io.meeds.mcp.server.plugin.SpaceScopeResolver;
 
 import lombok.extern.slf4j.Slf4j;
 import tools.jackson.core.JacksonException;
@@ -44,12 +44,12 @@ import tools.jackson.databind.node.ObjectNode;
 
 /**
  * Keeps a tool call whose acting identity is limited to one space
- * ({@link ActingIdentity#readScope()}) within that space, from the tool's
- * {@code read_scope} declaration ({@link ReadScopeDeclaration}). A call that
+ * ({@link ActingIdentity#spaceScope()}) within that space, from the tool's
+ * {@code space_scope} declaration ({@link SpaceScopeDeclaration}). A call that
  * isn't limited is never looked at.
  * <p>
  * A limited call is refused when the tool isn't a read (its
- * {@code readOnlyHint} isn't true), declares no read scope or a malformed
+ * {@code readOnlyHint} isn't true), declares no space scope or a malformed
  * one, or when its arguments aren't a JSON object with distinct keys, all of
  * them accepted, its false-only arguments false or absent, and its space or
  * object in the call's space. An absent space argument is filled with the
@@ -58,7 +58,7 @@ import tools.jackson.databind.node.ObjectNode;
  */
 @Service
 @Slf4j
-public class McpToolReadScopeService {
+public class McpToolSpaceScopeService {
 
   private static final String                      NOT_AVAILABLE      =
                                                                   "Not executed: '%s' isn't available while this run is limited to the space with id %s. Don't call it again in this run: use a tool that reads that space, or answer from what you already have.";
@@ -84,18 +84,18 @@ public class McpToolReadScopeService {
                                                                                   .enable(StreamReadFeature.STRICT_DUPLICATE_DETECTION)
                                                                                   .build();
 
-  private final ObjectProvider<ReadScopeResolver> readScopeResolvers;
+  private final ObjectProvider<SpaceScopeResolver> spaceScopeResolvers;
 
   /**
-   * @param readScopeResolvers the contributed resolvers, looked up at each
+   * @param spaceScopeResolvers the contributed resolvers, looked up at each
    *                             call
    */
-  public McpToolReadScopeService(ObjectProvider<ReadScopeResolver> readScopeResolvers) {
-    this.readScopeResolvers = readScopeResolvers;
+  public McpToolSpaceScopeService(ObjectProvider<SpaceScopeResolver> spaceScopeResolvers) {
+    this.spaceScopeResolvers = spaceScopeResolvers;
   }
 
   /**
-   * Checks a call against the read scope of its acting identity.
+   * Checks a call against the space scope of its acting identity.
    *
    * @param toolName       the MCP tool name
    * @param toolDefinition the tool's definition, may be null
@@ -104,25 +104,25 @@ public class McpToolReadScopeService {
    * @return the arguments to run the tool with: the same string, untouched,
    *         when the call isn't limited or needs nothing filled, else the
    *         arguments with the call's space filled in
-   * @throws ReadScopeRefusedException when the limited call reads, or may
+   * @throws SpaceScopeRefusedException when the limited call reads, or may
    *                                     read, outside its space
    */
   public String enforce(String toolName, SimpleToolDefinition toolDefinition, String toolInput, ActingIdentity actingIdentity) {
-    Long readScope = actingIdentity == null ? null : actingIdentity.readScope();
-    if (readScope == null) {
+    Long spaceScope = actingIdentity == null ? null : actingIdentity.spaceScope();
+    if (spaceScope == null) {
       return toolInput;
     }
-    ReadScopeDeclaration declaration = toolDefinition == null ? null : toolDefinition.getReadScope();
+    SpaceScopeDeclaration declaration = toolDefinition == null ? null : toolDefinition.getSpaceScope();
     if (!isReadTool(toolDefinition) || !isWellFormed(declaration)) {
-      throw refuse(NOT_AVAILABLE.formatted(toolName, readScope));
+      throw refuse(NOT_AVAILABLE.formatted(toolName, spaceScope));
     }
-    ObjectNode arguments = parseArguments(toolName, toolInput, readScope);
-    checkArgumentNames(toolName, declaration, arguments, readScope);
-    checkFalseOnlyArguments(toolName, declaration, arguments, readScope);
+    ObjectNode arguments = parseArguments(toolName, toolInput, spaceScope);
+    checkArgumentNames(toolName, declaration, arguments, spaceScope);
+    checkFalseOnlyArguments(toolName, declaration, arguments, spaceScope);
     if (declaration.isSpaceRead()) {
-      return checkSpace(toolName, declaration, toolInput, arguments, readScope);
+      return checkSpace(toolName, declaration, toolInput, arguments, spaceScope);
     } else if (declaration.isObjectRead()) {
-      checkObject(toolName, declaration, arguments, readScope);
+      checkObject(toolName, declaration, arguments, spaceScope);
     }
     return toolInput;
   }
@@ -139,10 +139,10 @@ public class McpToolReadScopeService {
   }
 
   /**
-   * @param declaration the tool's read scope, may be null
+   * @param declaration the tool's space scope, may be null
    * @return true when it is exactly one of the three kinds
    */
-  private boolean isWellFormed(ReadScopeDeclaration declaration) {
+  private boolean isWellFormed(SpaceScopeDeclaration declaration) {
     if (declaration == null) {
       return false;
     }
@@ -156,12 +156,12 @@ public class McpToolReadScopeService {
    *
    * @param toolName  the MCP tool name
    * @param toolInput the call's arguments, an empty object when blank
-   * @param readScope the call's space
+   * @param spaceScope the call's space
    * @return the arguments
-   * @throws ReadScopeRefusedException when they aren't a JSON object with
+   * @throws SpaceScopeRefusedException when they aren't a JSON object with
    *                                     distinct keys
    */
-  private ObjectNode parseArguments(String toolName, String toolInput, Long readScope) {
+  private ObjectNode parseArguments(String toolName, String toolInput, Long spaceScope) {
     if (StringUtils.isBlank(toolInput)) {
       return ARGUMENTS_MAPPER.createObjectNode();
     }
@@ -171,9 +171,9 @@ public class McpToolReadScopeService {
         return objectNode;
       }
     } catch (JacksonException e) {
-      log.debug("Arguments of tool '{}' refused under read scope {}", toolName, readScope, e);
+      log.debug("Arguments of tool '{}' refused under space scope {}", toolName, spaceScope, e);
     }
-    throw refuse(BAD_ARGUMENTS.formatted(readScope, toolName));
+    throw refuse(BAD_ARGUMENTS.formatted(spaceScope, toolName));
   }
 
   /**
@@ -181,26 +181,26 @@ public class McpToolReadScopeService {
    * later, or another spelling of an accepted one, can't widen the read.
    *
    * @param toolName    the MCP tool name
-   * @param declaration the tool's read scope
+   * @param declaration the tool's space scope
    * @param arguments   the call's arguments
-   * @param readScope   the call's space
-   * @throws ReadScopeRefusedException on the first argument not accepted
+   * @param spaceScope   the call's space
+   * @throws SpaceScopeRefusedException on the first argument not accepted
    */
-  private void checkArgumentNames(String toolName, ReadScopeDeclaration declaration, ObjectNode arguments, Long readScope) {
+  private void checkArgumentNames(String toolName, SpaceScopeDeclaration declaration, ObjectNode arguments, Long spaceScope) {
     Set<String> accepted = acceptedArguments(declaration);
     for (Map.Entry<String, JsonNode> argument : arguments.properties()) {
       if (!accepted.contains(argument.getKey())) {
-        throw refuse(UNKNOWN_ARGUMENT.formatted(readScope, toolName, accepted, argument.getKey()));
+        throw refuse(UNKNOWN_ARGUMENT.formatted(spaceScope, toolName, accepted, argument.getKey()));
       }
     }
   }
 
   /**
-   * @param declaration the tool's read scope
+   * @param declaration the tool's space scope
    * @return the arguments a limited call may carry: the allowed ones, the
    *         space or object argument and the false-only ones
    */
-  private Set<String> acceptedArguments(ReadScopeDeclaration declaration) {
+  private Set<String> acceptedArguments(SpaceScopeDeclaration declaration) {
     Set<String> accepted = new LinkedHashSet<>();
     if (declaration.isSpaceRead()) {
       accepted.add(declaration.getSpaceArg());
@@ -227,19 +227,19 @@ public class McpToolReadScopeService {
    * personal filter, such as the favorites, reads outside the space.
    *
    * @param toolName    the MCP tool name
-   * @param declaration the tool's read scope
+   * @param declaration the tool's space scope
    * @param arguments   the call's arguments
-   * @param readScope   the call's space
-   * @throws ReadScopeRefusedException on the first such argument
+   * @param spaceScope   the call's space
+   * @throws SpaceScopeRefusedException on the first such argument
    */
-  private void checkFalseOnlyArguments(String toolName, ReadScopeDeclaration declaration, ObjectNode arguments, Long readScope) {
+  private void checkFalseOnlyArguments(String toolName, SpaceScopeDeclaration declaration, ObjectNode arguments, Long spaceScope) {
     if (CollectionUtils.isEmpty(declaration.getFalseOnlyArgs())) {
       return;
     }
     for (String name : declaration.getFalseOnlyArgs()) {
       JsonNode value = arguments.get(name);
       if (value != null && !value.isNull() && !(value.isBoolean() && !value.booleanValue())) {
-        throw refuse(FALSE_ONLY.formatted(readScope, toolName, name));
+        throw refuse(FALSE_ONLY.formatted(spaceScope, toolName, name));
       }
     }
   }
@@ -249,31 +249,31 @@ public class McpToolReadScopeService {
    * space when it is absent or null and the tool says so.
    *
    * @param toolName    the MCP tool name
-   * @param declaration the tool's read scope
+   * @param declaration the tool's space scope
    * @param toolInput   the call's arguments as sent
    * @param arguments   the call's arguments
-   * @param readScope   the call's space
+   * @param spaceScope   the call's space
    * @return the arguments as sent, or with the space filled in
-   * @throws ReadScopeRefusedException when the space is another one, isn't a
+   * @throws SpaceScopeRefusedException when the space is another one, isn't a
    *                                     space id, or is absent and the tool
    *                                     says to refuse
    */
   private String checkSpace(String toolName,
-                            ReadScopeDeclaration declaration,
+                            SpaceScopeDeclaration declaration,
                             String toolInput,
                             ObjectNode arguments,
-                            Long readScope) {
+                            Long spaceScope) {
     String spaceArg = declaration.getSpaceArg();
     JsonNode value = arguments.get(spaceArg);
     if (value == null || value.isNull()) {
       if (declaration.isUseScopeWhenAbsent()) {
-        arguments.put(spaceArg, readScope.longValue());
+        arguments.put(spaceArg, spaceScope.longValue());
         return ARGUMENTS_MAPPER.writeValueAsString(arguments);
       }
-      throw refuse(OUT_OF_SPACE.formatted(readScope, toolName, "no " + spaceArg, toolName, spaceArg, readScope));
+      throw refuse(OUT_OF_SPACE.formatted(spaceScope, toolName, "no " + spaceArg, toolName, spaceArg, spaceScope));
     }
-    if (!readScope.equals(toId(value))) {
-      throw refuse(OUT_OF_SPACE.formatted(readScope, toolName, "%s %s".formatted(spaceArg, value), toolName, spaceArg, readScope));
+    if (!spaceScope.equals(toId(value))) {
+      throw refuse(OUT_OF_SPACE.formatted(spaceScope, toolName, "%s %s".formatted(spaceArg, value), toolName, spaceArg, spaceScope));
     }
     return toolInput;
   }
@@ -284,25 +284,25 @@ public class McpToolReadScopeService {
    * space, a resolver that fails and an absent resolver get the same refusal.
    *
    * @param toolName    the MCP tool name
-   * @param declaration the tool's read scope
+   * @param declaration the tool's space scope
    * @param arguments   the call's arguments
-   * @param readScope   the call's space
-   * @throws ReadScopeRefusedException when the object isn't shown to belong
+   * @param spaceScope   the call's space
+   * @throws SpaceScopeRefusedException when the object isn't shown to belong
    *                                     to the call's space
    */
-  private void checkObject(String toolName, ReadScopeDeclaration declaration, ObjectNode arguments, Long readScope) {
+  private void checkObject(String toolName, SpaceScopeDeclaration declaration, ObjectNode arguments, Long spaceScope) {
     String objectArg = declaration.getObjectArg();
     JsonNode value = arguments.get(objectArg);
     Long objectId = value == null ? null : toId(value);
     if (objectId == null) {
-      throw refuse(OUT_OF_SPACE_OBJECT.formatted(readScope, toolName, objectArg, value == null ? "(none)" : value));
+      throw refuse(OUT_OF_SPACE_OBJECT.formatted(spaceScope, toolName, objectArg, value == null ? "(none)" : value));
     }
-    ReadScopeResolver resolver = getResolver(declaration.getResolver());
+    SpaceScopeResolver resolver = getResolver(declaration.getResolver());
     if (resolver == null) {
-      throw refuse(NOT_AVAILABLE.formatted(toolName, readScope));
+      throw refuse(NOT_AVAILABLE.formatted(toolName, spaceScope));
     }
-    if (!readScope.equals(spaceOf(resolver, objectId))) {
-      throw refuse(OUT_OF_SPACE_OBJECT.formatted(readScope, toolName, objectArg, objectId));
+    if (!spaceScope.equals(spaceOf(resolver, objectId))) {
+      throw refuse(OUT_OF_SPACE_OBJECT.formatted(spaceScope, toolName, objectArg, objectId));
     }
   }
 
@@ -311,11 +311,11 @@ public class McpToolReadScopeService {
    * @param objectId the object's id
    * @return the object's space, null when the resolver says none or fails
    */
-  private Long spaceOf(ReadScopeResolver resolver, Long objectId) {
+  private Long spaceOf(SpaceScopeResolver resolver, Long objectId) {
     try {
       return resolver.spaceOf(String.valueOf(objectId));
     } catch (RuntimeException e) {
-      log.warn("Read scope resolver '{}' failed on object {}: the call is refused", resolver.getName(), objectId, e);
+      log.warn("Space scope resolver '{}' failed on object {}: the call is refused", resolver.getName(), objectId, e);
       return null;
     }
   }
@@ -325,13 +325,13 @@ public class McpToolReadScopeService {
    * @return the only resolver of that name, or null when none or several
    *         answer to it
    */
-  private ReadScopeResolver getResolver(String name) {
-    List<ReadScopeResolver> resolvers = readScopeResolvers == null ? List.of() :
-                                                                   readScopeResolvers.orderedStream()
+  private SpaceScopeResolver getResolver(String name) {
+    List<SpaceScopeResolver> resolvers = spaceScopeResolvers == null ? List.of() :
+                                                                   spaceScopeResolvers.orderedStream()
                                                                                      .filter(resolver -> name.equals(nameOf(resolver)))
                                                                                      .toList();
     if (resolvers.size() > 1) {
-      log.warn("{} read scope resolvers are named '{}': the tools naming it are refused under a read scope", resolvers.size(), name);
+      log.warn("{} space scope resolvers are named '{}': the tools naming it are refused under a space scope", resolvers.size(), name);
     }
     return resolvers.size() == 1 ? resolvers.get(0) : null;
   }
@@ -340,11 +340,11 @@ public class McpToolReadScopeService {
    * @param resolver a contributed resolver
    * @return its name, null when it fails to give one
    */
-  private String nameOf(ReadScopeResolver resolver) {
+  private String nameOf(SpaceScopeResolver resolver) {
     try {
       return resolver.getName();
     } catch (RuntimeException e) {
-      log.warn("Read scope resolver '{}' failed to give its name", resolver, e);
+      log.warn("Space scope resolver '{}' failed to give its name", resolver, e);
       return null;
     }
   }
@@ -374,9 +374,9 @@ public class McpToolReadScopeService {
    * @param message the explanation the model reads
    * @return the refusal, logged for troubleshooting
    */
-  private ReadScopeRefusedException refuse(String message) {
-    log.debug("Tool call refused under a read scope: {}", message);
-    return new ReadScopeRefusedException(message);
+  private SpaceScopeRefusedException refuse(String message) {
+    log.debug("Tool call refused under a space scope: {}", message);
+    return new SpaceScopeRefusedException(message);
   }
 
 }

@@ -34,7 +34,7 @@ import lombok.NoArgsConstructor;
 
 /**
  * How a read tool may be called when the call is limited to one space (the
- * {@code read_scope} of an {@code ai-tool-definitions.json} entry). A tool
+ * {@code space_scope} of an {@code ai-tool-definitions.json} entry). A tool
  * without one is refused while a call is limited. Exactly one of three kinds:
  * <ul>
  * <li>a space read: {@code space_arg} names the argument holding the space
@@ -42,7 +42,7 @@ import lombok.NoArgsConstructor;
  * or null value means, {@value #USE_SCOPE} to read the call's space, anything
  * else to refuse;</li>
  * <li>a read by id: {@code object_arg} names the argument holding the id, and
- * {@code resolver} the {@code ReadScopeResolver} that tells the object's
+ * {@code resolver} the {@code SpaceScopeResolver} that tells the object's
  * space, which must be the call's space;</li>
  * <li>a read of nothing that belongs to a space, such as the user directory:
  * {@code unscoped: true}.</li>
@@ -59,7 +59,7 @@ import lombok.NoArgsConstructor;
 @AllArgsConstructor
 @JsonIgnoreProperties(ignoreUnknown = true)
 @JsonInclude(Include.NON_EMPTY)
-public class ReadScopeDeclaration {
+public class SpaceScopeDeclaration {
 
   /** The {@code when_absent} value that reads the call's space. */
   public static final String USE_SCOPE = "use_scope";
