@@ -865,14 +865,30 @@ public class ActivityMcpTool implements McpToolPlugin {
     attachmentService.deleteAttachment(objectType, objectId, targetFileId);
   }
 
+  /**
+   * Replaces the text of an activity comment, as the current user. The
+   * permission is Social's own edit check for a comment,
+   * {@link ActivityManager#isActivityEditable}, the one its comment update
+   * REST endpoint applies: being able to view the comment is not enough, so a
+   * reader of the activity cannot rewrite another member's comment, which
+   * would keep showing that member as its author. The previous text is kept
+   * in the {@code original_comment} template parameter.
+   *
+   * @param activityCommentId identifier of the comment to update
+   * @param comment           new comment text
+   * @return the updated comment
+   * @throws IllegalAccessException  when the current user can't edit the
+   *                                 comment
+   * @throws ObjectNotFoundException when the comment doesn't exist
+   */
   public ActivityCommentModel updateComment(long activityCommentId, String comment) throws IllegalAccessException,
                                                                                     ObjectNotFoundException {
     org.exoplatform.services.security.Identity authenticatedUserIdentity = getCurrentUserAclIdentity();
     ExoSocialActivity commentActivity = activityManager.getActivity(String.valueOf(activityCommentId));
     if (commentActivity == null) {
       throw new ObjectNotFoundException(ACTIVITY_NOT_FOUND.formatted(activityCommentId));
-    } else if (!activityManager.isActivityViewable(commentActivity, authenticatedUserIdentity)) {
-      throw new IllegalAccessException(ACTIVITY_ACCESS_DENIED.formatted(activityCommentId));
+    } else if (!activityManager.isActivityEditable(commentActivity, authenticatedUserIdentity)) {
+      throw new IllegalAccessException("Comment with id '%s' can't be edited by current user".formatted(activityCommentId));
     } else if (StringUtils.isBlank(commentActivity.getParentId())) {
       throw new IllegalStateException("Activity %s isn't a comment".formatted(activityCommentId));
     }
