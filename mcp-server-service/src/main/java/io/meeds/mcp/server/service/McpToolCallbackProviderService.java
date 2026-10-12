@@ -266,6 +266,9 @@ public class McpToolCallbackProviderService implements ToolCallbackProvider {
         String username = getCurrentUserName();
         Identity userIdentity = userAcl.getUserIdentity(username);
         return call(toolInput, toolContext, userIdentity);
+      } catch (ReadScopeRefusedException e) {
+        // a call outside the run's space is an expected refusal, not an incident
+        throw e;
       } catch (Exception e) {
         log.warn("Error while call Tool with input '{}'", toolInput, e);
         throw e;
