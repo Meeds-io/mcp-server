@@ -19,10 +19,10 @@
 package io.meeds.mcp.server.plugin;
 
 /**
- * Tells which space an object belongs to, for the tools that read one by its
+ * Tells which space an object belongs to, for the tools that reach one by its
  * id while their call is limited to a space: a tool definition whose
  * {@code space_scope} names this resolver ({@code resolver}) is called only
- * when the object it reads belongs to the call's space.
+ * when the object it reaches belongs to the call's space.
  * <p>
  * The answer is used for that decision only and never reaches the model, so a
  * resolver reads as the system: a missing object, an object of no space, an
