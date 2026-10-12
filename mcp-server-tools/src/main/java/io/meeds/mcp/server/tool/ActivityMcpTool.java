@@ -561,24 +561,48 @@ public class ActivityMcpTool implements McpToolPlugin {
     activityManager.deleteActivity(activity);
   }
 
+  /**
+   * Pins an activity to its space stream as the current user. The activity must
+   * be viewable by the user before the pin permission is even evaluated, as the
+   * REST layer does.
+   *
+   * @param activityId identifier of the activity to pin
+   * @throws IllegalAccessException  when the activity isn't viewable by the
+   *                                 current user or the user can't pin it
+   * @throws ObjectNotFoundException when the activity doesn't exist
+   */
   public void pinActivity(long activityId) throws IllegalAccessException, ObjectNotFoundException {
     org.exoplatform.services.security.Identity authenticatedUserIdentity = getCurrentUserAclIdentity();
     Identity currentUserIdentity = identityManager.getOrCreateUserIdentity(authenticatedUserIdentity.getUserId());
     ExoSocialActivity activity = activityManager.getActivity(String.valueOf(activityId));
     if (activity == null) {
       throw new ObjectNotFoundException(ACTIVITY_NOT_FOUND.formatted(activityId));
+    } else if (!activityManager.isActivityViewable(activity, authenticatedUserIdentity)) {
+      throw new IllegalAccessException(ACTIVITY_ACCESS_DENIED.formatted(activityId));
     } else if (!activityManager.canPinActivity(activity, currentUserIdentity)) {
       throw new IllegalAccessException("Activity with id '%s' can't be pinned by current user".formatted(activityId));
     }
     activityManager.pinActivity(activity.getId(), currentUserIdentity.getId());
   }
 
+  /**
+   * Unpins an activity from its space stream as the current user. The activity
+   * must be viewable by the user before the pin permission is even evaluated,
+   * as the REST layer does.
+   *
+   * @param activityId identifier of the activity to unpin
+   * @throws IllegalAccessException  when the activity isn't viewable by the
+   *                                 current user or the user can't unpin it
+   * @throws ObjectNotFoundException when the activity doesn't exist
+   */
   public void unpinActivity(long activityId) throws IllegalAccessException, ObjectNotFoundException {
     org.exoplatform.services.security.Identity authenticatedUserIdentity = getCurrentUserAclIdentity();
     Identity currentUserIdentity = identityManager.getOrCreateUserIdentity(authenticatedUserIdentity.getUserId());
     ExoSocialActivity activity = activityManager.getActivity(String.valueOf(activityId));
     if (activity == null) {
       throw new ObjectNotFoundException(ACTIVITY_NOT_FOUND.formatted(activityId));
+    } else if (!activityManager.isActivityViewable(activity, authenticatedUserIdentity)) {
+      throw new IllegalAccessException(ACTIVITY_ACCESS_DENIED.formatted(activityId));
     } else if (!activityManager.canPinActivity(activity, currentUserIdentity)) {
       throw new IllegalAccessException("Activity with id '%s' can't be pinned by current user".formatted(activityId));
     }
