@@ -78,6 +78,8 @@ public class SpaceMcpTool implements McpToolPlugin {
 
   private static final String     MSG_SPACE_USER_NOT_ADMIN = "Space with Id '%s' can't be managed by current user";
 
+  private static final String     MSG_SPACE_USER_NOT_DELETER = "Space with Id '%s' can't be deleted by current user";
+
   @Autowired
   private SpaceService            spaceService;
 
@@ -537,8 +539,22 @@ public class SpaceMcpTool implements McpToolPlugin {
                                   .toList();
   }
 
+  /**
+   * Deletes a space the current user holds the delete permission on, with the
+   * current user as the editor of the deletion, as the Social REST endpoint
+   * does.
+   *
+   * @param spaceId technical id of the space
+   * @throws ObjectNotFoundException when the space doesn't exist
+   * @throws SpaceException when the space service refuses the deletion
+   */
   public void deleteSpace(long spaceId) throws ObjectNotFoundException, SpaceException {
-    Space space = manageableSpace(spaceId);
+    String currentUsername = getCurrentUserName();
+    Space space = requireSpace(spaceId);
+    if (!spaceService.canDeleteSpace(space, currentUsername)) {
+      throw new IllegalStateException(MSG_SPACE_USER_NOT_DELETER.formatted(spaceId));
+    }
+    space.setEditor(currentUsername);
     spaceService.deleteSpace(space);
   }
 
