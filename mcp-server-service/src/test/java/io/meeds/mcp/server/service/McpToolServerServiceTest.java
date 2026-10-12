@@ -237,7 +237,7 @@ class McpToolServerServiceTest {
    * The space scope belongs to the add-on: a persisted definition takes the
    * shipped file's space scope (added, changed or removed), so neither a stale
    * copy nor an administrator's edit can widen what a call limited to a space
-   * may read. Mutant: the space scope not copied from the shipped file.
+   * may reach. Mutant: the space scope not copied from the shipped file.
    *
    * @param tmp a temporary folder
    */
