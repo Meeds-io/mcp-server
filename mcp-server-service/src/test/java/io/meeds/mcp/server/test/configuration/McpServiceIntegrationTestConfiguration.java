@@ -66,7 +66,7 @@ import io.meeds.mcp.server.service.McpServerToolService;
 import io.meeds.mcp.server.service.McpToolApprovalService;
 import io.meeds.mcp.server.service.McpToolGrantService;
 import io.meeds.mcp.server.service.McpToolCallbackProviderService;
-import io.meeds.mcp.server.service.McpToolReadScopeService;
+import io.meeds.mcp.server.service.McpToolSpaceScopeService;
 import io.meeds.mcp.server.util.McpToolArgumentUtils;
 import io.meeds.mcp.server.web.McpBearerAuthenticationEntryPoint;
 import io.meeds.mcp.server.web.McpDisabledProtectedResourceMetadataFilter;
@@ -133,7 +133,7 @@ public class McpServiceIntegrationTestConfiguration {
    * @param mcpServerToolService   the tool registry
    * @param mcpToolApprovalService the approval cards
    * @param mcpToolGrantService    the standing approvals
-   * @param mcpToolReadScopeService the read scope check
+   * @param mcpToolSpaceScopeService the space scope check
    * @param userAcl                the platform ACL
    * @param tools                  the contributed tool plugins
    * @return the provider
@@ -143,7 +143,7 @@ public class McpServiceIntegrationTestConfiguration {
                                                       McpServerToolService mcpServerToolService,
                                                       McpToolApprovalService mcpToolApprovalService,
                                                       McpToolGrantService mcpToolGrantService,
-                                                      McpToolReadScopeService mcpToolReadScopeService,
+                                                      McpToolSpaceScopeService mcpToolSpaceScopeService,
                                                       UserACL userAcl,
                                                       List<McpToolPlugin> tools) {
     log.info(">> Registered Tools: {}", tools);
@@ -153,7 +153,7 @@ public class McpServiceIntegrationTestConfiguration {
                                                                                              userAcl,
                                                                                              tools,
                                                                                              mcpToolGrantService,
-                                                                                             mcpToolReadScopeService);
+                                                                                             mcpToolSpaceScopeService);
     mcpServerToolService.addToolUpdateListener(toolCallbackProvider::updateToolDefinition);
     return toolCallbackProvider;
   }

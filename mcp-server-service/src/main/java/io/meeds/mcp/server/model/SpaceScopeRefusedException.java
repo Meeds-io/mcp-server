@@ -25,14 +25,14 @@ package io.meeds.mcp.server.model;
  * the model, which reads it as the tool's result and can call again within
  * the space.
  */
-public class ReadScopeRefusedException extends IllegalStateException {
+public class SpaceScopeRefusedException extends IllegalStateException {
 
   private static final long serialVersionUID = 6217930545120813547L;
 
   /**
    * @param message the explanation the model reads
    */
-  public ReadScopeRefusedException(String message) {
+  public SpaceScopeRefusedException(String message) {
     super(message);
   }
 
