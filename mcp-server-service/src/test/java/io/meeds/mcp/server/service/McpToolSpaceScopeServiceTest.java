@@ -55,6 +55,10 @@ class McpToolSpaceScopeServiceTest {
 
   private static final ActingIdentity     UNSCOPED   = ActingIdentity.person("john", Origin.CHAT);
 
+  private static final ActingIdentity     PROPOSAL   = ActingIdentity.agent("agent-mail", "EMAIL_ASSISTANT", Origin.PROPOSAL, SPACE_ID);
+
+  private static final String             SPACE_WRITE_INPUT = "{\"space_id\":12,\"html_content\":\"hi\"}";
+
   private final List<SpaceScopeResolver>   resolvers  = new ArrayList<>();
 
   private McpToolSpaceScopeService         service;
@@ -97,18 +101,111 @@ class McpToolSpaceScopeServiceTest {
   }
 
   /**
-   * A write never runs under a space scope, even with a declaration; a tool
-   * with no read-only hint counts as a write. Mutant: the read-only check
+   * A run answering in a space never writes, whatever the write declares: an
+   * origin of {@link ActingIdentity#READ_SCOPED_ORIGINS}, or a chat limited to
+   * a space, is refused a write declared in its very space; a tool with no
+   * read-only hint counts as a write. Mutant: the origin check removed, which
+   * runs the declared write.
+   */
+  @Test
+  void writeOfARunThatIsntAnApprovedProposalIsRefusedEvenWhenDeclared() {
+    SimpleToolDefinition noHint = new SimpleToolDefinition("create_activity", "t", "d", "{}", true, false, null);
+    noHint.setSpaceScope(spaceWriteDeclaration());
+
+    for (Origin origin : Origin.values()) {
+      if (origin == Origin.PROPOSAL) {
+        continue;
+      }
+      ActingIdentity run = ActingIdentity.agent("agent-mail", "EMAIL_ASSISTANT", origin, SPACE_ID);
+      assertRefused(() -> service.enforce("create_activity", spaceWrite(), SPACE_WRITE_INPUT, run), "isn't available");
+      assertRefused(() -> service.enforce("create_activity", noHint, SPACE_WRITE_INPUT, run), "isn't available");
+    }
+    assertRefused(() -> service.enforce("create_activity",
+                                        spaceWrite(),
+                                        SPACE_WRITE_INPUT,
+                                        ActingIdentity.person("john", Origin.CHAT, SPACE_ID)),
+                  "isn't available");
+  }
+
+  /**
+   * An approved proposal runs a write declared with a space argument when
+   * that argument is the call's space, its arguments as sent. Mutant: every
+   * write refused under a space scope.
+   */
+  @Test
+  void declaredWriteOfAnApprovedProposalRunsInItsSpace() {
+    assertThat(service.enforce("create_activity", spaceWrite(), SPACE_WRITE_INPUT, PROPOSAL)).isSameAs(SPACE_WRITE_INPUT);
+    assertThat(service.enforce("create_activity", spaceWrite(), "{\"space_id\":\"12\"}", PROPOSAL)).isEqualTo("{\"space_id\":\"12\"}");
+  }
+
+  /**
+   * An approved proposal's write in another space is refused, and so is an
+   * argument the declaration doesn't accept. Mutant: the space equality
    * removed.
    */
   @Test
-  void writeIsRefusedEvenWhenDeclared() {
-    SimpleToolDefinition write = definition("create_activity", false, spaceDeclaration("use_scope"));
-    SimpleToolDefinition noHint = new SimpleToolDefinition("create_activity", "t", "d", "{}", true, false, null);
-    noHint.setSpaceScope(spaceDeclaration("use_scope"));
+  void declaredWriteOfAnApprovedProposalOutsideItsSpaceIsRefused() {
+    assertRefused(() -> service.enforce("create_activity", spaceWrite(), "{\"space_id\":13,\"html_content\":\"hi\"}", PROPOSAL),
+                  "space_id 12");
+    assertRefused(() -> service.enforce("create_activity", spaceWrite(), "{\"space_id\":12,\"target_space_id\":13}", PROPOSAL),
+                  "'target_space_id' isn't one of them");
+  }
 
-    assertRefused(() -> service.enforce("create_activity", write, "{\"space_id\":12}", SCOPED), "isn't available");
-    assertRefused(() -> service.enforce("create_activity", noHint, "{\"space_id\":12}", SCOPED), "isn't available");
+  /**
+   * An approved proposal's write that declares no space scope, or one that
+   * names no place (the directory kind), is refused. Mutant: the write's
+   * well-formedness reduced to the reads' one, which runs the unscoped write.
+   */
+  @Test
+  void undeclaredOrPlacelessWriteOfAnApprovedProposalIsRefused() {
+    SimpleToolDefinition undeclared = definition("delete_space", false, null);
+    SimpleToolDefinition placeless = definition("send_email",
+                                                false,
+                                                new SpaceScopeDeclaration(null, null, null, null, true, List.of("to"), null));
+
+    assertRefused(() -> service.enforce("delete_space", undeclared, "{\"space_id\":12}", PROPOSAL), "isn't available");
+    assertRefused(() -> service.enforce("send_email", placeless, "{\"to\":\"x\"}", PROPOSAL), "isn't available");
+  }
+
+  /**
+   * {@code when_absent} is for reads only: a write declaring it, whatever its
+   * value, is malformed and refused, even with its space given; and a write's
+   * absent or null space is refused, never filled in. Mutants: the
+   * {@code when_absent} clause of the write's well-formedness removed, which
+   * runs the first calls; the fill applied to writes, which then fills the
+   * absent space (reachable only once the first mutant is applied too).
+   */
+  @Test
+  void whenAbsentIsForReadsOnlyAndAWritesAbsentSpaceIsRefused() {
+    for (String whenAbsent : List.of("use_scope", "refuse")) {
+      SimpleToolDefinition write = definition("create_activity", false, spaceDeclaration(whenAbsent));
+      assertRefused(() -> service.enforce("create_activity", write, "{\"space_id\":12}", PROPOSAL), "isn't available");
+      assertRefused(() -> service.enforce("create_activity", write, "{}", PROPOSAL), "space with id 12");
+    }
+    assertRefused(() -> service.enforce("create_activity", spaceWrite(), "{\"html_content\":\"hi\"}", PROPOSAL), "no space_id");
+    assertRefused(() -> service.enforce("create_activity", spaceWrite(), "{\"space_id\":null}", PROPOSAL), "no space_id");
+  }
+
+  /**
+   * An approved proposal's write by id runs when its resolver puts the object
+   * in the call's space, and gets one refusal whether the object is elsewhere
+   * or missing. Mutant: the resolver's answer compared inverted.
+   */
+  @Test
+  void objectWriteOfAnApprovedProposalIsResolvedLikeARead() {
+    SpaceScopeResolver resolver = resolver("activity");
+    when(resolver.spaceOf("7")).thenReturn(SPACE_ID);
+    when(resolver.spaceOf("8")).thenReturn(13L);
+    when(resolver.spaceOf("9")).thenReturn(null);
+    SimpleToolDefinition comment = definition("create_activity_comment",
+                                              false,
+                                              new SpaceScopeDeclaration(null, null, "activity_id", "activity", false, List.of("comment"), null));
+    String input = "{\"activity_id\":7,\"comment\":\"hi\"}";
+
+    assertThat(service.enforce("create_activity_comment", comment, input, PROPOSAL)).isSameAs(input);
+    String elsewhere = refusal(() -> service.enforce("create_activity_comment", comment, "{\"activity_id\":8}", PROPOSAL));
+    String missing = refusal(() -> service.enforce("create_activity_comment", comment, "{\"activity_id\":9}", PROPOSAL));
+    assertThat(elsewhere).isEqualTo(missing.replace("activity_id 9", "activity_id 8")).contains("space with id 12");
   }
 
   /**
@@ -283,7 +380,7 @@ class McpToolSpaceScopeServiceTest {
     lenient().when(resolver.spaceOf(anyString())).thenReturn(SPACE_ID);
 
     for (String input : List.of("{}", "{\"activity_id\":null}", "{\"activity_id\":\"07\"}", "{\"activity_id\":7.5}", "{\"activity_id\":\"7 \"}")) {
-      assertRefused(() -> service.enforce("get_activity", objectRead(), input, SCOPED), "can only open an item");
+      assertRefused(() -> service.enforce("get_activity", objectRead(), input, SCOPED), "can only reach an item");
     }
     verify(resolver, never()).spaceOf(anyString());
   }
@@ -330,6 +427,21 @@ class McpToolSpaceScopeServiceTest {
    */
   private static SpaceScopeDeclaration spaceDeclaration(String whenAbsent) {
     return new SpaceScopeDeclaration("space_id", whenAbsent, null, null, false, List.of("offset", "limit"), null);
+  }
+
+  /**
+   * @return a write declaration on {@code space_id}, with no
+   *         {@code when_absent}, accepting {@code html_content}
+   */
+  private static SpaceScopeDeclaration spaceWriteDeclaration() {
+    return new SpaceScopeDeclaration("space_id", null, null, null, false, List.of("html_content"), null);
+  }
+
+  /**
+   * @return a write tool declaring {@link #spaceWriteDeclaration()}
+   */
+  private static SimpleToolDefinition spaceWrite() {
+    return definition("create_activity", false, spaceWriteDeclaration());
   }
 
   /**
