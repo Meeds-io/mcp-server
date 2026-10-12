@@ -102,6 +102,15 @@ public class SimpleToolDefinition implements ToolDefinition {
   private Map<String, Object> unknownProperties;
 
   /**
+   * How the tool may be called while a call is limited to one space, null
+   * when it can't be. Owned by the add-on, like the icon: always read from its
+   * file, never from the persisted copy.
+   */
+  @JsonProperty("read_scope")
+  @JsonInclude(Include.NON_EMPTY)
+  private ReadScopeDeclaration readScope;
+
+  /**
    * Builds a definition with no icon.
    *
    * @param name            the tool name
@@ -129,7 +138,7 @@ public class SimpleToolDefinition implements ToolDefinition {
   }
 
   /**
-   * Copies a definition, its icon and its unknown keys included.
+   * Copies a definition, its icon, its read scope and its unknown keys included.
    *
    * @param simpleToolDefinition the definition to copy
    */
@@ -144,6 +153,7 @@ public class SimpleToolDefinition implements ToolDefinition {
     this.icon = simpleToolDefinition.icon;
     this.unknownProperties = simpleToolDefinition.unknownProperties == null ? null :
                                                                              new LinkedHashMap<>(simpleToolDefinition.unknownProperties);
+    this.readScope = simpleToolDefinition.readScope;
   }
 
   @Override

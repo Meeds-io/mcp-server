@@ -266,6 +266,7 @@
     },
     {
       "name": "get_space_by_id",
+      "read_scope": { "space_arg": "space_id", "when_absent": "use_scope" },
       "icon": "fa-users",
       "title": "Get a space",
       "description": "Retrieve full details of a Space by its unique identifier.",
@@ -290,6 +291,7 @@
     },
     {
       "name": "list_users_of_space_by_role",
+      "read_scope": { "space_arg": "space_id", "when_absent": "use_scope", "allowed_args": ["space_role", "offset", "limit"] },
       "icon": "fa-users",
       "title": "List space members",
       "description": "Retrieve the list of users in a Space by role.",
@@ -483,6 +485,7 @@
     },
     {
       "name": "get_user_by_username",
+      "read_scope": { "unscoped": true, "allowed_args": ["username"] },
       "icon": "fa-user",
       "title": "Get a user info",
       "description": "Provides identity and profile information of a user by username.",
@@ -507,6 +510,7 @@
     },
     {
       "name": "search_users",
+      "read_scope": { "unscoped": true, "allowed_args": ["query", "offset", "limit"] },
       "icon": "fa-user",
       "title": "Search for users",
       "description": "Search for users across the platform by an optional keyword.",
@@ -552,6 +556,7 @@
     },
     {
       "name": "search_activities",
+      "read_scope": { "space_arg": "space_id", "when_absent": "use_scope", "allowed_args": ["query", "offset", "limit"], "false_only_args": ["is_favorite"] },
       "icon": "fa-stream",
       "title": "Search for activities",
       "description": "Search activities (Also Known As 'posts'), with optional filters for query text, space and favorites.",
@@ -587,6 +592,7 @@
     },
     {
       "name": "get_activities",
+      "read_scope": { "space_arg": "space_id", "when_absent": "use_scope", "allowed_args": ["offset", "limit"] },
       "icon": "fa-stream",
       "title": "Get space activities",
       "description": "Retrieve a paginated list of activities (Also Known As 'posts') in a space (or all activities if space_id is null).",
@@ -613,6 +619,7 @@
     },
     {
       "name": "get_activities_since_days",
+      "read_scope": { "space_arg": "space_id", "when_absent": "use_scope", "allowed_args": ["days"] },
       "icon": "fa-stream",
       "title": "Get activities of last days",
       "description": "Retrieve a paginated list of activities (Also Known As 'posts') in a space (or all activities if space_id is null). This will return the posted activities since the number of designated 'days'.",
@@ -668,6 +675,7 @@
     },
     {
       "name": "get_activity",
+      "read_scope": { "object_arg": "activity_id", "resolver": "activity" },
       "icon": "fa-stream",
       "title": "Get an activity",
       "description": "Get a single activity (Also Known As 'post') by its ID.",
@@ -848,6 +856,7 @@
     },
     {
       "name": "get_activity_comments",
+      "read_scope": { "object_arg": "activity_id", "resolver": "activity", "allowed_args": ["offset", "limit"] },
       "icon": "fa-stream",
       "title": "Get activity comments",
       "description": "Read the discussion under an activity (Also Known As 'post'): its comments and the replies to them, as a flat paginated list in thread order. A reply carries `parent_comment_id`, the comment it answers, and follows that comment in the list; a top-level comment has no `parent_comment_id`. `offset` and `limit` (default 10) count top-level comments only: each page returns those comments together with all their replies, so lower `limit` to walk a long discussion page by page.",
@@ -2177,6 +2186,7 @@
     },
     {
       "name": "get_space_members",
+      "read_scope": { "space_arg": "space_id", "when_absent": "use_scope", "allowed_args": ["offset", "limit"] },
       "icon": "fa-users",
       "title": "Get space members with roles",
       "description": "List the members of a space, each annotated with their roles in that space (MANAGER, REDACTOR, PUBLISHER, MEMBER).",
