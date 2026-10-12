@@ -662,8 +662,9 @@ public class ActivityMcpTool implements McpToolPlugin {
    * {@link io.meeds.mcp.server.util.McpToolUtils#markdownToHtml} reads as
    * "already HTML" ({@code <p>}, {@code <ul>}, {@code <li>}, {@code <div>},
    * {@code <img }). Otherwise inline HTML stays inside the rendered
-   * paragraph, and a line that starts with a block-level HTML tag is passed
-   * through as is, with any Markdown on it left unrendered.
+   * paragraph, and a block that starts with a block-level HTML tag is passed
+   * through as is up to the next blank line, with any Markdown in it left
+   * unrendered.
    *
    * @param activityId      identifier of the activity to comment on
    * @param comment         comment text, Markdown or HTML
