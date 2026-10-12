@@ -70,17 +70,17 @@ class ToolDefinitionSpaceScopeTest {
     });
     SPACE_READS.forEach(name -> {
       SpaceScopeDeclaration scope = declared.get(name).getSpaceScope();
-      assertThat(scope.isSpaceRead()).as(name).isTrue();
+      assertThat(scope.isSpaceKind()).as(name).isTrue();
       assertThat(scope.getSpaceArg()).as(name).isEqualTo("space_id");
       assertThat(scope.isUseScopeWhenAbsent()).as(name).isTrue();
     });
     OBJECT_READS.forEach(name -> {
       SpaceScopeDeclaration scope = declared.get(name).getSpaceScope();
-      assertThat(scope.isObjectRead()).as(name).isTrue();
+      assertThat(scope.isObjectKind()).as(name).isTrue();
       assertThat(scope.getObjectArg()).as(name).isEqualTo("activity_id");
       assertThat(scope.getResolver()).as(name).isEqualTo(ActivitySpaceScopeResolver.NAME);
     });
-    DIRECTORY.forEach(name -> assertThat(declared.get(name).getSpaceScope().isUnscopedRead()).as(name).isTrue());
+    DIRECTORY.forEach(name -> assertThat(declared.get(name).getSpaceScope().isUnscopedKind()).as(name).isTrue());
     assertThat(declared.get("search_activities").getSpaceScope().getFalseOnlyArgs()).containsExactly("is_favorite");
   }
 
