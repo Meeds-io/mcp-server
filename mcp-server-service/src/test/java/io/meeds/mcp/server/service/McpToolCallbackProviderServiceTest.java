@@ -788,7 +788,7 @@ class McpToolCallbackProviderServiceTest {
    * A call limited to a space, to a tool that declares no space scope, is
    * refused before any card or grant lookup and before the tool runs, traced
    * as denied and not logged as an incident, and the model reads which space
-   * it may read. Mutants: the space scope check not called from the wrapper;
+   * it may reach. Mutants: the space scope check not called from the wrapper;
    * the refusal logged at WARN or ERROR.
    */
   @Test
