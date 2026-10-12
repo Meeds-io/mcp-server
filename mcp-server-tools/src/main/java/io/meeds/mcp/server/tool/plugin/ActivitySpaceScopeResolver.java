@@ -25,7 +25,7 @@ import org.springframework.stereotype.Service;
 import org.exoplatform.social.core.activity.model.ExoSocialActivity;
 import org.exoplatform.social.core.manager.ActivityManager;
 
-import io.meeds.mcp.server.plugin.ReadScopeResolver;
+import io.meeds.mcp.server.plugin.SpaceScopeResolver;
 
 import lombok.extern.slf4j.Slf4j;
 
@@ -34,13 +34,13 @@ import lombok.extern.slf4j.Slf4j;
  * A shared activity is a copy posted in the stream it was shared to, so it
  * belongs to that space, and the activity it was shared from to its own. A
  * comment, an activity of a user's stream and a missing one belong to no
- * space. Read as the system, for the read scope decision only.
+ * space. Read as the system, for the space scope decision only.
  */
-@Service("activityReadScopeResolver")
+@Service("activitySpaceScopeResolver")
 @Slf4j
-public class ActivityReadScopeResolver implements ReadScopeResolver {
+public class ActivitySpaceScopeResolver implements SpaceScopeResolver {
 
-  /** The name the activity tools' {@code read_scope.resolver} gives. */
+  /** The name the activity tools' {@code space_scope.resolver} gives. */
   public static final String NAME = "activity";
 
   @Autowired

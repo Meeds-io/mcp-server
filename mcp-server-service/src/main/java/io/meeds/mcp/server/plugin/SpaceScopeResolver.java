@@ -21,7 +21,7 @@ package io.meeds.mcp.server.plugin;
 /**
  * Tells which space an object belongs to, for the tools that read one by its
  * id while their call is limited to a space: a tool definition whose
- * {@code read_scope} names this resolver ({@code resolver}) is called only
+ * {@code space_scope} names this resolver ({@code resolver}) is called only
  * when the object it reads belongs to the call's space.
  * <p>
  * The answer is used for that decision only and never reaches the model, so a
@@ -35,10 +35,10 @@ package io.meeds.mcp.server.plugin;
  * the MCP server is found. A tool whose resolver no add-on provides, or two
  * add-ons provide under one name, is refused.
  */
-public interface ReadScopeResolver {
+public interface SpaceScopeResolver {
 
   /**
-   * @return the name a tool definition's {@code read_scope.resolver} gives,
+   * @return the name a tool definition's {@code space_scope.resolver} gives,
    *         unique on the platform
    */
   String getName();

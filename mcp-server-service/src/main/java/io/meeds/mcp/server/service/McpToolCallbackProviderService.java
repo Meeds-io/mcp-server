@@ -74,7 +74,7 @@ import io.meeds.mcp.server.model.ActingIdentity;
 import io.meeds.mcp.server.model.McpToolGrant;
 import io.meeds.mcp.server.model.McpToolGrantConstraint;
 import io.meeds.mcp.server.model.McpToolGrantRequest;
-import io.meeds.mcp.server.model.ReadScopeRefusedException;
+import io.meeds.mcp.server.model.SpaceScopeRefusedException;
 import io.meeds.mcp.server.model.UserToolDeniedException;
 import io.meeds.mcp.server.model.UserToolExecution;
 import io.meeds.mcp.server.model.UserToolExecution.UserToolExecutionBuilder;
@@ -108,7 +108,7 @@ public class McpToolCallbackProviderService implements ToolCallbackProvider {
 
   private McpToolGrantService     mcpToolGrantService;
 
-  private McpToolReadScopeService mcpToolReadScopeService;
+  private McpToolSpaceScopeService mcpToolSpaceScopeService;
 
   @Override
   public ToolCallback[] getToolCallbacks() {
@@ -183,7 +183,7 @@ public class McpToolCallbackProviderService implements ToolCallbackProvider {
       return new MethodToolCallbackWrapper(mcpServerToolService,
                                            mcpToolApprovalService,
                                            mcpToolGrantService,
-                                           mcpToolReadScopeService,
+                                           mcpToolSpaceScopeService,
                                            userAcl,
                                            toolCallback);
     }
@@ -222,7 +222,7 @@ public class McpToolCallbackProviderService implements ToolCallbackProvider {
 
     private final McpToolGrantService    mcpToolGrantService;
 
-    private final McpToolReadScopeService mcpToolReadScopeService;
+    private final McpToolSpaceScopeService mcpToolSpaceScopeService;
 
     private final UserACL                userAcl;
 
@@ -237,7 +237,7 @@ public class McpToolCallbackProviderService implements ToolCallbackProvider {
      * @param mcpToolApprovalService the approval cards
      * @param mcpToolGrantService    the standing approvals, may be null (no
      *                                 grant ever applies)
-     * @param mcpToolReadScopeService the read scope check, may be null (every
+     * @param mcpToolSpaceScopeService the space scope check, may be null (every
      *                                  call limited to a space is then refused)
      * @param userAcl                the platform ACL
      * @param toolCallback           the wrapped tool method
@@ -246,13 +246,13 @@ public class McpToolCallbackProviderService implements ToolCallbackProvider {
     public MethodToolCallbackWrapper(McpServerToolService mcpServerToolService,
                                      McpToolApprovalService mcpToolApprovalService,
                                      McpToolGrantService mcpToolGrantService,
-                                     McpToolReadScopeService mcpToolReadScopeService,
+                                     McpToolSpaceScopeService mcpToolSpaceScopeService,
                                      UserACL userAcl,
                                      MethodToolCallback toolCallback) {
       this.mcpServerToolService = mcpServerToolService;
       this.mcpToolApprovalService = mcpToolApprovalService;
       this.mcpToolGrantService = mcpToolGrantService;
-      this.mcpToolReadScopeService = mcpToolReadScopeService;
+      this.mcpToolSpaceScopeService = mcpToolSpaceScopeService;
       this.userAcl = userAcl;
       this.toolCallback = toolCallback;
       this.toolObject = getMethodToolFieldValue(toolCallback, "toolObject");
@@ -266,7 +266,7 @@ public class McpToolCallbackProviderService implements ToolCallbackProvider {
         String username = getCurrentUserName();
         Identity userIdentity = userAcl.getUserIdentity(username);
         return call(toolInput, toolContext, userIdentity);
-      } catch (ReadScopeRefusedException e) {
+      } catch (SpaceScopeRefusedException e) {
         // a call outside the run's space is an expected refusal, not an incident
         throw e;
       } catch (Exception e) {
@@ -292,7 +292,7 @@ public class McpToolCallbackProviderService implements ToolCallbackProvider {
 
     /**
      * Runs one tool call as the user: the acting identity check, the scope
-     * check, the read scope check of a call limited to one space (which may
+     * check, the space scope check of a call limited to one space (which may
      * fill the space argument the tool then runs with), then for an
      * approval-gated or "always ask" tool the standing
      * approval or the card, then the tool itself, each step traced to the
@@ -329,7 +329,7 @@ public class McpToolCallbackProviderService implements ToolCallbackProvider {
           throw new IllegalAccessException("Tool '%s' execution isn't allowed switch selected scopes".formatted(toolMethod.getName()));
         }
         String toolName = toSnakeCase(toolMethod.getName());
-        toolInput = enforceReadScope(toolName, toolInput, actingIdentity);
+        toolInput = enforceSpaceScope(toolName, toolInput, actingIdentity);
         executionBuilder.toolInput(toolInput);
         boolean alwaysAsk = mcpServerToolService.isAlwaysAsk(toolName);
         if (alwaysAsk && !mcpServerToolService.hasApprovalScope(authentication)) {
@@ -374,7 +374,7 @@ public class McpToolCallbackProviderService implements ToolCallbackProvider {
                   toolInput,
                   toolOutput);
         return toolOutput;
-      } catch (UserToolDeniedException | UserToolRefusedException | ReadScopeRefusedException e) {
+      } catch (UserToolDeniedException | UserToolRefusedException | SpaceScopeRefusedException e) {
         mcpToolApprovalService.traceToolExecution(executionBuilder.toolExecutionType(UserToolRequestType.TOOL_EXECUTION_DENIED)
                                                                   .completed(true)
                                                                   .build());
@@ -437,25 +437,25 @@ public class McpToolCallbackProviderService implements ToolCallbackProvider {
 
     /**
      * Keeps a call limited to one space within it, see
-     * {@link McpToolReadScopeService}; a call that isn't limited is returned
+     * {@link McpToolSpaceScopeService}; a call that isn't limited is returned
      * as it came.
      *
      * @param toolName       the MCP tool name
      * @param toolInput      the call's arguments
      * @param actingIdentity the acting identity, may be null
      * @return the arguments the tool runs with
-     * @throws ReadScopeRefusedException when the call reads outside its space,
-     *                                     or is limited and no read scope
+     * @throws SpaceScopeRefusedException when the call reads outside its space,
+     *                                     or is limited and no space scope
      *                                     check is wired
      */
-    private String enforceReadScope(String toolName, String toolInput, ActingIdentity actingIdentity) {
-      if (actingIdentity == null || actingIdentity.readScope() == null) {
+    private String enforceSpaceScope(String toolName, String toolInput, ActingIdentity actingIdentity) {
+      if (actingIdentity == null || actingIdentity.spaceScope() == null) {
         return toolInput;
-      } else if (mcpToolReadScopeService == null) {
-        throw new ReadScopeRefusedException("Not executed: '%s' can't check that it stays in the space with id %s".formatted(toolName,
-                                                                                                                         actingIdentity.readScope()));
+      } else if (mcpToolSpaceScopeService == null) {
+        throw new SpaceScopeRefusedException("Not executed: '%s' can't check that it stays in the space with id %s".formatted(toolName,
+                                                                                                                         actingIdentity.spaceScope()));
       }
-      return mcpToolReadScopeService.enforce(toolName,
+      return mcpToolSpaceScopeService.enforce(toolName,
                                              mcpServerToolService.getToolDefinitionByMethodName(toolMethod.getName()),
                                              toolInput,
                                              actingIdentity);
