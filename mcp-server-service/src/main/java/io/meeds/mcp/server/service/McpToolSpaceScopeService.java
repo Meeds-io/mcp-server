@@ -29,10 +29,11 @@ import org.apache.commons.lang3.StringUtils;
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.stereotype.Service;
 
+import io.meeds.mcp.server.constant.Origin;
 import io.meeds.mcp.server.model.ActingIdentity;
+import io.meeds.mcp.server.model.SimpleToolDefinition;
 import io.meeds.mcp.server.model.SpaceScopeDeclaration;
 import io.meeds.mcp.server.model.SpaceScopeRefusedException;
-import io.meeds.mcp.server.model.SimpleToolDefinition;
 import io.meeds.mcp.server.plugin.SpaceScopeResolver;
 
 import lombok.extern.slf4j.Slf4j;
@@ -48,20 +49,28 @@ import tools.jackson.databind.node.ObjectNode;
  * {@code space_scope} declaration ({@link SpaceScopeDeclaration}). A call that
  * isn't limited is never looked at.
  * <p>
- * A limited call is refused when the tool isn't a read (its
- * {@code readOnlyHint} isn't true), declares no space scope or a malformed
- * one, or when its arguments aren't a JSON object with distinct keys, all of
- * them accepted, its false-only arguments false or absent, and its space or
- * object in the call's space. An absent space argument is filled with the
- * call's space when the tool says so. Each refusal names the space the call
- * may read, so the model can call again within it.
+ * A limited call is refused when the tool declares no space scope or a
+ * malformed one, when it is a write (its {@code readOnlyHint} isn't true) and
+ * the call isn't an approved proposal ({@link Origin#PROPOSAL}), or when its
+ * arguments aren't a JSON object with distinct keys, all of them accepted,
+ * its false-only arguments false or absent, and its space or object in the
+ * call's space. An absent space argument of a read is filled with the call's
+ * space when the tool says so; a write's is refused. Each refusal names the
+ * call's space, so the model can call again within it.
+ * <p>
+ * A run answering in a space ({@link ActingIdentity#READ_SCOPED_ORIGINS})
+ * never writes: it proposes the write to the person who asked, and the
+ * approved proposal runs under the same space scope. The check runs before
+ * any approval, so a write it lets through still goes through the "always
+ * ask" setting, the standing approvals and the approval card: the approval
+ * says "do it", the space scope "only here".
  */
 @Service
 @Slf4j
 public class McpToolSpaceScopeService {
 
   private static final String                      NOT_AVAILABLE      =
-                                                                  "Not executed: '%s' isn't available while this run is limited to the space with id %s. Don't call it again in this run: use a tool that reads that space, or answer from what you already have.";
+                                                                  "Not executed: '%s' isn't available while this run is limited to the space with id %s. Don't call it again in this run: use another tool within that space, or answer from what you already have.";
 
   private static final String                      BAD_ARGUMENTS      =
                                                                   "Not executed: while this run is limited to the space with id %s, '%s' needs its arguments as a JSON object with distinct keys. Call it again that way.";
@@ -73,10 +82,10 @@ public class McpToolSpaceScopeService {
                                                                   "Not executed: while this run is limited to the space with id %s, '%s' can only be called with '%s' false or absent. Call it again without it.";
 
   private static final String                      OUT_OF_SPACE       =
-                                                                  "Not executed: while this run is limited to the space with id %s, '%s' can only read that space, and the call gave %s. Call '%s' again with %s %s, or answer from what you already have.";
+                                                                  "Not executed: while this run is limited to the space with id %s, '%s' can only reach that space, and the call gave %s. Call '%s' again with %s %s, or answer from what you already have.";
 
   private static final String                      OUT_OF_SPACE_OBJECT =
-                                                                   "Not executed: while this run is limited to the space with id %s, '%s' can only open an item of that space, and %s %s isn't one of them. Find that space's items with a tool that lists them, or answer from what you already have.";
+                                                                   "Not executed: while this run is limited to the space with id %s, '%s' can only reach an item of that space, and %s %s isn't one of them. Find that space's items with a tool that lists them, or answer from what you already have.";
 
   private static final Pattern                     DECIMAL_ID         = Pattern.compile("[1-9]\\d{0,18}");
 
@@ -104,8 +113,9 @@ public class McpToolSpaceScopeService {
    * @return the arguments to run the tool with: the same string, untouched,
    *         when the call isn't limited or needs nothing filled, else the
    *         arguments with the call's space filled in
-   * @throws SpaceScopeRefusedException when the limited call reads, or may
-   *                                     read, outside its space
+   * @throws SpaceScopeRefusedException when the limited call reaches, or
+   *                                      may reach, outside its space, or is a
+   *                                      write that isn't an approved proposal
    */
   public String enforce(String toolName, SimpleToolDefinition toolDefinition, String toolInput, ActingIdentity actingIdentity) {
     Long spaceScope = actingIdentity == null ? null : actingIdentity.spaceScope();
@@ -113,41 +123,35 @@ public class McpToolSpaceScopeService {
       return toolInput;
     }
     SpaceScopeDeclaration declaration = toolDefinition == null ? null : toolDefinition.getSpaceScope();
-    if (!isReadTool(toolDefinition) || !isWellFormed(declaration)) {
+    boolean write = !isReadTool(toolDefinition);
+    if (write && actingIdentity.origin() != Origin.PROPOSAL
+        || declaration == null
+        || !declaration.isWellFormedFor(write)) {
       throw refuse(NOT_AVAILABLE.formatted(toolName, spaceScope));
     }
     ObjectNode arguments = parseArguments(toolName, toolInput, spaceScope);
     checkArgumentNames(toolName, declaration, arguments, spaceScope);
     checkFalseOnlyArguments(toolName, declaration, arguments, spaceScope);
-    if (declaration.isSpaceRead()) {
-      return checkSpace(toolName, declaration, toolInput, arguments, spaceScope);
-    } else if (declaration.isObjectRead()) {
+    if (declaration.isSpaceKind()) {
+      return checkSpace(toolName, declaration, toolInput, arguments, spaceScope, write);
+    } else if (declaration.isObjectKind()) {
       checkObject(toolName, declaration, arguments, spaceScope);
     }
     return toolInput;
   }
 
   /**
+   * The rule that tells a read from a write for a call limited to one space,
+   * shared with the views that show it.
+   *
    * @param toolDefinition the tool's definition, may be null
-   * @return true when the definition says the tool only reads: a write never
-   *         runs while a call is limited to a space, whatever it declares
+   * @return true when the definition says the tool only reads; a tool carrying
+   *         no hint, or no definition, is a write
    */
-  private boolean isReadTool(SimpleToolDefinition toolDefinition) {
+  public static boolean isReadTool(SimpleToolDefinition toolDefinition) {
     return toolDefinition != null
            && toolDefinition.getAnnotations() != null
            && Boolean.TRUE.equals(toolDefinition.getAnnotations().readOnlyHint());
-  }
-
-  /**
-   * @param declaration the tool's space scope, may be null
-   * @return true when it is exactly one of the three kinds
-   */
-  private boolean isWellFormed(SpaceScopeDeclaration declaration) {
-    if (declaration == null) {
-      return false;
-    }
-    int kinds = (declaration.isSpaceRead() ? 1 : 0) + (declaration.isObjectRead() ? 1 : 0) + (declaration.isUnscopedRead() ? 1 : 0);
-    return kinds == 1;
   }
 
   /**
@@ -202,9 +206,9 @@ public class McpToolSpaceScopeService {
    */
   private Set<String> acceptedArguments(SpaceScopeDeclaration declaration) {
     Set<String> accepted = new LinkedHashSet<>();
-    if (declaration.isSpaceRead()) {
+    if (declaration.isSpaceKind()) {
       accepted.add(declaration.getSpaceArg());
-    } else if (declaration.isObjectRead()) {
+    } else if (declaration.isObjectKind()) {
       accepted.add(declaration.getObjectArg());
     }
     addAll(accepted, declaration.getAllowedArgs());
@@ -245,28 +249,32 @@ public class McpToolSpaceScopeService {
   }
 
   /**
-   * Checks the space argument of a space read, filling it with the call's
-   * space when it is absent or null and the tool says so.
+   * Checks the space argument of a tool declaring one, filling it with the
+   * call's space when it is absent or null, the tool is a read and says so. A
+   * write's absent space is refused: filled in, it would change the target
+   * the asker approved.
    *
    * @param toolName    the MCP tool name
    * @param declaration the tool's space scope
    * @param toolInput   the call's arguments as sent
    * @param arguments   the call's arguments
-   * @param spaceScope   the call's space
+   * @param spaceScope  the call's space
+   * @param write       true when the tool isn't marked read-only
    * @return the arguments as sent, or with the space filled in
-   * @throws SpaceScopeRefusedException when the space is another one, isn't a
-   *                                     space id, or is absent and the tool
-   *                                     says to refuse
+   * @throws SpaceScopeRefusedException when the space is another one, isn't
+   *                                      a space id, or is absent and isn't
+   *                                      filled in
    */
   private String checkSpace(String toolName,
                             SpaceScopeDeclaration declaration,
                             String toolInput,
                             ObjectNode arguments,
-                            Long spaceScope) {
+                            Long spaceScope,
+                            boolean write) {
     String spaceArg = declaration.getSpaceArg();
     JsonNode value = arguments.get(spaceArg);
     if (value == null || value.isNull()) {
-      if (declaration.isUseScopeWhenAbsent()) {
+      if (!write && declaration.isUseScopeWhenAbsent()) {
         arguments.put(spaceArg, spaceScope.longValue());
         return ARGUMENTS_MAPPER.writeValueAsString(arguments);
       }
@@ -279,7 +287,7 @@ public class McpToolSpaceScopeService {
   }
 
   /**
-   * Checks that the object a read by id opens belongs to the call's space,
+   * Checks that the object a tool reaches by id belongs to the call's space,
    * through the resolver the tool names. A missing object, one in another
    * space, a resolver that fails and an absent resolver get the same refusal.
    *
