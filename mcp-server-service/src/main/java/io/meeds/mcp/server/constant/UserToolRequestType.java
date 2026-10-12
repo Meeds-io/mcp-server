@@ -29,9 +29,10 @@ public enum UserToolRequestType {
   TOOL_EXECUTION_GRANTED,
 
   /**
-   * A call limited to one space was refused: the tool (a write, or a read that
-   * may reach outside that space) or the call's arguments aren't available to
-   * such a call. Nobody refused it.
+   * A call limited to one space was refused by its space scope: the tool (a
+   * write outside an approved proposal, or a tool that may reach outside that
+   * space) or the call's arguments aren't available to such a call. Nobody
+   * refused it.
    */
   TOOL_EXECUTION_OUT_OF_SCOPE;
 
