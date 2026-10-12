@@ -707,9 +707,9 @@ public class ActivityMcpTool implements McpToolPlugin {
    * the new comment under whatever parent id it is given, so a parent from
    * another activity would silently thread the reply into a stream the caller
    * never named. The two objects exist and are visible; what is wrong is the
-   * pair of parameters, hence an {@link IllegalArgumentException} (400) with the
-   * tool that reveals the right activity id, not a 404 that would make the
-   * model believe the comment doesn't exist.
+   * pair of parameters, hence an {@link IllegalArgumentException} (400) that never
+   * names the comment's own activity, which the caller may not be allowed to
+   * see, not a 404 that would make the model believe the comment doesn't exist.
    *
    * @param activityId      identifier of the activity being commented on
    * @param parentCommentId identifier of the comment to reply to, may be null
@@ -724,10 +724,10 @@ public class ActivityMcpTool implements McpToolPlugin {
     if (parentComment == null || !parentComment.isComment()) {
       throw new ObjectNotFoundException("No activity comment found with id '%s'. Use get_activity_comments to list comment ids.".formatted(parentCommentId));
     } else if (!StringUtils.equals(parentComment.getParentId(), String.valueOf(activityId))) {
-      throw new IllegalArgumentException(("Comment with id '%s' isn't a comment of activity '%s' but of activity '%s'. "
-          + "Use get_activity_comment to read the comment's activity_id and pass that activity_id.").formatted(parentCommentId,
-                                                                                                             activityId,
-                                                                                                             parentComment.getParentId()));
+      // the message never names the comment's actual activity: the caller may not be allowed to see it
+      throw new IllegalArgumentException(("Comment with id '%s' can't be the parent: the parent comment "
+          + "does not belong to this activity ('%s'). Use get_activity_comment to read the comment's activity_id, if you can "
+          + "view it, and pass that activity_id.").formatted(parentCommentId, activityId));
     }
     return parentComment;
   }
