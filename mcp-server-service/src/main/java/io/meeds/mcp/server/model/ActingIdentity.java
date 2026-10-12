@@ -66,7 +66,10 @@ public record ActingIdentity(PrincipalRef actor,
 
   /**
    * The origins whose answer is posted in a space, read by every member of it:
-   * an identity of one of them is always limited to that space.
+   * an identity of one of them is always limited to that space, and only
+   * reads there. A write such a run wants is proposed to the person who
+   * asked; once approved it runs as a {@link Origin#PROPOSAL}, the only origin
+   * a write runs under while limited to a space.
    */
   public static final Set<Origin> READ_SCOPED_ORIGINS     = Set.copyOf(EnumSet.of(Origin.MENTION,
                                                                                   Origin.TASK_COMMENT,
