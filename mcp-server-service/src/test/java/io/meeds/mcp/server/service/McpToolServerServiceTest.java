@@ -77,6 +77,7 @@ import org.exoplatform.container.PortalContainer;
 import org.exoplatform.services.listener.ListenerService;
 
 import io.meeds.mcp.server.listener.ToolListener;
+import io.meeds.mcp.server.model.ReadScopeDeclaration;
 import io.meeds.mcp.server.model.SimpleToolDefinition;
 import io.meeds.mcp.server.model.ToolDefinitionMethods;
 import io.meeds.mcp.server.util.McpToolUtils;
@@ -276,6 +277,40 @@ class McpToolServerServiceTest {
       assertTrue(beta.isRequireApproval());
       assertTrue(beta.isDisabled());
     }
+  }
+
+  /**
+   * The read scope belongs to the add-on: a persisted definition takes the
+   * shipped file's read scope (added, changed or removed), so neither a stale
+   * copy nor an administrator's edit can widen what a call limited to a space
+   * may read. Mutant: the read scope not copied from the shipped file.
+   *
+   * @param tmp a temporary folder
+   */
+  @Test
+  void getToolDefinitions_takesTheReadScopeFromTheShippedFile(// NOSONAR
+                                                              @TempDir
+                                                              Path tmp) {
+    ReflectionTestUtils.setField(mcpServerToolService, FORCE_REIMPORT_PARAM, false);
+    ReadScopeDeclaration shippedScope = new ReadScopeDeclaration("space_id", "use_scope", null, null, false, List.of("limit"), null);
+    SimpleToolDefinition shippedAlpha = tool(ALPHA_TOOL, "ParsedDesc", TYPE_OBJECT, false, false);
+    shippedAlpha.setReadScope(shippedScope);
+    SimpleToolDefinition shippedBeta = tool(BETA_TOOL, "ParsedBeta", TYPE_OBJECT, false, false);
+
+    SimpleToolDefinition savedAlpha = tool(ALPHA_TOOL, "SavedDesc", TYPE_OBJECT, false, false);
+    savedAlpha.setReadScope(new ReadScopeDeclaration(null, null, null, null, true, List.of("space_id", "limit"), null));
+    SimpleToolDefinition savedBeta = tool(BETA_TOOL, "SavedBeta", TYPE_OBJECT, false, false);
+    savedBeta.setReadScope(new ReadScopeDeclaration(null, null, null, null, true, null, null));
+    String savedBase64 = McpToolUtils.toJsonStringBase64(new ToolDefinitionMethods(List.of(savedAlpha, savedBeta)));
+    when(settingService.get(any(), any(), any())).thenReturn((SettingValue) SettingValue.create(savedBase64));
+
+    mockContainerResources(writeToolDefinitionsJson(tmp, List.of(shippedAlpha, shippedBeta)));
+
+    Map<String, SimpleToolDefinition> defs = mcpServerToolService.getToolDefinitions();
+
+    assertEquals(shippedScope, defs.get(ALPHA_TOOL).getReadScope());
+    assertEquals("SavedDesc", defs.get(ALPHA_TOOL).getDescription());
+    assertNull(defs.get(BETA_TOOL).getReadScope());
   }
 
   @Test
