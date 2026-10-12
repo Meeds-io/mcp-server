@@ -133,7 +133,7 @@ public class McpToolUtils {
   public static final String        TOOL_CONTEXT_ORIGIN_PARAM                     = "origin";
 
   /**
-   * Header of the internal client: the id of the only space the call may read
+   * Header of the internal client: the id of the only space the call may reach
    * ({@link ActingIdentity#spaceScope()}), absent when the call isn't limited.
    * Read with the other acting-identity headers only, and refused on a call
    * that sends the legacy headers alone.
