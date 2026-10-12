@@ -78,6 +78,8 @@ public class SpaceMcpTool implements McpToolPlugin {
 
   private static final String     MSG_SPACE_USER_NOT_ADMIN = "Space with Id '%s' can't be managed by current user";
 
+  private static final String     MSG_SPACE_ONLY_MANAGER   = "User '%s' is the only manager of space '%s'. Promote another member to manager first.";
+
   private static final String     MSG_SPACE_USER_NOT_DELETER = "Space with Id '%s' can't be deleted by current user";
 
   @Autowired
@@ -298,7 +300,8 @@ public class SpaceMcpTool implements McpToolPlugin {
     } else if (!spaceService.canManageSpace(space, currentUsername)) {
       throw new IllegalStateException(MSG_SPACE_USER_NOT_ADMIN.formatted(spaceId));
     } else if (CollectionUtils.isNotEmpty(usernamesToRemove)) {
-      usernamesToRemove.forEach(u -> spaceService.removeMember(space, u.startsWith("@") ? u.substring(1) : u));
+      usernamesToRemove.forEach(u -> checkNotOnlyManager(space, normalize(u)));
+      usernamesToRemove.forEach(u -> spaceService.removeMember(space, normalize(u)));
     }
   }
 
@@ -346,6 +349,7 @@ public class SpaceMcpTool implements McpToolPlugin {
     }
     switch (spaceRole) {
     case MANAGER: {
+      checkNotOnlyManager(space, username);
       spaceService.setManager(space, username, false);
       break;
     }
@@ -603,6 +607,21 @@ public class SpaceMcpTool implements McpToolPlugin {
       throw new IllegalStateException(MSG_SPACE_USER_NOT_ADMIN.formatted(spaceId));
     }
     return space;
+  }
+
+  /**
+   * Refuses an operation that would leave the space without any manager, as the
+   * Social REST endpoint does (precondition failed) when the target user is the
+   * only manager of the space.
+   *
+   * @param space the space the user is removed from, or loses its manager role
+   *          in
+   * @param username the user to remove
+   */
+  private void checkNotOnlyManager(Space space, String username) {
+    if (spaceService.isOnlyManager(space, username)) {
+      throw new IllegalStateException(MSG_SPACE_ONLY_MANAGER.formatted(username, space.getDisplayName()));
+    }
   }
 
   private String normalize(String username) {
