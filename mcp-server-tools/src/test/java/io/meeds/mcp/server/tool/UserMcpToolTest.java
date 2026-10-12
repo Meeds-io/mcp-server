@@ -30,8 +30,10 @@ import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 
 import org.exoplatform.commons.exception.ObjectNotFoundException;
+import org.exoplatform.services.security.ConversationState;
 import org.exoplatform.services.user.UserStateModel;
 import org.exoplatform.social.core.identity.model.Identity;
+import org.exoplatform.social.core.identity.model.Profile;
 import org.exoplatform.social.core.manager.IdentityManager;
 import org.exoplatform.social.core.manager.RelationshipManager;
 import org.exoplatform.social.core.profileproperty.ProfilePropertyService;
@@ -209,6 +211,52 @@ class UserMcpToolTest extends IntegrationTestBase {
     assertNotNull(updated);
     assertEquals("Platform Engineer", updated.getPosition());
     assertEquals("Meeds", updated.getCompany());
+  }
+
+  @Test
+  void updateMyProfileRefusesNonEditableFieldForNonAdministrator() throws Exception {
+    ProfilePropertySetting created = createNonEditablePositionSetting();
+    ConversationState.setCurrent(new ConversationState(new org.exoplatform.services.security.Identity("james")));
+    try {
+      assertThrows(IllegalAccessException.class,
+                   () -> userMcpTool.updateMyProfile(null, "CEO", null, null, null, null, null, null, null));
+
+      // A field left untouched does not trip over another field that is not editable
+      UserModel updated = userMcpTool.updateMyProfile(null, null, "Meeds", null, null, null, null, null, null);
+      assertEquals("Meeds", updated.getCompany());
+
+      created.setEditable(true);
+      profilePropertyService.updatePropertySetting(created);
+      updated = userMcpTool.updateMyProfile(null, "CEO", null, null, null, null, null, null, null);
+      assertEquals("CEO", updated.getPosition());
+    } finally {
+      profilePropertyService.deleteProfilePropertySetting(created.getId());
+    }
+  }
+
+  @Test
+  void updateMyProfileAllowsNonEditableFieldForAdministrator() throws Exception {
+    ProfilePropertySetting created = createNonEditablePositionSetting();
+    try {
+      UserModel updated = userMcpTool.updateMyProfile(null, "CTO", null, null, null, null, null, null, null);
+
+      assertEquals("CTO", updated.getPosition());
+    } finally {
+      profilePropertyService.deleteProfilePropertySetting(created.getId());
+    }
+  }
+
+  /**
+   * Registers the position profile property as not editable.
+   */
+  private ProfilePropertySetting createNonEditablePositionSetting() throws Exception {
+    ProfilePropertySetting setting = new ProfilePropertySetting();
+    setting.setPropertyName(Profile.POSITION);
+    setting.setPropertyType("text");
+    setting.setActive(true);
+    setting.setVisible(true);
+    setting.setEditable(false);
+    return profilePropertyService.createPropertySetting(setting);
   }
 
   // --- work experience -----------------------------------------------------
