@@ -657,10 +657,15 @@ public class ActivityMcpTool implements McpToolPlugin {
    * one it is a top-level comment, as before this parameter existed. The ACL
    * check is the activity's own view check in both cases: a reply is a comment
    * of the same activity and inherits its visibility, so no second check is
-   * needed and none is added.
+   * needed and none is added. The text is rendered from Markdown to HTML, as
+   * a post's is, unless it contains one of the block markers
+   * {@link io.meeds.mcp.server.util.McpToolUtils#markdownToHtml} reads as
+   * "already HTML" ({@code <p>}, {@code <ul>}, {@code <li>}, {@code <div>},
+   * {@code <img }); any other inline HTML is kept as is inside the rendered
+   * paragraph.
    *
    * @param activityId      identifier of the activity to comment on
-   * @param comment         comment text
+   * @param comment         comment text, Markdown or HTML
    * @param parentCommentId identifier of the comment to reply to, or null for a
    *                        top-level comment
    * @return the created comment
@@ -686,7 +691,7 @@ public class ActivityMcpTool implements McpToolPlugin {
     Identity currentUserIdentity = identityManager.getOrCreateUserIdentity(authenticatedUser);
 
     ExoSocialActivity commentActivity = new ExoSocialActivityImpl();
-    commentActivity.setTitle(comment);
+    commentActivity.setTitle(markdownToHtml(comment));
     commentActivity.setPosterId(currentUserIdentity.getId());
     commentActivity.setUserId(currentUserIdentity.getId());
     if (parentComment != null) {
@@ -890,6 +895,19 @@ public class ActivityMcpTool implements McpToolPlugin {
     attachmentService.deleteAttachment(objectType, objectId, targetFileId);
   }
 
+  /**
+   * Replaces the text of an activity comment. The new text is rendered from
+   * Markdown to HTML exactly as {@link #createActivityComment} renders it,
+   * with the same "already HTML" markers left untouched; the previous text is
+   * kept in the {@code original_comment} template parameter.
+   *
+   * @param activityCommentId identifier of the comment to update
+   * @param comment           new comment text, Markdown or HTML
+   * @return the updated comment
+   * @throws IllegalAccessException  when the comment isn't viewable by the
+   *                                 current user
+   * @throws ObjectNotFoundException when the comment doesn't exist
+   */
   public ActivityCommentModel updateComment(long activityCommentId, String comment) throws IllegalAccessException,
                                                                                     ObjectNotFoundException {
     org.exoplatform.services.security.Identity authenticatedUserIdentity = getCurrentUserAclIdentity();
@@ -907,8 +925,9 @@ public class ActivityMcpTool implements McpToolPlugin {
       commentActivity.setTemplateParams(new HashMap<>(commentActivity.getTemplateParams()));
     }
     commentActivity.getTemplateParams().put("original_comment", commentActivity.getTitle());
-    commentActivity.getTemplateParams().put("comment", comment);
-    commentActivity.setTitle(comment);
+    String htmlComment = markdownToHtml(comment);
+    commentActivity.getTemplateParams().put("comment", htmlComment);
+    commentActivity.setTitle(htmlComment);
     commentActivity.setUpdated(System.currentTimeMillis());
     activityManager.updateActivity(commentActivity, true);
     return toActivityCommentModel(commentActivity.getId());
