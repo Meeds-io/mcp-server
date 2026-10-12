@@ -36,6 +36,7 @@ import org.exoplatform.social.core.manager.IdentityManager;
 import org.exoplatform.social.core.manager.RelationshipManager;
 import org.exoplatform.social.core.profileproperty.ProfilePropertyService;
 import org.exoplatform.social.core.profileproperty.model.ProfilePropertySetting;
+import org.exoplatform.social.core.relationship.model.Relationship;
 
 import io.meeds.mcp.server.tool.model.ExperienceModel;
 import io.meeds.mcp.server.tool.model.OnlineStatusModel;
@@ -140,6 +141,56 @@ class UserMcpToolTest extends IntegrationTestBase {
   void acceptWithoutPendingRequestFails() {
     identityManager.getOrCreateUserIdentity("james");
     assertThrows(IllegalStateException.class, () -> userMcpTool.acceptConnectionRequest("james"));
+  }
+
+  @Test
+  void senderCannotAcceptOwnConnectionRequest() {
+    Identity john = identityManager.getOrCreateUserIdentity(USERNAME);
+    Identity root = identityManager.getOrCreateUserIdentity("root");
+    userMcpTool.sendConnectionRequest("root");
+    try {
+      assertThrows(IllegalStateException.class, () -> userMcpTool.acceptConnectionRequest("root"));
+
+      assertEquals(Relationship.Type.PENDING, relationshipManager.getStatus(john, root));
+    } finally {
+      deleteRelationshipIfPresent(john, root);
+    }
+  }
+
+  @Test
+  void senderCannotRefuseOwnConnectionRequest() {
+    Identity john = identityManager.getOrCreateUserIdentity(USERNAME);
+    Identity root = identityManager.getOrCreateUserIdentity("root");
+    userMcpTool.sendConnectionRequest("root");
+    try {
+      assertThrows(IllegalStateException.class, () -> userMcpTool.refuseConnectionRequest("root"));
+
+      assertEquals(Relationship.Type.PENDING, relationshipManager.getStatus(john, root));
+    } finally {
+      deleteRelationshipIfPresent(john, root);
+    }
+  }
+
+  @Test
+  void receiverCanRefuseIncomingConnectionRequest() {
+    Identity john = identityManager.getOrCreateUserIdentity(USERNAME);
+    Identity root = identityManager.getOrCreateUserIdentity("root");
+    relationshipManager.inviteToConnect(root, john);
+
+    userMcpTool.refuseConnectionRequest("root");
+
+    assertNotEquals(Relationship.Type.PENDING, relationshipManager.getStatus(john, root));
+  }
+
+  /**
+   * Removes the relationship between two users when there is one, so a test
+   * does not leak its connection state into the others sharing the database.
+   */
+  private void deleteRelationshipIfPresent(Identity first, Identity second) {
+    Relationship relationship = relationshipManager.get(first, second);
+    if (relationship != null) {
+      relationshipManager.delete(relationship);
+    }
   }
 
   // --- profile -------------------------------------------------------------
