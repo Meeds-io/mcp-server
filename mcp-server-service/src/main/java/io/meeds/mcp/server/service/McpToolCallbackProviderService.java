@@ -74,6 +74,7 @@ import io.meeds.mcp.server.model.ActingIdentity;
 import io.meeds.mcp.server.model.McpToolGrant;
 import io.meeds.mcp.server.model.McpToolGrantConstraint;
 import io.meeds.mcp.server.model.McpToolGrantRequest;
+import io.meeds.mcp.server.model.ReadScopeRefusedException;
 import io.meeds.mcp.server.model.UserToolDeniedException;
 import io.meeds.mcp.server.model.UserToolExecution;
 import io.meeds.mcp.server.model.UserToolExecution.UserToolExecutionBuilder;
@@ -106,6 +107,8 @@ public class McpToolCallbackProviderService implements ToolCallbackProvider {
   private List<McpToolPlugin>     toolObjects;
 
   private McpToolGrantService     mcpToolGrantService;
+
+  private McpToolReadScopeService mcpToolReadScopeService;
 
   @Override
   public ToolCallback[] getToolCallbacks() {
@@ -180,6 +183,7 @@ public class McpToolCallbackProviderService implements ToolCallbackProvider {
       return new MethodToolCallbackWrapper(mcpServerToolService,
                                            mcpToolApprovalService,
                                            mcpToolGrantService,
+                                           mcpToolReadScopeService,
                                            userAcl,
                                            toolCallback);
     }
@@ -218,6 +222,8 @@ public class McpToolCallbackProviderService implements ToolCallbackProvider {
 
     private final McpToolGrantService    mcpToolGrantService;
 
+    private final McpToolReadScopeService mcpToolReadScopeService;
+
     private final UserACL                userAcl;
 
     private final MethodToolCallback     toolCallback;
@@ -231,6 +237,8 @@ public class McpToolCallbackProviderService implements ToolCallbackProvider {
      * @param mcpToolApprovalService the approval cards
      * @param mcpToolGrantService    the standing approvals, may be null (no
      *                                 grant ever applies)
+     * @param mcpToolReadScopeService the read scope check, may be null (every
+     *                                  call limited to a space is then refused)
      * @param userAcl                the platform ACL
      * @param toolCallback           the wrapped tool method
      */
@@ -238,11 +246,13 @@ public class McpToolCallbackProviderService implements ToolCallbackProvider {
     public MethodToolCallbackWrapper(McpServerToolService mcpServerToolService,
                                      McpToolApprovalService mcpToolApprovalService,
                                      McpToolGrantService mcpToolGrantService,
+                                     McpToolReadScopeService mcpToolReadScopeService,
                                      UserACL userAcl,
                                      MethodToolCallback toolCallback) {
       this.mcpServerToolService = mcpServerToolService;
       this.mcpToolApprovalService = mcpToolApprovalService;
       this.mcpToolGrantService = mcpToolGrantService;
+      this.mcpToolReadScopeService = mcpToolReadScopeService;
       this.userAcl = userAcl;
       this.toolCallback = toolCallback;
       this.toolObject = getMethodToolFieldValue(toolCallback, "toolObject");
@@ -279,7 +289,9 @@ public class McpToolCallbackProviderService implements ToolCallbackProvider {
 
     /**
      * Runs one tool call as the user: the acting identity check, the scope
-     * check, then for an approval-gated or "always ask" tool the standing
+     * check, the read scope check of a call limited to one space (which may
+     * fill the space argument the tool then runs with), then for an
+     * approval-gated or "always ask" tool the standing
      * approval or the card, then the tool itself, each step traced to the
      * user's chat with who acted, for whom and through which agents.
      * <p>
@@ -314,6 +326,8 @@ public class McpToolCallbackProviderService implements ToolCallbackProvider {
           throw new IllegalAccessException("Tool '%s' execution isn't allowed switch selected scopes".formatted(toolMethod.getName()));
         }
         String toolName = toSnakeCase(toolMethod.getName());
+        toolInput = enforceReadScope(toolName, toolInput, actingIdentity);
+        executionBuilder.toolInput(toolInput);
         boolean alwaysAsk = mcpServerToolService.isAlwaysAsk(toolName);
         if (alwaysAsk && !mcpServerToolService.hasApprovalScope(authentication)) {
           // An "always ask" tool means what it says for every caller: one that
@@ -357,7 +371,7 @@ public class McpToolCallbackProviderService implements ToolCallbackProvider {
                   toolInput,
                   toolOutput);
         return toolOutput;
-      } catch (UserToolDeniedException | UserToolRefusedException e) {
+      } catch (UserToolDeniedException | UserToolRefusedException | ReadScopeRefusedException e) {
         mcpToolApprovalService.traceToolExecution(executionBuilder.toolExecutionType(UserToolRequestType.TOOL_EXECUTION_DENIED)
                                                                   .completed(true)
                                                                   .build());
@@ -416,6 +430,32 @@ public class McpToolCallbackProviderService implements ToolCallbackProvider {
                                                                                                                                  username));
       }
       return actingIdentity;
+    }
+
+    /**
+     * Keeps a call limited to one space within it, see
+     * {@link McpToolReadScopeService}; a call that isn't limited is returned
+     * as it came.
+     *
+     * @param toolName       the MCP tool name
+     * @param toolInput      the call's arguments
+     * @param actingIdentity the acting identity, may be null
+     * @return the arguments the tool runs with
+     * @throws ReadScopeRefusedException when the call reads outside its space,
+     *                                     or is limited and no read scope
+     *                                     check is wired
+     */
+    private String enforceReadScope(String toolName, String toolInput, ActingIdentity actingIdentity) {
+      if (actingIdentity == null || actingIdentity.readScope() == null) {
+        return toolInput;
+      } else if (mcpToolReadScopeService == null) {
+        throw new ReadScopeRefusedException("Not executed: '%s' can't check that it stays in the space with id %s".formatted(toolName,
+                                                                                                                         actingIdentity.readScope()));
+      }
+      return mcpToolReadScopeService.enforce(toolName,
+                                             mcpServerToolService.getToolDefinitionByMethodName(toolMethod.getName()),
+                                             toolInput,
+                                             actingIdentity);
     }
 
     /**

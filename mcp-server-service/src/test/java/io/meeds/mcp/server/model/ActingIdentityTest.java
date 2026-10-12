@@ -40,6 +40,8 @@ class ActingIdentityTest {
 
   private static final String AGENT = "EMAIL_ASSISTANT";
 
+  private static final Long   SPACE_ID = 12L;
+
   /**
    * A person acts for themself: the subject is the person, no agent is in the
    * chain, and no grant scope is set.
@@ -65,7 +67,7 @@ class ActingIdentityTest {
    */
   @Test
   void agentAccountActsAsItself() {
-    ActingIdentity agent = ActingIdentity.agent("agent-mail", AGENT, Origin.MENTION);
+    ActingIdentity agent = ActingIdentity.agent("agent-mail", AGENT, Origin.MENTION, SPACE_ID);
 
     assertThat(agent.actor()).isEqualTo(new PrincipalRef(PrincipalKind.AGENT, "agent-mail", AGENT));
     assertThat(agent.onBehalfOf()).isNull();
@@ -121,7 +123,7 @@ class ActingIdentityTest {
 
     assertThat(delegated.grantScope()).isEqualTo("schedule:12");
     assertThat(delegated.chain()).containsExactly("DIGEST", AGENT);
-    assertThat(ActingIdentity.agent("agent-mail", AGENT, Origin.MENTION).withHop("DOCUMENTS").grantScope())
+    assertThat(ActingIdentity.agent("agent-mail", AGENT, Origin.MENTION, SPACE_ID).withHop("DOCUMENTS").grantScope())
                                                                                                          .isEqualTo("agent-user:" + AGENT);
   }
 
@@ -230,6 +232,59 @@ class ActingIdentityTest {
     assertThatThrownBy(() -> McpToolUtils.parseAgentChain("[\"schedule:12\"]")).isInstanceOf(IllegalArgumentException.class);
     assertThatThrownBy(() -> McpToolUtils.parseAgentChain("[\" \"]")).isInstanceOf(IllegalArgumentException.class);
     assertThatThrownBy(() -> McpToolUtils.parseAgentChain(null)).isInstanceOf(IllegalArgumentException.class);
+  }
+
+  /**
+   * An origin that answers in a space can't be built without the read scope
+   * of that space, through any constructor or factory; with one it can, and
+   * the other origins need none. Mutant: the origin check removed.
+   */
+  @Test
+  void replyOriginsNeedAReadScope() {
+    PrincipalRef agentAccount = PrincipalRef.agent("agent-mail", AGENT);
+    List<String> chain = List.of(AGENT);
+    for (Origin origin : List.of(Origin.MENTION, Origin.TASK_COMMENT, Origin.TASK_ASSIGNMENT)) {
+      assertThatThrownBy(() -> ActingIdentity.agent("agent-mail", AGENT, origin)).isInstanceOf(IllegalArgumentException.class)
+                                                                               .hasMessageContaining(origin.name());
+      assertThatThrownBy(() -> ActingIdentity.person(USER, origin)).isInstanceOf(IllegalArgumentException.class);
+      assertThatThrownBy(() -> new ActingIdentity(agentAccount, null, chain, origin, null)).isInstanceOf(IllegalArgumentException.class);
+      assertThatThrownBy(() -> new ActingIdentity(agentAccount, null, chain, origin, null, null))
+                                                                                                .isInstanceOf(IllegalArgumentException.class);
+      assertThat(ActingIdentity.agent("agent-mail", AGENT, origin, SPACE_ID).readScope()).isEqualTo(SPACE_ID);
+      assertThat(ActingIdentity.person(USER, origin, SPACE_ID).readScope()).isEqualTo(SPACE_ID);
+    }
+    for (Origin origin : Origin.values()) {
+      if (!ActingIdentity.READ_SCOPED_ORIGINS.contains(origin)) {
+        assertThat(ActingIdentity.person(USER, origin).readScope()).isNull();
+      }
+    }
+  }
+
+  /**
+   * A read scope is a space id: zero or a negative value is refused. Mutant:
+   * the positive check removed.
+   */
+  @Test
+  void readScopeIsASpaceId() {
+    assertThatThrownBy(() -> ActingIdentity.person(USER, Origin.CHAT, 0L)).isInstanceOf(IllegalArgumentException.class);
+    assertThatThrownBy(() -> ActingIdentity.person(USER, Origin.CHAT, -3L)).isInstanceOf(IllegalArgumentException.class);
+    assertThat(ActingIdentity.person(USER, Origin.CHAT, SPACE_ID).readScope()).isEqualTo(SPACE_ID);
+  }
+
+  /**
+   * Every derivation keeps the read scope: an agent called by a limited one,
+   * and a run whose grant scope changes its origin, stay limited to the same
+   * space. Mutants: either derivation built without it.
+   */
+  @Test
+  void derivationsKeepTheReadScope() {
+    ActingIdentity reply = ActingIdentity.agent("agent-mail", AGENT, Origin.MENTION, SPACE_ID);
+
+    assertThat(reply.withHop("DOCUMENTS").readScope()).isEqualTo(SPACE_ID);
+    assertThat(reply.withGrantScope("email-filter:42").readScope()).isEqualTo(SPACE_ID);
+    assertThat(reply.withGrantScope("email-filter:42").origin()).isEqualTo(Origin.SOURCE);
+    assertThat(ActingIdentity.person(USER, Origin.CHAT, SPACE_ID).withHop(AGENT).withGrantScope(AGENT).readScope()).isEqualTo(SPACE_ID);
+    assertThat(ActingIdentity.person(USER, Origin.CHAT).withHop(AGENT).readScope()).isNull();
   }
 
 }
