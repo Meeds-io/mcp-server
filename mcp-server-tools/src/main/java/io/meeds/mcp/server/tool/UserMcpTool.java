@@ -283,23 +283,35 @@ public class UserMcpTool implements McpToolPlugin {
     relationshipManager.inviteToConnect(currentIdentity, target);
   }
 
+  /**
+   * Accepts the pending connection request sent by the given user to the
+   * current user.
+   *
+   * @param username the user who sent the request
+   */
   @SneakyThrows
   public void acceptConnectionRequest(String username) {
     Identity sender = requireIdentity(username);
     Identity currentIdentity = me();
     Relationship relationship = relationshipManager.get(sender, currentIdentity);
-    if (relationship == null || relationship.getStatus() != Relationship.Type.PENDING) {
+    if (relationship == null || relationship.getStatus() != Relationship.Type.PENDING || !isReceiver(relationship, currentIdentity)) {
       throw new IllegalStateException("There is no pending connection request from '%s'. Use list_connection_requests to see incoming requests.".formatted(username));
     }
     relationshipManager.confirm(currentIdentity, sender);
   }
 
+  /**
+   * Refuses the pending connection request sent by the given user to the
+   * current user.
+   *
+   * @param username the user who sent the request
+   */
   @SneakyThrows
   public void refuseConnectionRequest(String username) {
     Identity sender = requireIdentity(username);
     Identity currentIdentity = me();
     Relationship relationship = relationshipManager.get(sender, currentIdentity);
-    if (relationship == null || relationship.getStatus() != Relationship.Type.PENDING) {
+    if (relationship == null || relationship.getStatus() != Relationship.Type.PENDING || !isReceiver(relationship, currentIdentity)) {
       throw new IllegalStateException("There is no pending connection request from '%s'.".formatted(username));
     }
     relationshipManager.deny(currentIdentity, sender);
@@ -501,6 +513,14 @@ public class UserMcpTool implements McpToolPlugin {
                                                      state.getStatus(),
                                                      state.getLastActivity() <= 0 ? null : formatDate(state.getLastActivity())))
                  .toList();
+  }
+
+  /**
+   * Checks whether the given identity is the receiver of a relationship, the
+   * only side allowed to accept or refuse a connection request.
+   */
+  private boolean isReceiver(Relationship relationship, Identity identity) {
+    return relationship.getReceiver() != null && StringUtils.equals(relationship.getReceiver().getId(), identity.getId());
   }
 
   private Identity me() {
