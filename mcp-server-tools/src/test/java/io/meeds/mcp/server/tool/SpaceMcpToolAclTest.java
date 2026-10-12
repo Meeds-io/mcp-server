@@ -21,10 +21,13 @@ package io.meeds.mcp.server.tool;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyBoolean;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
+
+import java.util.List;
 
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
@@ -35,6 +38,8 @@ import org.exoplatform.services.security.ConversationState;
 import org.exoplatform.services.security.Identity;
 import org.exoplatform.social.core.space.model.Space;
 import org.exoplatform.social.core.space.spi.SpaceService;
+
+import io.meeds.mcp.server.tool.constant.SpaceRole;
 
 /**
  * Exercises the permission gates of {@link SpaceMcpTool} in isolation (plain
@@ -98,6 +103,98 @@ class SpaceMcpToolAclTest {
 
     assertEquals(USERNAME, space.getEditor());
     verify(spaceService).deleteSpace(space);
+  }
+
+  /**
+   * Removing the only manager of a space from it is refused.
+   */
+  @Test
+  void removeUsersFromSpaceRefusesOnlyManager() {
+    allowManagement();
+    when(spaceService.isOnlyManager(space, "mary")).thenReturn(true);
+
+    assertThrows(IllegalStateException.class,
+                 () -> spaceMcpTool.removeUsersFromSpace(SPACE_ID, List.of("@mary")));
+
+    verify(spaceService, never()).removeMember(any(Space.class), any());
+  }
+
+  /**
+   * A refusal for one user of the list removes none of them.
+   */
+  @Test
+  void removeUsersFromSpaceRemovesNoneWhenOneIsOnlyManager() {
+    allowManagement();
+    when(spaceService.isOnlyManager(space, "mary")).thenReturn(true);
+
+    assertThrows(IllegalStateException.class,
+                 () -> spaceMcpTool.removeUsersFromSpace(SPACE_ID, List.of("paul", "mary")));
+
+    verify(spaceService, never()).removeMember(any(Space.class), any());
+  }
+
+  /**
+   * Members who aren't the only manager are removed, the "@" prefix being
+   * ignored.
+   */
+  @Test
+  void removeUsersFromSpaceRemovesNonOnlyManagers() {
+    allowManagement();
+
+    spaceMcpTool.removeUsersFromSpace(SPACE_ID, List.of("@paul", "mary"));
+
+    verify(spaceService).removeMember(space, "paul");
+    verify(spaceService).removeMember(space, "mary");
+  }
+
+  /**
+   * Removing the manager role of the only manager of a space is refused.
+   */
+  @Test
+  void removeUserRoleInSpaceRefusesOnlyManagerRole() {
+    allowManagement();
+    when(spaceService.isMember(space, "mary")).thenReturn(true);
+    when(spaceService.isOnlyManager(space, "mary")).thenReturn(true);
+
+    assertThrows(IllegalStateException.class,
+                 () -> spaceMcpTool.removeUserRoleInSpace(SPACE_ID, "mary", SpaceRole.MANAGER));
+
+    verify(spaceService, never()).setManager(any(Space.class), any(), anyBoolean());
+  }
+
+  /**
+   * Removing the manager role of a manager who isn't the only one succeeds.
+   */
+  @Test
+  void removeUserRoleInSpaceRemovesManagerRoleWhenNotOnlyManager() {
+    allowManagement();
+    when(spaceService.isMember(space, "mary")).thenReturn(true);
+
+    spaceMcpTool.removeUserRoleInSpace(SPACE_ID, "mary", SpaceRole.MANAGER);
+
+    verify(spaceService).setManager(space, "mary", false);
+  }
+
+  /**
+   * Other roles aren't concerned by the last manager guard, as in the Social
+   * REST endpoint.
+   */
+  @Test
+  void removeUserRoleInSpaceRemovesRedactorRoleOfOnlyManager() {
+    allowManagement();
+    when(spaceService.isMember(space, "mary")).thenReturn(true);
+    when(spaceService.isOnlyManager(space, "mary")).thenReturn(true);
+
+    spaceMcpTool.removeUserRoleInSpace(SPACE_ID, "mary", SpaceRole.REDACTOR);
+
+    verify(spaceService).removeRedactor(space, "mary");
+  }
+
+  /**
+   * Lets the current user manage the space.
+   */
+  private void allowManagement() {
+    when(spaceService.canManageSpace(space, USERNAME)).thenReturn(true);
   }
 
 }
