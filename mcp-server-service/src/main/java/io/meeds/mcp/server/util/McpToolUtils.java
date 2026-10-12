@@ -133,6 +133,14 @@ public class McpToolUtils {
   /** Header of the internal client: the {@link Origin} of the call. */
   public static final String        TOOL_CONTEXT_ORIGIN_PARAM                     = "origin";
 
+  /**
+   * Header of the internal client: the id of the only space the call may read
+   * ({@link ActingIdentity#readScope()}), absent when the call isn't limited.
+   * Read with the other acting-identity headers only, and refused on a call
+   * that sends the legacy headers alone.
+   */
+  public static final String        TOOL_CONTEXT_READ_SCOPE_PARAM                 = "readScope";
+
   public static final String        TOOL_CONTEXT_ID                               = UUID.randomUUID().toString();
 
   public static final String        TOOL_READ_SCOPE                               = "mcp.tools.read";
@@ -463,13 +471,17 @@ public class McpToolUtils {
    * any other caller the identity is the token's user acting for themself
    * through an external client, whatever headers it sends. The identity is
    * resolved once per request and kept as a request attribute, so a tool
-   * reading it during the call sees the one the server checked.
+   * reading it during the call sees the one the server checked. The read
+   * scope ({@link #TOOL_CONTEXT_READ_SCOPE_PARAM}) is part of the identity the
+   * internal client sends, so an external client can neither set nor lift it.
    *
    * @return the acting identity, or null when no user can be resolved
    * @throws IllegalStateException when the internal client sends an identity
    *                                 the server refuses: an incomplete or
-   *                                 malformed one, or an agent account acting
-   *                                 for a person
+   *                                 malformed one, an agent account acting
+   *                                 for a person, a read scope that isn't a
+   *                                 space id, or a read scope with the legacy
+   *                                 headers alone
    */
   public static ActingIdentity getCurrentActingIdentity() {
     RequestAttributes requestAttributes = RequestContextHolder.getRequestAttributes();
@@ -551,6 +563,10 @@ public class McpToolUtils {
       if (userName == null) {
         return null;
       } else if (request.getHeader(TOOL_CONTEXT_ACTOR_KIND_PARAM) == null) {
+        if (request.getHeader(TOOL_CONTEXT_READ_SCOPE_PARAM) != null) {
+          // a limit the legacy identity can't carry is refused, never dropped
+          throw new IllegalStateException("The acting identity of the call is refused: a read scope comes only with the acting identity headers");
+        }
         return legacyActingIdentity(userName, StringUtils.trimToNull(request.getHeader(TOOL_CONTEXT_AGENT_NAME_ID_PARAM)));
       } else {
         return headerActingIdentity(request);
@@ -598,9 +614,32 @@ public class McpToolUtils {
                                 StringUtils.trimToNull(request.getHeader(TOOL_CONTEXT_ON_BEHALF_OF_PARAM)),
                                 parseAgentChain(request.getHeader(TOOL_CONTEXT_AGENT_CHAIN_PARAM)),
                                 toEnum(Origin.class, request.getHeader(TOOL_CONTEXT_ORIGIN_PARAM)),
-                                request.getHeader(TOOL_CONTEXT_AGENT_NAME_ID_PARAM));
+                                request.getHeader(TOOL_CONTEXT_AGENT_NAME_ID_PARAM),
+                                parseReadScope(request.getHeader(TOOL_CONTEXT_READ_SCOPE_PARAM)));
     } catch (IllegalArgumentException e) {
       throw new IllegalStateException("The acting identity of the call is refused: %s".formatted(e.getMessage()), e);
+    }
+  }
+
+  /**
+   * Parses the read scope header: absent means no limit, anything else must be
+   * a space id written in plain decimal digits.
+   *
+   * @param value the header value, may be null
+   * @return the space id, or null when the header is absent
+   * @throws IllegalArgumentException when the header is present and isn't a
+   *                                    positive decimal number
+   */
+  private static Long parseReadScope(String value) {
+    if (value == null) {
+      return null;
+    } else if (!value.matches("[1-9]\\d{0,18}")) {
+      throw new IllegalArgumentException("The read scope '%s' isn't a space id".formatted(value));
+    }
+    try {
+      return Long.valueOf(value);
+    } catch (NumberFormatException e) {
+      throw new IllegalArgumentException("The read scope '%s' isn't a space id".formatted(value), e);
     }
   }
 
