@@ -59,8 +59,9 @@ import tools.jackson.databind.node.ObjectNode;
  * call's space, so the model can call again within it.
  * <p>
  * A run answering in a space ({@link ActingIdentity#READ_SCOPED_ORIGINS})
- * never writes: it proposes the write to the person who asked, and the
- * approved proposal runs under the same space scope. The check runs before
+ * never writes under its space scope. Limiting an approved proposal to the
+ * space it was made in is its caller's job: the identity it sends must carry
+ * that space scope, or the proposal runs unlimited. The check runs before
  * any approval, so a write it lets through still goes through the "always
  * ask" setting, the standing approvals and the approval card: the approval
  * says "do it", the space scope "only here".
