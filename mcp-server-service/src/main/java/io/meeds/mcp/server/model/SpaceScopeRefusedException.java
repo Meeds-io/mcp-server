@@ -19,8 +19,9 @@
 package io.meeds.mcp.server.model;
 
 /**
- * A tool call refused because it reads outside the only space its acting
- * identity may read: traced as denied, not as an error, and still an
+ * A tool call refused because it reaches, or may reach, outside the only
+ * space its acting identity is limited to, or is a write that isn't an
+ * approved proposal: traced as denied, not as an error, and still an
  * {@link IllegalStateException} for every caller. Its message is written for
  * the model, which reads it as the tool's result and can call again within
  * the space.
