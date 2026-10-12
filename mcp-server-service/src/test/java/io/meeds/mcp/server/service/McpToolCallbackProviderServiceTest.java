@@ -847,6 +847,47 @@ class McpToolCallbackProviderServiceTest {
   }
 
   /**
+   * An approved proposal limited to a space runs a write declared in that
+   * space only after the space scope check, and still through the standing
+   * approvals and the card; the same write in another space is refused
+   * before either. Mutants: the space scope check moved after the approval;
+   * every write refused under a space scope.
+   */
+  @Test
+  void call_spaceScopedProposalWrite_checkedThenStillAsked() {// NOSONAR
+    SimpleToolDefinition write = new SimpleToolDefinition(TOOL_METHOD,
+                                                          "Greet",
+                                                          "Greets someone",
+                                                          "{}",
+                                                          true,
+                                                          false,
+                                                          new ToolAnnotations("Greet", false, false, false, false, null));
+    write.setSpaceScope(new SpaceScopeDeclaration("name", null, null, null, false, null, null));
+    when(mcpServerToolService.getToolDefinitionByMethodName(TOOL_METHOD)).thenReturn(write);
+    when(mcpToolApprovalService.requestApproval(any(), any(), any(), any(), any(), any(), anyBoolean(), any())).thenReturn(true);
+    MockHttpServletRequest request = bindRequest(TOOL_CONTEXT_ID, CONVERSATION_ID);
+    addIdentityHeaders(request, USERNAME, "USER", USERNAME, null, USERNAME, "[]", "PROPOSAL", null);
+    request.addHeader(TOOL_CONTEXT_SPACE_SCOPE_PARAM, "12");
+
+    assertThrows(SpaceScopeRefusedException.class, () -> toolCallback.call("{\"name\":13}"));
+    verify(mcpToolGrantService, never()).findApplicableGrant(any(), any());
+    verify(mcpToolApprovalService, never()).requestApproval(any(), any(), any(), any(), any(), any(), anyBoolean(), any());
+
+    String output = toolCallback.call("{\"name\":12}");
+
+    assertTrue(output.contains("Hello 12"), output);
+    verify(mcpToolGrantService).findApplicableGrant(any(), any());
+    verify(mcpToolApprovalService).requestApproval(anyString(),
+                                                   eq(CONVERSATION_ID),
+                                                   eq(TOOL_METHOD),
+                                                   anyString(),
+                                                   eq(USERNAME),
+                                                   any(),
+                                                   anyBoolean(),
+                                                   any());
+  }
+
+  /**
    * A call that isn't limited runs as before: an undeclared tool, its
    * arguments as sent, traced as sent. Mutant: the space scope check applied
    * to every call, which refuses it.
