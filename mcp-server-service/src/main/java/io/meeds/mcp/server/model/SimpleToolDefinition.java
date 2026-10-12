@@ -84,9 +84,9 @@ public class SimpleToolDefinition implements ToolDefinition {
    * when it can't be. Owned by the add-on, like the icon: always read from its
    * file, never from the persisted copy.
    */
-  @JsonProperty("read_scope")
+  @JsonProperty("space_scope")
   @JsonInclude(Include.NON_EMPTY)
-  private ReadScopeDeclaration readScope;
+  private SpaceScopeDeclaration spaceScope;
 
   /**
    * Builds a definition with no icon.
@@ -116,7 +116,7 @@ public class SimpleToolDefinition implements ToolDefinition {
   }
 
   /**
-   * Copies a definition, its icon and read scope included.
+   * Copies a definition, its icon and space scope included.
    *
    * @param simpleToolDefinition the definition to copy
    */
@@ -129,7 +129,7 @@ public class SimpleToolDefinition implements ToolDefinition {
          simpleToolDefinition.disabled,
          simpleToolDefinition.annotations);
     this.icon = simpleToolDefinition.icon;
-    this.readScope = simpleToolDefinition.readScope;
+    this.spaceScope = simpleToolDefinition.spaceScope;
   }
 
   @Override
