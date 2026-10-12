@@ -327,6 +327,15 @@ public class UserMcpTool implements McpToolPlugin {
     relationshipManager.delete(relationship);
   }
 
+  /**
+   * Updates the given profile fields of the current user. A field the platform
+   * marks as not editable can only be changed by an administrator.
+   *
+   * @return the updated user
+   * @throws IllegalAccessException when a provided field is not editable by the
+   *           current user
+   */
+  @SneakyThrows
   public UserModel updateMyProfile(String aboutMe, // NOSONAR
                                    String position,
                                    String company,
@@ -339,6 +348,15 @@ public class UserMcpTool implements McpToolPlugin {
     String username = getCurrentUserName();
     Identity identity = identityManager.getOrCreateUserIdentity(username);
     Profile profile = identityManager.getProfile(identity);
+    assertEditable(username, Profile.ABOUT_ME, aboutMe);
+    assertEditable(username, Profile.POSITION, position);
+    assertEditable(username, Profile.COMPANY, company);
+    assertEditable(username, Profile.DEPARTMENT, department);
+    assertEditable(username, Profile.TEAM, team);
+    assertEditable(username, Profile.CITY, city);
+    assertEditable(username, Profile.COUNTRY, country);
+    assertEditable(username, Profile.DISPLAYED_PHONE, phones);
+    assertEditable(username, Profile.CONTACT_URLS, urls);
     boolean changed = setIfPresent(profile, Profile.ABOUT_ME, aboutMe);
     changed = setIfPresent(profile, Profile.POSITION, position) || changed;
     changed = setIfPresent(profile, Profile.COMPANY, company) || changed;
@@ -568,6 +586,23 @@ public class UserMcpTool implements McpToolPlugin {
     }
     profile.setProperty(propertyName, value);
     return true;
+  }
+
+  /**
+   * Refuses a provided value for a profile field that is not editable, unless
+   * the user is an administrator. Absent values are ignored, as they leave the
+   * field untouched.
+   */
+  private void assertEditable(String username, String propertyName, String value) throws IllegalAccessException {
+    if (value == null) {
+      return;
+    }
+    ProfilePropertySetting propertySetting = profilePropertyService.getProfileSettingByName(propertyName);
+    if (propertySetting != null
+        && !propertySetting.isEditable()
+        && !userAcl.getUserIdentity(username).isMemberOf(userAcl.getAdminGroups())) {
+      throw new IllegalAccessException("Not allowed to update non modifiable field '%s'".formatted(propertyName));
+    }
   }
 
   /**
