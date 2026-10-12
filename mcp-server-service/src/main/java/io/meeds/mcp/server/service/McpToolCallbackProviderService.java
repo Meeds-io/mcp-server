@@ -444,9 +444,9 @@ public class McpToolCallbackProviderService implements ToolCallbackProvider {
      * @param toolInput      the call's arguments
      * @param actingIdentity the acting identity, may be null
      * @return the arguments the tool runs with
-     * @throws SpaceScopeRefusedException when the call reads outside its space,
-     *                                     or is limited and no space scope
-     *                                     check is wired
+     * @throws SpaceScopeRefusedException when the call isn't available within
+     *                                      its space scope, or is limited and
+     *                                      no space scope check is wired
      */
     private String enforceSpaceScope(String toolName, String toolInput, ActingIdentity actingIdentity) {
       if (actingIdentity == null || actingIdentity.spaceScope() == null) {
