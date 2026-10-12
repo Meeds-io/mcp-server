@@ -54,6 +54,7 @@ import java.util.Map;
 import java.util.stream.Stream;
 
 import org.junit.jupiter.api.AfterEach;
+import org.slf4j.LoggerFactory;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -75,6 +76,11 @@ import org.springframework.web.context.request.RequestContextHolder;
 import org.springframework.web.context.request.ServletRequestAttributes;
 
 import org.exoplatform.portal.config.UserACL;
+
+import ch.qos.logback.classic.Level;
+import ch.qos.logback.classic.Logger;
+import ch.qos.logback.classic.spi.ILoggingEvent;
+import ch.qos.logback.core.read.ListAppender;
 import org.exoplatform.services.security.ConversationState;
 import org.exoplatform.services.security.Identity;
 
@@ -781,16 +787,28 @@ class McpToolCallbackProviderServiceTest {
   /**
    * A call limited to a space, to a tool that declares no read scope, is
    * refused before any card or grant lookup and before the tool runs, traced
-   * as denied, and the model reads which space it may read. Mutant: the read
-   * scope check not called from the wrapper.
+   * as denied and not logged as an incident, and the model reads which space
+   * it may read. Mutants: the read scope check not called from the wrapper;
+   * the refusal logged at WARN or ERROR.
    */
   @Test
   void call_readScopedCallToAnUndeclaredTool_refusedAsDenied() {// NOSONAR
     MockHttpServletRequest request = bindRequest(TOOL_CONTEXT_ID, CONVERSATION_ID);
     addIdentityHeaders(request, USERNAME, "USER", USERNAME, null, USERNAME, "[\"COMPLETION\"]", "MENTION", "COMPLETION");
     request.addHeader(TOOL_CONTEXT_READ_SCOPE_PARAM, "12");
+    Logger logger = (Logger) LoggerFactory.getLogger(McpToolCallbackProviderService.class);
+    ListAppender<ILoggingEvent> logged = new ListAppender<>();
+    logged.start();
+    logger.addAppender(logged);
 
-    ReadScopeRefusedException e = assertThrows(ReadScopeRefusedException.class, () -> toolCallback.call(TOOL_INPUT));
+    ReadScopeRefusedException e;
+    try {
+      e = assertThrows(ReadScopeRefusedException.class, () -> toolCallback.call(TOOL_INPUT));
+    } finally {
+      logger.detachAppender(logged);
+    }
+
+    assertTrue(logged.list.stream().noneMatch(event -> event.getLevel().isGreaterOrEqual(Level.WARN)), logged.list::toString);
 
     assertTrue(e.getMessage().contains("space with id 12"), e.getMessage());
     verify(mcpToolApprovalService).traceToolExecution(argThatIs(UserToolRequestType.TOOL_EXECUTION_DENIED));
