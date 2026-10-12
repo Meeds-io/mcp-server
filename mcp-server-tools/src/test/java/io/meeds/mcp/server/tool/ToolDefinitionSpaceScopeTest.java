@@ -29,19 +29,19 @@ import java.util.stream.Collectors;
 
 import org.junit.jupiter.api.Test;
 
-import io.meeds.mcp.server.model.ReadScopeDeclaration;
+import io.meeds.mcp.server.model.SpaceScopeDeclaration;
 import io.meeds.mcp.server.model.SimpleToolDefinition;
-import io.meeds.mcp.server.tool.plugin.ActivityReadScopeResolver;
+import io.meeds.mcp.server.tool.plugin.ActivitySpaceScopeResolver;
 import io.meeds.mcp.server.util.McpToolUtils;
 
 import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.json.JsonMapper;
 
 /**
- * Pins the {@code read_scope} declarations this module ships: which tools a
+ * Pins the {@code space_scope} declarations this module ships: which tools a
  * call limited to one space may use, and on which arguments.
  */
-class ToolDefinitionReadScopeTest {
+class ToolDefinitionSpaceScopeTest {
 
   private static final Set<String> SPACE_READS  = Set.of("get_activities",
                                                          "get_activities_since_days",
@@ -55,7 +55,7 @@ class ToolDefinitionReadScopeTest {
   private static final Set<String> DIRECTORY    = Set.of("get_user_by_username", "search_users");
 
   /**
-   * Exactly the expected tools declare a read scope, each of the expected
+   * Exactly the expected tools declare a space scope, each of the expected
    * kind, every one of them a read: a tool added to the list, or a write
    * declared, fails here first.
    */
@@ -69,19 +69,19 @@ class ToolDefinitionReadScopeTest {
       assertThat(tool.getAnnotations().readOnlyHint()).as(name).isTrue();
     });
     SPACE_READS.forEach(name -> {
-      ReadScopeDeclaration scope = declared.get(name).getReadScope();
+      SpaceScopeDeclaration scope = declared.get(name).getSpaceScope();
       assertThat(scope.isSpaceRead()).as(name).isTrue();
       assertThat(scope.getSpaceArg()).as(name).isEqualTo("space_id");
       assertThat(scope.isUseScopeWhenAbsent()).as(name).isTrue();
     });
     OBJECT_READS.forEach(name -> {
-      ReadScopeDeclaration scope = declared.get(name).getReadScope();
+      SpaceScopeDeclaration scope = declared.get(name).getSpaceScope();
       assertThat(scope.isObjectRead()).as(name).isTrue();
       assertThat(scope.getObjectArg()).as(name).isEqualTo("activity_id");
-      assertThat(scope.getResolver()).as(name).isEqualTo(ActivityReadScopeResolver.NAME);
+      assertThat(scope.getResolver()).as(name).isEqualTo(ActivitySpaceScopeResolver.NAME);
     });
-    DIRECTORY.forEach(name -> assertThat(declared.get(name).getReadScope().isUnscopedRead()).as(name).isTrue());
-    assertThat(declared.get("search_activities").getReadScope().getFalseOnlyArgs()).containsExactly("is_favorite");
+    DIRECTORY.forEach(name -> assertThat(declared.get(name).getSpaceScope().isUnscopedRead()).as(name).isTrue());
+    assertThat(declared.get("search_activities").getSpaceScope().getFalseOnlyArgs()).containsExactly("is_favorite");
   }
 
   /**
@@ -94,7 +94,7 @@ class ToolDefinitionReadScopeTest {
     declaredTools().forEach((name, tool) -> {
       JsonNode properties = mapper.readTree(tool.getInputSchema()).path("properties");
       Set<String> schema = new LinkedHashSet<>(properties.propertyNames());
-      ReadScopeDeclaration scope = tool.getReadScope();
+      SpaceScopeDeclaration scope = tool.getSpaceScope();
       Set<String> accepted = new LinkedHashSet<>();
       if (scope.getSpaceArg() != null) {
         accepted.add(scope.getSpaceArg());
@@ -109,13 +109,13 @@ class ToolDefinitionReadScopeTest {
   }
 
   /**
-   * @return the shipped tools that declare a read scope, by name
+   * @return the shipped tools that declare a space scope, by name
    */
   private Map<String, SimpleToolDefinition> declaredTools() {
     URL url = getClass().getClassLoader().getResource("ai-tool-definitions.json");
     return McpToolUtils.parseToolDefinitions(url)
                        .stream()
-                       .filter(tool -> tool.getReadScope() != null)
+                       .filter(tool -> tool.getSpaceScope() != null)
                        .collect(Collectors.toMap(SimpleToolDefinition::getName, tool -> tool));
   }
 
