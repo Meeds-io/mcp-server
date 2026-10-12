@@ -498,12 +498,13 @@ public class McpServerToolService {
   /**
    * Builds the tool registry: every {@code ai-tool-definitions.json} on the
    * portal classpath, each entry overridden by its persisted version when one
-   * exists, then persisted back as the new reference set. The icon is the
-   * add-on's, not the administrator's: it is always taken from the shipped
-   * file, so a booted instance shows a changed icon at its next restart. A
-   * tool its file declares with a key this server does not know is left out
-   * of the registry, and its saved definition is persisted back unchanged, so
-   * the administrator's values return with the tool once the key is known.
+   * exists, then persisted back as the new reference set. The icon and the
+   * read scope are the add-on's, not the administrator's: they are always
+   * taken from the shipped file, so a booted instance applies a changed one at
+   * its next restart. A tool its file declares with a key this server does not
+   * know is left out of the registry, and its saved definition is persisted
+   * back unchanged, so the administrator's values return with the tool once
+   * the key is known.
    */
   @SneakyThrows
   private void retrieveToolDefinitions() {
@@ -529,8 +530,8 @@ public class McpServerToolService {
                                                                                                       .filter(t -> t.getName()
                                                                                                                     .equals(toolDefinition.getName()))
                                                                                                       .findFirst()
-                                                                                                      .map(saved -> withShippedIcon(saved,
-                                                                                                                                    toolDefinition))
+                                                                                                      .map(saved -> withShippedAddonFields(saved,
+                                                                                                                                           toolDefinition))
                                                                                                       .orElse(toolDefinition))
                                                                .toList();
     Set<String> loadedToolNames = toolDefinitionList.stream().map(SimpleToolDefinition::getName).collect(Collectors.toSet());
@@ -558,16 +559,18 @@ public class McpServerToolService {
   }
 
   /**
-   * Gives a persisted definition the icon of its shipped file, keeping every
-   * value the administrator may have edited.
+   * Gives a persisted definition the icon and the read scope of its shipped
+   * file, keeping every value the administrator may have edited. A read scope
+   * the file no longer declares is dropped from the persisted copy too.
    *
    * @param savedDefinition   the persisted definition
    * @param shippedDefinition the definition read from the add-on's file
-   * @return the persisted definition, with the shipped icon
+   * @return the persisted definition, with the shipped icon and read scope
    */
-  private SimpleToolDefinition withShippedIcon(SimpleToolDefinition savedDefinition,
-                                               SimpleToolDefinition shippedDefinition) {
+  private SimpleToolDefinition withShippedAddonFields(SimpleToolDefinition savedDefinition,
+                                                      SimpleToolDefinition shippedDefinition) {
     savedDefinition.setIcon(shippedDefinition.getIcon());
+    savedDefinition.setReadScope(shippedDefinition.getReadScope());
     return savedDefinition;
   }
 
