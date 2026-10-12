@@ -36,18 +36,18 @@ import org.springframework.beans.factory.ObjectProvider;
 
 import io.meeds.mcp.server.constant.Origin;
 import io.meeds.mcp.server.model.ActingIdentity;
-import io.meeds.mcp.server.model.ReadScopeDeclaration;
-import io.meeds.mcp.server.model.ReadScopeRefusedException;
+import io.meeds.mcp.server.model.SpaceScopeDeclaration;
+import io.meeds.mcp.server.model.SpaceScopeRefusedException;
 import io.meeds.mcp.server.model.SimpleToolDefinition;
-import io.meeds.mcp.server.plugin.ReadScopeResolver;
+import io.meeds.mcp.server.plugin.SpaceScopeResolver;
 
 import io.modelcontextprotocol.spec.McpSchema.ToolAnnotations;
 
 /**
- * Pins the read scope check: a call limited to one space reads that space and
+ * Pins the space scope check: a call limited to one space reads that space and
  * nothing else, and a call that isn't limited is never looked at.
  */
-class McpToolReadScopeServiceTest {
+class McpToolSpaceScopeServiceTest {
 
   private static final Long               SPACE_ID   = 12L;
 
@@ -55,9 +55,9 @@ class McpToolReadScopeServiceTest {
 
   private static final ActingIdentity     UNSCOPED   = ActingIdentity.person("john", Origin.CHAT);
 
-  private final List<ReadScopeResolver>   resolvers  = new ArrayList<>();
+  private final List<SpaceScopeResolver>   resolvers  = new ArrayList<>();
 
-  private McpToolReadScopeService         service;
+  private McpToolSpaceScopeService         service;
 
   /**
    * Builds the service over a resolver list each test fills.
@@ -65,9 +65,9 @@ class McpToolReadScopeServiceTest {
   @BeforeEach
   @SuppressWarnings("unchecked")
   void setUp() {
-    ObjectProvider<ReadScopeResolver> provider = mock(ObjectProvider.class);
+    ObjectProvider<SpaceScopeResolver> provider = mock(ObjectProvider.class);
     lenient().when(provider.orderedStream()).thenAnswer(invocation -> resolvers.stream());
-    service = new McpToolReadScopeService(provider);
+    service = new McpToolSpaceScopeService(provider);
   }
 
   /**
@@ -86,7 +86,7 @@ class McpToolReadScopeServiceTest {
   }
 
   /**
-   * Under a read scope, a tool with no declaration is refused, and the refusal
+   * Under a space scope, a tool with no declaration is refused, and the refusal
    * names the space. Mutant: an undeclared tool let through.
    */
   @Test
@@ -97,7 +97,7 @@ class McpToolReadScopeServiceTest {
   }
 
   /**
-   * A write never runs under a read scope, even with a declaration; a tool
+   * A write never runs under a space scope, even with a declaration; a tool
    * with no read-only hint counts as a write. Mutant: the read-only check
    * removed.
    */
@@ -105,7 +105,7 @@ class McpToolReadScopeServiceTest {
   void writeIsRefusedEvenWhenDeclared() {
     SimpleToolDefinition write = definition("create_activity", false, spaceDeclaration("use_scope"));
     SimpleToolDefinition noHint = new SimpleToolDefinition("create_activity", "t", "d", "{}", true, false, null);
-    noHint.setReadScope(spaceDeclaration("use_scope"));
+    noHint.setSpaceScope(spaceDeclaration("use_scope"));
 
     assertRefused(() -> service.enforce("create_activity", write, "{\"space_id\":12}", SCOPED), "isn't available");
     assertRefused(() -> service.enforce("create_activity", noHint, "{\"space_id\":12}", SCOPED), "isn't available");
@@ -117,14 +117,14 @@ class McpToolReadScopeServiceTest {
    */
   @Test
   void malformedDeclarationIsRefused() {
-    ReadScopeDeclaration both = spaceDeclaration("use_scope");
+    SpaceScopeDeclaration both = spaceDeclaration("use_scope");
     both.setUnscoped(true);
-    ReadScopeDeclaration objectWithoutResolver = new ReadScopeDeclaration(null, null, "activity_id", null, false, null, null);
+    SpaceScopeDeclaration objectWithoutResolver = new SpaceScopeDeclaration(null, null, "activity_id", null, false, null, null);
 
     assertRefused(() -> service.enforce("t", definition("t", true, both), "{\"space_id\":12}", SCOPED), "isn't available");
     assertRefused(() -> service.enforce("t", definition("t", true, objectWithoutResolver), "{\"activity_id\":1}", SCOPED),
                   "isn't available");
-    assertRefused(() -> service.enforce("t", definition("t", true, new ReadScopeDeclaration()), "{}", SCOPED), "isn't available");
+    assertRefused(() -> service.enforce("t", definition("t", true, new SpaceScopeDeclaration()), "{}", SCOPED), "isn't available");
   }
 
   /**
@@ -204,7 +204,7 @@ class McpToolReadScopeServiceTest {
   void falseOnlyArgumentIsEnforced() {
     SimpleToolDefinition search = definition("search_activities",
                                              true,
-                                             new ReadScopeDeclaration("space_id",
+                                             new SpaceScopeDeclaration("space_id",
                                                                       "use_scope",
                                                                       null,
                                                                       null,
@@ -228,7 +228,7 @@ class McpToolReadScopeServiceTest {
   void unscopedDeclarationChecksNamesOnly() {
     SimpleToolDefinition directory = definition("search_users",
                                                 true,
-                                                new ReadScopeDeclaration(null, null, null, null, true, List.of("query", "limit"), null));
+                                                new SpaceScopeDeclaration(null, null, null, null, true, List.of("query", "limit"), null));
     String input = "{\"query\":\"mary\",\"limit\":5}";
 
     assertThat(service.enforce("search_users", directory, input, SCOPED)).isSameAs(input);
@@ -243,7 +243,7 @@ class McpToolReadScopeServiceTest {
    */
   @Test
   void objectInTheSpaceRuns() {
-    ReadScopeResolver resolver = resolver("activity");
+    SpaceScopeResolver resolver = resolver("activity");
     when(resolver.spaceOf("7")).thenReturn(SPACE_ID);
     String input = "{\"activity_id\":7,\"limit\":3}";
 
@@ -258,7 +258,7 @@ class McpToolReadScopeServiceTest {
    */
   @Test
   void objectElsewhereMissingOrFailingIsRefusedTheSameWay() {
-    ReadScopeResolver resolver = resolver("activity");
+    SpaceScopeResolver resolver = resolver("activity");
     when(resolver.spaceOf("7")).thenReturn(13L);
     when(resolver.spaceOf("8")).thenReturn(null);
     when(resolver.spaceOf("9")).thenThrow(new IllegalStateException("database down"));
@@ -279,7 +279,7 @@ class McpToolReadScopeServiceTest {
    */
   @Test
   void objectArgumentThatIsNoIdIsRefusedWithoutAskingTheResolver() {
-    ReadScopeResolver resolver = resolver("activity");
+    SpaceScopeResolver resolver = resolver("activity");
     lenient().when(resolver.spaceOf(anyString())).thenReturn(SPACE_ID);
 
     for (String input : List.of("{}", "{\"activity_id\":null}", "{\"activity_id\":\"07\"}", "{\"activity_id\":7.5}", "{\"activity_id\":\"7 \"}")) {
@@ -297,8 +297,8 @@ class McpToolReadScopeServiceTest {
   void absentOrAmbiguousResolverIsRefused() {
     assertRefused(() -> service.enforce("get_activity", objectRead(), "{\"activity_id\":7}", SCOPED), "isn't available");
 
-    ReadScopeResolver first = resolver("activity");
-    ReadScopeResolver second = resolver("activity");
+    SpaceScopeResolver first = resolver("activity");
+    SpaceScopeResolver second = resolver("activity");
     lenient().when(first.spaceOf(anyString())).thenReturn(SPACE_ID);
     lenient().when(second.spaceOf(anyString())).thenReturn(SPACE_ID);
     assertRefused(() -> service.enforce("get_activity", objectRead(), "{\"activity_id\":7}", SCOPED), "isn't available");
@@ -309,10 +309,10 @@ class McpToolReadScopeServiceTest {
   /**
    * @param toolName the tool name
    * @param readOnly the read-only hint
-   * @param scope    the read scope, may be null
+   * @param scope    the space scope, may be null
    * @return a tool definition
    */
-  private static SimpleToolDefinition definition(String toolName, boolean readOnly, ReadScopeDeclaration scope) {
+  private static SimpleToolDefinition definition(String toolName, boolean readOnly, SpaceScopeDeclaration scope) {
     SimpleToolDefinition definition = new SimpleToolDefinition(toolName,
                                                                "title",
                                                                "description",
@@ -320,7 +320,7 @@ class McpToolReadScopeServiceTest {
                                                                !readOnly,
                                                                false,
                                                                new ToolAnnotations("title", readOnly, false, true, false, null));
-    definition.setReadScope(scope);
+    definition.setSpaceScope(scope);
     return definition;
   }
 
@@ -328,8 +328,8 @@ class McpToolReadScopeServiceTest {
    * @param whenAbsent the {@code when_absent} value
    * @return a space read declaration on {@code space_id} with offset and limit
    */
-  private static ReadScopeDeclaration spaceDeclaration(String whenAbsent) {
-    return new ReadScopeDeclaration("space_id", whenAbsent, null, null, false, List.of("offset", "limit"), null);
+  private static SpaceScopeDeclaration spaceDeclaration(String whenAbsent) {
+    return new SpaceScopeDeclaration("space_id", whenAbsent, null, null, false, List.of("offset", "limit"), null);
   }
 
   /**
@@ -346,15 +346,15 @@ class McpToolReadScopeServiceTest {
   private static SimpleToolDefinition objectRead() {
     return definition("get_activity",
                       true,
-                      new ReadScopeDeclaration(null, null, "activity_id", "activity", false, List.of("offset", "limit"), null));
+                      new SpaceScopeDeclaration(null, null, "activity_id", "activity", false, List.of("offset", "limit"), null));
   }
 
   /**
    * @param name the resolver name
    * @return a mocked resolver, added to the contributed ones
    */
-  private ReadScopeResolver resolver(String name) {
-    ReadScopeResolver resolver = mock(ReadScopeResolver.class);
+  private SpaceScopeResolver resolver(String name) {
+    SpaceScopeResolver resolver = mock(SpaceScopeResolver.class);
     lenient().when(resolver.getName()).thenReturn(name);
     resolvers.add(resolver);
     return resolver;
@@ -365,7 +365,7 @@ class McpToolReadScopeServiceTest {
    * @param fragment a fragment of the refusal message
    */
   private static void assertRefused(Runnable call, String fragment) {
-    assertThatThrownBy(call::run).isInstanceOf(ReadScopeRefusedException.class)
+    assertThatThrownBy(call::run).isInstanceOf(SpaceScopeRefusedException.class)
                                  .hasMessageContaining(fragment)
                                  .hasMessageContaining(String.valueOf(SPACE_ID));
   }
@@ -377,7 +377,7 @@ class McpToolReadScopeServiceTest {
   private static String refusal(Runnable call) {
     try {
       call.run();
-    } catch (ReadScopeRefusedException e) {
+    } catch (SpaceScopeRefusedException e) {
       return e.getMessage();
     }
     throw new AssertionError("The call wasn't refused");
