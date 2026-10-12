@@ -105,7 +105,7 @@ class ActingIdentityTest {
   @Test
   void chainIsCopied() {
     List<String> hops = new ArrayList<>(List.of("COMPLETION"));
-    ActingIdentity identity = new ActingIdentity(PrincipalRef.user(USER), USER, hops, Origin.CHAT, "COMPLETION");
+    ActingIdentity identity = new ActingIdentity(PrincipalRef.user(USER), USER, hops, Origin.CHAT, "COMPLETION", null);
     hops.add(AGENT);
 
     assertThat(identity.chain()).containsExactly("COMPLETION");
@@ -150,7 +150,7 @@ class ActingIdentityTest {
     PrincipalRef agentAccount = PrincipalRef.agent("agent-mail", AGENT);
     List<String> chain = List.of(AGENT);
 
-    assertThatThrownBy(() -> new ActingIdentity(agentAccount, USER, chain, Origin.MENTION, null))
+    assertThatThrownBy(() -> new ActingIdentity(agentAccount, USER, chain, Origin.MENTION, null, null))
                                                                                                 .isInstanceOf(IllegalArgumentException.class);
   }
 
@@ -163,8 +163,8 @@ class ActingIdentityTest {
     PrincipalRef person = PrincipalRef.user(USER);
     List<String> chain = List.of();
 
-    assertThatThrownBy(() -> new ActingIdentity(person, "mary", chain, Origin.CHAT, null)).isInstanceOf(IllegalArgumentException.class);
-    assertThatThrownBy(() -> new ActingIdentity(person, null, chain, Origin.CHAT, null)).isInstanceOf(IllegalArgumentException.class);
+    assertThatThrownBy(() -> new ActingIdentity(person, "mary", chain, Origin.CHAT, null, null)).isInstanceOf(IllegalArgumentException.class);
+    assertThatThrownBy(() -> new ActingIdentity(person, null, chain, Origin.CHAT, null, null)).isInstanceOf(IllegalArgumentException.class);
   }
 
   /**
@@ -178,10 +178,10 @@ class ActingIdentityTest {
     List<String> sourceInChain = List.of("schedule:12");
     ActingIdentity identity = ActingIdentity.person(USER, Origin.CHAT);
 
-    assertThatThrownBy(() -> new ActingIdentity(null, USER, empty, Origin.CHAT, null)).isInstanceOf(IllegalArgumentException.class);
-    assertThatThrownBy(() -> new ActingIdentity(person, USER, null, Origin.CHAT, null)).isInstanceOf(IllegalArgumentException.class);
-    assertThatThrownBy(() -> new ActingIdentity(person, USER, empty, null, null)).isInstanceOf(IllegalArgumentException.class);
-    assertThatThrownBy(() -> new ActingIdentity(person, USER, sourceInChain, Origin.CHAT, null))
+    assertThatThrownBy(() -> new ActingIdentity(null, USER, empty, Origin.CHAT, null, null)).isInstanceOf(IllegalArgumentException.class);
+    assertThatThrownBy(() -> new ActingIdentity(person, USER, null, Origin.CHAT, null, null)).isInstanceOf(IllegalArgumentException.class);
+    assertThatThrownBy(() -> new ActingIdentity(person, USER, empty, null, null, null)).isInstanceOf(IllegalArgumentException.class);
+    assertThatThrownBy(() -> new ActingIdentity(person, USER, sourceInChain, Origin.CHAT, null, null))
                                                                                                .isInstanceOf(IllegalArgumentException.class);
     assertThatThrownBy(() -> identity.withHop("schedule:12")).isInstanceOf(IllegalArgumentException.class);
     assertThatThrownBy(() -> identity.withHop(" ")).isInstanceOf(IllegalArgumentException.class);
@@ -247,9 +247,8 @@ class ActingIdentityTest {
       assertThatThrownBy(() -> ActingIdentity.agent("agent-mail", AGENT, origin)).isInstanceOf(IllegalArgumentException.class)
                                                                                .hasMessageContaining(origin.name());
       assertThatThrownBy(() -> ActingIdentity.person(USER, origin)).isInstanceOf(IllegalArgumentException.class);
-      assertThatThrownBy(() -> new ActingIdentity(agentAccount, null, chain, origin, null)).isInstanceOf(IllegalArgumentException.class);
-      assertThatThrownBy(() -> new ActingIdentity(agentAccount, null, chain, origin, null, null))
-                                                                                                .isInstanceOf(IllegalArgumentException.class);
+      assertThatThrownBy(() -> new ActingIdentity(agentAccount, null, chain, origin, null, null)).isInstanceOf(IllegalArgumentException.class);
+      assertThatThrownBy(() -> unscopedCopy(agentAccount, chain, origin)).isInstanceOf(IllegalArgumentException.class);
       assertThat(ActingIdentity.agent("agent-mail", AGENT, origin, SPACE_ID).readScope()).isEqualTo(SPACE_ID);
       assertThat(ActingIdentity.person(USER, origin, SPACE_ID).readScope()).isEqualTo(SPACE_ID);
     }
@@ -285,6 +284,18 @@ class ActingIdentityTest {
     assertThat(reply.withGrantScope("email-filter:42").origin()).isEqualTo(Origin.SOURCE);
     assertThat(ActingIdentity.person(USER, Origin.CHAT, SPACE_ID).withHop(AGENT).withGrantScope(AGENT).readScope()).isEqualTo(SPACE_ID);
     assertThat(ActingIdentity.person(USER, Origin.CHAT).withHop(AGENT).readScope()).isNull();
+  }
+
+  /**
+   * @param actor  the actor
+   * @param chain  the chain
+   * @param origin the origin
+   * @return an identity built with the deprecated constructor, which states
+   *         no read scope
+   */
+  @SuppressWarnings("removal")
+  private static ActingIdentity unscopedCopy(PrincipalRef actor, List<String> chain, Origin origin) {
+    return new ActingIdentity(actor, null, chain, origin, null);
   }
 
 }
