@@ -637,8 +637,9 @@ public class ActivityMcpTool implements McpToolPlugin {
    * a post's is, unless it contains one of the block markers
    * {@link io.meeds.mcp.server.util.McpToolUtils#markdownToHtml} reads as
    * "already HTML" ({@code <p>}, {@code <ul>}, {@code <li>}, {@code <div>},
-   * {@code <img }); any other inline HTML is kept as is inside the rendered
-   * paragraph.
+   * {@code <img }). Otherwise inline HTML stays inside the rendered
+   * paragraph, and a line that starts with a block-level HTML tag is passed
+   * through as is, with any Markdown on it left unrendered.
    *
    * @param activityId      identifier of the activity to comment on
    * @param comment         comment text, Markdown or HTML
@@ -720,7 +721,7 @@ public class ActivityMcpTool implements McpToolPlugin {
    * deleted again so nothing half-posted remains.
    *
    * @param activityId           identifier of the activity to comment on
-   * @param comment              comment text
+   * @param comment              comment text, Markdown or HTML
    * @param imageUrl             URL of the image to attach, may be null
    * @param imageBase64          base64 content of the image to attach, may be null
    * @param attachmentObjectType type of the object an existing attachment is
@@ -879,8 +880,8 @@ public class ActivityMcpTool implements McpToolPlugin {
    * @param activityCommentId identifier of the comment to update
    * @param comment           new comment text, Markdown or HTML
    * @return the updated comment
-   * @throws IllegalAccessException  when the comment isn't viewable by the
-   *                                 current user
+   * @throws IllegalAccessException  when the current user is refused access
+   *                                 to the comment
    * @throws ObjectNotFoundException when the comment doesn't exist
    */
   public ActivityCommentModel updateComment(long activityCommentId, String comment) throws IllegalAccessException,
