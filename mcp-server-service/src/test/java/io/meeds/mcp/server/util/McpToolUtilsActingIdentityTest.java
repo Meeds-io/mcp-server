@@ -27,6 +27,7 @@ import static io.meeds.mcp.server.util.McpToolUtils.TOOL_CONTEXT_ID;
 import static io.meeds.mcp.server.util.McpToolUtils.TOOL_CONTEXT_ID_PARAM;
 import static io.meeds.mcp.server.util.McpToolUtils.TOOL_CONTEXT_ON_BEHALF_OF_PARAM;
 import static io.meeds.mcp.server.util.McpToolUtils.TOOL_CONTEXT_ORIGIN_PARAM;
+import static io.meeds.mcp.server.util.McpToolUtils.TOOL_CONTEXT_READ_SCOPE_PARAM;
 import static io.meeds.mcp.server.util.McpToolUtils.TOOL_CONTEXT_USER_NAME_PARAM;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -115,6 +116,68 @@ class McpToolUtilsActingIdentityTest {
     assertThat(emailFilter.chain()).isEmpty();
     assertThat(emailFilter.grantScope()).isEqualTo("email-filter:42");
     assertThat(emailFilter.origin()).isEqualTo(Origin.SOURCE);
+  }
+
+  /**
+   * The internal client's read scope header is part of the identity it sends:
+   * read as the space id, kept with the rest, and required by an origin that
+   * answers in a space. Mutant: the header not read.
+   */
+  @Test
+  void internalClientReadScopeIsRead() {
+    authenticateAsBearer(McpToolUtils.MCP_OAUTH2_CLIENT_CREDENTIALS_REGISTRATION_ID,
+                         McpToolUtils.MCP_OAUTH2_CLIENT_CREDENTIALS_REGISTRATION_ID);
+    MockHttpServletRequest request = bindRequest(TOOL_CONTEXT_ID, USERNAME);
+    addIdentityHeaders(request, PrincipalKind.USER.name(), USERNAME, null, USERNAME, "[\"COMPLETION\"]", "MENTION", "COMPLETION");
+    request.addHeader(TOOL_CONTEXT_READ_SCOPE_PARAM, "42");
+
+    ActingIdentity identity = McpToolUtils.getCurrentActingIdentity();
+
+    assertThat(identity).isEqualTo(ActingIdentity.person(USERNAME, Origin.MENTION, 42L).withHop("COMPLETION"));
+    assertThat(identity.readScope()).isEqualTo(42L);
+  }
+
+  /**
+   * An origin that answers in a space without the read scope header, a read
+   * scope that isn't a plain space id, and a read scope sent with the legacy
+   * headers alone are all refused, never read as "no limit". Mutants: the
+   * legacy-path check removed; the header's format check relaxed.
+   */
+  @Test
+  void refusedReadScopeHeadersThrow() {
+    authenticateAsBearer(McpToolUtils.MCP_OAUTH2_CLIENT_CREDENTIALS_REGISTRATION_ID,
+                         McpToolUtils.MCP_OAUTH2_CLIENT_CREDENTIALS_REGISTRATION_ID);
+
+    addIdentityHeaders(bindRequest(TOOL_CONTEXT_ID, USERNAME), "USER", USERNAME, null, USERNAME, "[]", "MENTION", null);
+    assertThatThrownBy(McpToolUtils::getCurrentActingIdentity).isInstanceOf(IllegalStateException.class);
+
+    for (String value : new String[] { "abc", "0", "-4", "012", "4 ", "", "99999999999999999999" }) {
+      MockHttpServletRequest request = bindRequest(TOOL_CONTEXT_ID, USERNAME);
+      addIdentityHeaders(request, "USER", USERNAME, null, USERNAME, "[]", "CHAT", null);
+      request.addHeader(TOOL_CONTEXT_READ_SCOPE_PARAM, value);
+      assertThatThrownBy(McpToolUtils::getCurrentActingIdentity).as(value).isInstanceOf(IllegalStateException.class);
+    }
+
+    bindRequest(TOOL_CONTEXT_ID, USERNAME).addHeader(TOOL_CONTEXT_READ_SCOPE_PARAM, "42");
+    assertThatThrownBy(McpToolUtils::getCurrentActingIdentity).isInstanceOf(IllegalStateException.class);
+  }
+
+  /**
+   * An external client can't set a read scope, nor lift one: its call is its
+   * token's user, unlimited, whatever headers it sends. Mutant: the header
+   * read outside the internal client's gate.
+   */
+  @Test
+  void externalClientCannotSetAReadScope() {
+    authenticateAsBearer("mary", "claude-desktop");
+    MockHttpServletRequest request = bindRequest(TOOL_CONTEXT_ID, USERNAME);
+    addIdentityHeaders(request, PrincipalKind.USER.name(), "mary", null, "mary", "[]", "MENTION", null);
+    request.addHeader(TOOL_CONTEXT_READ_SCOPE_PARAM, "42");
+
+    ActingIdentity identity = McpToolUtils.getCurrentActingIdentity();
+
+    assertThat(identity).isEqualTo(ActingIdentity.external("mary"));
+    assertThat(identity.readScope()).isNull();
   }
 
   /**
