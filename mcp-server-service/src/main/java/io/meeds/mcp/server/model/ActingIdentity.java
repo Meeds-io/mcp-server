@@ -124,7 +124,8 @@ public record ActingIdentity(PrincipalRef actor,
   }
 
   /**
-   * Builds an identity limited to no space.
+   * Builds an identity limited to no space, whatever the identity it is
+   * derived from was limited to.
    *
    * @param actor      the account that executes the call
    * @param onBehalfOf the person the work is for, or null
@@ -134,7 +135,14 @@ public record ActingIdentity(PrincipalRef actor,
    * @throws IllegalArgumentException as the canonical constructor does, an
    *                                    origin of {@link #READ_SCOPED_ORIGINS}
    *                                    included, since it needs a read scope
+   * @deprecated use the canonical constructor, which states the read scope,
+   *             or {@link #withHop(String)} / {@link #withGrantScope(String)}
+   *             to derive an identity: a copy built with this one silently
+   *             drops a read scope. Since 7.3.0, kept for the add-ons built
+   *             against the previous signature, for removal once none calls
+   *             it.
    */
+  @Deprecated(since = "7.3.0", forRemoval = true)
   public ActingIdentity(PrincipalRef actor, String onBehalfOf, List<String> chain, Origin origin, String grantScope) {
     this(actor, onBehalfOf, chain, origin, grantScope, null);
   }
