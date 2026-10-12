@@ -31,10 +31,14 @@ import org.springframework.security.config.Customizer;
 import org.springframework.security.config.annotation.method.configuration.EnableMethodSecurity;
 import org.springframework.security.config.annotation.web.builders.HttpSecurity;
 import org.springframework.security.web.SecurityFilterChain;
+import org.springframework.security.web.authentication.logout.LogoutFilter;
 import org.springframework.web.cors.UrlBasedCorsConfigurationSource;
 
 import io.meeds.mcp.server.plugin.McpServerOauthOpaqueTokenIntrospector;
+import io.meeds.mcp.server.service.McpServerToolService;
 import io.meeds.mcp.server.web.McpBearerAuthenticationEntryPoint;
+import io.meeds.mcp.server.web.McpDisabledProtectedResourceMetadataFilter;
+import io.meeds.mcp.server.web.McpProtectedResourceMetadataCustomizer;
 import io.meeds.oauth2.server.web.OAuthCorsConfigurationSource;
 
 @Configuration
@@ -78,10 +82,13 @@ public class McpServerSecurityConfiguration {
   @Order(1)
   SecurityFilterChain mcpSecurityFilterChain(HttpSecurity http,
                                              McpServerOauthOpaqueTokenIntrospector opaqueTokenIntrospector,
-                                             McpBearerAuthenticationEntryPoint authenticationEntryPoint) {
+                                             McpBearerAuthenticationEntryPoint authenticationEntryPoint,
+                                             McpProtectedResourceMetadataCustomizer protectedResourceMetadataCustomizer,
+                                             McpServerToolService mcpServerToolService) {
     return http.securityMatcher("/**")
                .csrf(csrf -> csrf.disable())
                .cors(Customizer.withDefaults())
+               .addFilterAfter(new McpDisabledProtectedResourceMetadataFilter(mcpServerToolService), LogoutFilter.class)
                .authorizeHttpRequests(authorize -> authorize.requestMatchers("/.well-known/**")
                                                             .permitAll()
                                                             .requestMatchers("/mcp/**")
@@ -91,7 +98,8 @@ public class McpServerSecurityConfiguration {
                                                             .anyRequest()
                                                             .denyAll())
                .oauth2ResourceServer(oauth2 -> oauth2.opaqueToken(c -> c.introspector(opaqueTokenIntrospector))
-                                                     .authenticationEntryPoint(authenticationEntryPoint))
+                                                     .authenticationEntryPoint(authenticationEntryPoint)
+                                                     .protectedResourceMetadata(m -> m.protectedResourceMetadataCustomizer(protectedResourceMetadataCustomizer)))
                .build();
   }
 
