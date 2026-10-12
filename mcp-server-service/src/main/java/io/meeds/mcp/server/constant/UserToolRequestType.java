@@ -26,6 +26,13 @@ public enum UserToolRequestType {
    * An approval-gated call ran without a card because a standing approval
    * covered it; the event names the grant and its owner type.
    */
-  TOOL_EXECUTION_GRANTED;
+  TOOL_EXECUTION_GRANTED,
+
+  /**
+   * A call limited to one space was refused: the tool (a write, or a read that
+   * may reach outside that space) or the call's arguments aren't available to
+   * such a call. Nobody refused it.
+   */
+  TOOL_EXECUTION_OUT_OF_SCOPE;
 
 }

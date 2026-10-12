@@ -374,7 +374,12 @@ public class McpToolCallbackProviderService implements ToolCallbackProvider {
                   toolInput,
                   toolOutput);
         return toolOutput;
-      } catch (UserToolDeniedException | UserToolRefusedException | SpaceScopeRefusedException e) {
+      } catch (SpaceScopeRefusedException e) {
+        mcpToolApprovalService.traceToolExecution(executionBuilder.toolExecutionType(UserToolRequestType.TOOL_EXECUTION_OUT_OF_SCOPE)
+                                                                  .completed(true)
+                                                                  .build());
+        throw e;
+      } catch (UserToolDeniedException | UserToolRefusedException e) {
         mcpToolApprovalService.traceToolExecution(executionBuilder.toolExecutionType(UserToolRequestType.TOOL_EXECUTION_DENIED)
                                                                   .completed(true)
                                                                   .build());
