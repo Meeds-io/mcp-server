@@ -235,12 +235,12 @@ class ActingIdentityTest {
   }
 
   /**
-   * An origin that answers in a space can't be built without the read scope
+   * An origin that answers in a space can't be built without the space scope
    * of that space, through any constructor or factory; with one it can, and
    * the other origins need none. Mutant: the origin check removed.
    */
   @Test
-  void replyOriginsNeedAReadScope() {
+  void replyOriginsNeedASpaceScope() {
     PrincipalRef agentAccount = PrincipalRef.agent("agent-mail", AGENT);
     List<String> chain = List.of(AGENT);
     for (Origin origin : List.of(Origin.MENTION, Origin.TASK_COMMENT, Origin.TASK_ASSIGNMENT)) {
@@ -249,41 +249,41 @@ class ActingIdentityTest {
       assertThatThrownBy(() -> ActingIdentity.person(USER, origin)).isInstanceOf(IllegalArgumentException.class);
       assertThatThrownBy(() -> new ActingIdentity(agentAccount, null, chain, origin, null, null)).isInstanceOf(IllegalArgumentException.class);
       assertThatThrownBy(() -> unscopedCopy(agentAccount, chain, origin)).isInstanceOf(IllegalArgumentException.class);
-      assertThat(ActingIdentity.agent("agent-mail", AGENT, origin, SPACE_ID).readScope()).isEqualTo(SPACE_ID);
-      assertThat(ActingIdentity.person(USER, origin, SPACE_ID).readScope()).isEqualTo(SPACE_ID);
+      assertThat(ActingIdentity.agent("agent-mail", AGENT, origin, SPACE_ID).spaceScope()).isEqualTo(SPACE_ID);
+      assertThat(ActingIdentity.person(USER, origin, SPACE_ID).spaceScope()).isEqualTo(SPACE_ID);
     }
     for (Origin origin : Origin.values()) {
       if (!ActingIdentity.READ_SCOPED_ORIGINS.contains(origin)) {
-        assertThat(ActingIdentity.person(USER, origin).readScope()).isNull();
+        assertThat(ActingIdentity.person(USER, origin).spaceScope()).isNull();
       }
     }
   }
 
   /**
-   * A read scope is a space id: zero or a negative value is refused. Mutant:
+   * A space scope is a space id: zero or a negative value is refused. Mutant:
    * the positive check removed.
    */
   @Test
-  void readScopeIsASpaceId() {
+  void spaceScopeIsASpaceId() {
     assertThatThrownBy(() -> ActingIdentity.person(USER, Origin.CHAT, 0L)).isInstanceOf(IllegalArgumentException.class);
     assertThatThrownBy(() -> ActingIdentity.person(USER, Origin.CHAT, -3L)).isInstanceOf(IllegalArgumentException.class);
-    assertThat(ActingIdentity.person(USER, Origin.CHAT, SPACE_ID).readScope()).isEqualTo(SPACE_ID);
+    assertThat(ActingIdentity.person(USER, Origin.CHAT, SPACE_ID).spaceScope()).isEqualTo(SPACE_ID);
   }
 
   /**
-   * Every derivation keeps the read scope: an agent called by a limited one,
+   * Every derivation keeps the space scope: an agent called by a limited one,
    * and a run whose grant scope changes its origin, stay limited to the same
    * space. Mutants: either derivation built without it.
    */
   @Test
-  void derivationsKeepTheReadScope() {
+  void derivationsKeepTheSpaceScope() {
     ActingIdentity reply = ActingIdentity.agent("agent-mail", AGENT, Origin.MENTION, SPACE_ID);
 
-    assertThat(reply.withHop("DOCUMENTS").readScope()).isEqualTo(SPACE_ID);
-    assertThat(reply.withGrantScope("email-filter:42").readScope()).isEqualTo(SPACE_ID);
+    assertThat(reply.withHop("DOCUMENTS").spaceScope()).isEqualTo(SPACE_ID);
+    assertThat(reply.withGrantScope("email-filter:42").spaceScope()).isEqualTo(SPACE_ID);
     assertThat(reply.withGrantScope("email-filter:42").origin()).isEqualTo(Origin.SOURCE);
-    assertThat(ActingIdentity.person(USER, Origin.CHAT, SPACE_ID).withHop(AGENT).withGrantScope(AGENT).readScope()).isEqualTo(SPACE_ID);
-    assertThat(ActingIdentity.person(USER, Origin.CHAT).withHop(AGENT).readScope()).isNull();
+    assertThat(ActingIdentity.person(USER, Origin.CHAT, SPACE_ID).withHop(AGENT).withGrantScope(AGENT).spaceScope()).isEqualTo(SPACE_ID);
+    assertThat(ActingIdentity.person(USER, Origin.CHAT).withHop(AGENT).spaceScope()).isNull();
   }
 
   /**
@@ -291,7 +291,7 @@ class ActingIdentityTest {
    * @param chain  the chain
    * @param origin the origin
    * @return an identity built with the deprecated constructor, which states
-   *         no read scope
+   *         no space scope
    */
   @SuppressWarnings("removal")
   private static ActingIdentity unscopedCopy(PrincipalRef actor, List<String> chain, Origin origin) {
