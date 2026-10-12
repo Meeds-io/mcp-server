@@ -634,13 +634,11 @@ public class ActivityMcpTool implements McpToolPlugin {
    * check is the activity's own view check in both cases: a reply is a comment
    * of the same activity and inherits its visibility, so no second check is
    * needed and none is added. The text is rendered from Markdown to HTML, as
-   * a post's is, unless it contains one of the block markers
+   * a post's is, unless it contains one of the markers
    * {@link io.meeds.mcp.server.util.McpToolUtils#markdownToHtml} reads as
    * "already HTML" ({@code <p>}, {@code <ul>}, {@code <li>}, {@code <div>},
-   * {@code <img }). Otherwise inline HTML stays inside the rendered
-   * paragraph, and a block that starts with a block-level HTML tag is passed
-   * through as is up to the next blank line, with any Markdown in it left
-   * unrendered.
+   * {@code <img }). Any other text is rendered as CommonMark, which keeps raw
+   * HTML as written and leaves Markdown inside a raw HTML block unrendered.
    *
    * @param activityId      identifier of the activity to comment on
    * @param comment         comment text, Markdown or HTML
