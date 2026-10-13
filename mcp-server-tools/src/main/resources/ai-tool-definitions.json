@@ -108,7 +108,7 @@
     },
     {
       "name": "update_space_settings",
-      "space_scope": { "space_arg": "space_id", "allowed_args": ["name", "description", "visibility", "registration"] },
+      "space_scope": { "space_arg": "space_id", "allowed_args": ["name", "description", "visibility", "registration"], "space_admin": true },
       "icon": "fa-users",
       "title": "Update a space settings",
       "description": "Update the settings of an existing Space.",
@@ -334,7 +334,7 @@
     },
     {
       "name": "invite_users_to_space",
-      "space_scope": { "space_arg": "space_id", "allowed_args": ["usernames_to_invite"] },
+      "space_scope": { "space_arg": "space_id", "allowed_args": ["usernames_to_invite"], "space_admin": true },
       "icon": "fa-users",
       "title": "Invite user to space",
       "description": "Invite one or more users to join a Space as members.",
@@ -366,7 +366,7 @@
     },
     {
       "name": "remove_users_from_space",
-      "space_scope": { "space_arg": "space_id", "allowed_args": ["usernames_to_remove"] },
+      "space_scope": { "space_arg": "space_id", "allowed_args": ["usernames_to_remove"], "space_admin": true },
       "icon": "fa-users",
       "title": "Remove user from space",
       "description": "Remove one or more users from a Space.",
@@ -398,7 +398,7 @@
     },
     {
       "name": "set_user_role_in_space",
-      "space_scope": { "space_arg": "space_id", "allowed_args": ["username", "space_role"] },
+      "space_scope": { "space_arg": "space_id", "allowed_args": ["username", "space_role"], "space_admin": true },
       "icon": "fa-users",
       "title": "Promote user in space",
       "description": "Assign or promote a role for a confirmed member of a Space.",
@@ -436,7 +436,7 @@
     },
     {
       "name": "remove_user_role_in_space",
-      "space_scope": { "space_arg": "space_id", "allowed_args": ["username", "space_role"] },
+      "space_scope": { "space_arg": "space_id", "allowed_args": ["username", "space_role"], "space_admin": true },
       "icon": "fa-users",
       "title": "Remove user role from space",
       "description": "Remove a specific role from a user in a Space.",
@@ -2132,7 +2132,7 @@
     },
     {
       "name": "accept_space_join_request",
-      "space_scope": { "space_arg": "space_id", "allowed_args": ["username"] },
+      "space_scope": { "space_arg": "space_id", "allowed_args": ["username"], "space_admin": true },
       "icon": "fa-users",
       "title": "Accept a join request",
       "description": "Approve a user's pending request to join a space, adding them as a member. The current user must be a manager of the space.",
@@ -2163,7 +2163,7 @@
     },
     {
       "name": "decline_space_join_request",
-      "space_scope": { "space_arg": "space_id", "allowed_args": ["username"] },
+      "space_scope": { "space_arg": "space_id", "allowed_args": ["username"], "space_admin": true },
       "icon": "fa-users",
       "title": "Decline a join request",
       "description": "Reject a user's pending request to join a space. The current user must be a manager of the space.",
@@ -2259,7 +2259,7 @@
     },
     {
       "name": "delete_space",
-      "space_scope": { "space_arg": "space_id" },
+      "space_scope": { "space_arg": "space_id", "space_admin": true },
       "icon": "fa-users",
       "title": "Delete a space",
       "description": "Permanently delete a space and all its content. The current user must be allowed to delete the space, which a manager may not be. This is irreversible.",
