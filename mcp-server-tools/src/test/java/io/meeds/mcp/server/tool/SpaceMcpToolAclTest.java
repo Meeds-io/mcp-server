@@ -36,6 +36,7 @@ import java.util.List;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.mockito.ArgumentCaptor;
 import org.mockito.stubbing.Answer;
 import org.springframework.test.util.ReflectionTestUtils;
 
@@ -291,6 +292,22 @@ class SpaceMcpToolAclTest {
     spaceMcpTool.removeUserRoleInSpace(SPACE_ID, "mary", SpaceRole.PUBLISHER);
 
     assertEquals(List.of(USERNAME, USERNAME, USERNAME), editors);
+  }
+
+  /**
+   * The space passed to the update carries the current user as its editor. The
+   * update ends the call there, the mapping of its result being out of scope.
+   */
+  @Test
+  void updateSpaceSettingsSetsEditor() {
+    allowManagement();
+    ArgumentCaptor<Space> updated = ArgumentCaptor.forClass(Space.class);
+    when(spaceService.updateSpace(updated.capture())).thenThrow(new IllegalStateException("stop"));
+
+    assertThrows(IllegalStateException.class,
+                 () -> spaceMcpTool.updateSpaceSettings(SPACE_ID, "New name", null, null, null));
+
+    assertEquals(USERNAME, updated.getValue().getEditor());
   }
 
   /**
