@@ -329,11 +329,11 @@ public class UserMcpTool implements McpToolPlugin {
 
   /**
    * Updates the given profile fields of the current user. A field the platform
-   * marks as not editable can only be changed by an administrator.
+   * marks as not editable can only be changed by an administrator: for any
+   * other user, a value given for it is refused with an
+   * {@code IllegalAccessException}, before any field is written.
    *
    * @return the updated user
-   * @throws IllegalAccessException when a provided field is not editable by the
-   *           current user
    */
   @SneakyThrows
   public UserModel updateMyProfile(String aboutMe, // NOSONAR
