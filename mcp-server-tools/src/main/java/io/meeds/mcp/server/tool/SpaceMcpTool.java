@@ -300,7 +300,8 @@ public class SpaceMcpTool implements McpToolPlugin {
    * holds every manager; each user is then checked again against the space as
    * stored, right before its removal, so that a change made elsewhere
    * meanwhile never leaves the space without a manager. A refusal at that
-   * point leaves the users removed before it removed.
+   * point leaves the users removed before it removed. The current user is the
+   * editor of each removal, as in the Social REST endpoint.
    *
    * @param spaceId the space
    * @param usernamesToRemove the users, possibly prefixed with "@"
@@ -325,6 +326,7 @@ public class SpaceMcpTool implements McpToolPlugin {
       usernames.forEach(u -> {
         Space current = spaceService.getSpaceById(spaceId);
         checkNotOnlyManager(current, u);
+        current.setEditor(currentUsername);
         spaceService.removeMember(current, u);
       });
     }
