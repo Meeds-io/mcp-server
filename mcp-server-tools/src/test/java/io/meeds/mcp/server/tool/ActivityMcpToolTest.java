@@ -403,8 +403,8 @@ class ActivityMcpToolTest extends IntegrationTestBase {
                                                                                               "A misplaced reply",
                                                                                               foreignParent.id()));
 
-    assertTrue(refused.getMessage().contains(String.valueOf(activity.id())),
-               "The message names the activity the comment actually belongs to");
+    assertFalse(refused.getMessage().contains("'" + activity.id() + "'"),
+                "The message never names the activity the comment actually belongs to, which the caller may not see");
     // nothing was posted, neither threaded nor at top level
     assertTrue(activityMcpTool.getActivityComments(otherActivity.id(), 0, 10).isEmpty());
     assertEquals(1, activityMcpTool.getActivityComments(activity.id(), 0, 10).size());
