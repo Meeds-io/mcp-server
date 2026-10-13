@@ -19,6 +19,9 @@
 package io.meeds.mcp.server.tool;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.when;
 
 import java.net.URL;
 import java.util.LinkedHashSet;
@@ -27,8 +30,15 @@ import java.util.Map;
 import java.util.Set;
 import java.util.regex.Pattern;
 import java.util.stream.Collectors;
+import java.util.stream.Stream;
 
 import org.junit.jupiter.api.Test;
+import org.springframework.beans.factory.ObjectProvider;
+
+import io.meeds.mcp.server.constant.Origin;
+import io.meeds.mcp.server.model.ActingIdentity;
+import io.meeds.mcp.server.model.SpaceScopeRefusedException;
+import io.meeds.mcp.server.plugin.SpaceScopeResolver;
 
 import io.meeds.mcp.server.model.SimpleToolDefinition;
 import io.meeds.mcp.server.model.SpaceScopeDeclaration;
@@ -54,7 +64,7 @@ class ToolDefinitionSpaceScopeTest {
 
   private static final Set<String> OBJECT_READS         = Set.of("get_activity", "get_activity_comments");
 
-  private static final Set<String> DIRECTORY            = Set.of("get_user_by_username", "search_users");
+  private static final Set<String> DIRECTORY            = Set.of("get_user_by_username");
 
   private static final Set<String> SPACE_WRITES         = Set.of("create_activity",
                                                                  "update_space_settings",
@@ -186,6 +196,35 @@ class ToolDefinitionSpaceScopeTest {
     for (String plain : List.of("username", "html_content", "comment", "valid", "kids_count")) {
       assertThat(isReferenceShaped(declaredTools().get("create_activity"), plain)).as(plain).isFalse();
     }
+  }
+
+  /**
+   * The shipped definitions, run through the server's check under a space
+   * scope: {@code search_users} is refused, {@code get_user_by_username}
+   * passes, and a tool the file doesn't declare is refused. Mutant: the
+   * {@code space_scope} declaration put back on {@code search_users}.
+   */
+  @Test
+  @SuppressWarnings("unchecked")
+  void searchUsersIsRefusedUnderASpaceScopeAndGetUserByUsernamePasses() {
+    ObjectProvider<SpaceScopeResolver> provider = mock(ObjectProvider.class);
+    when(provider.orderedStream()).thenAnswer(invocation -> Stream.<SpaceScopeResolver> empty());
+    McpToolSpaceScopeService service = new McpToolSpaceScopeService(provider);
+    ActingIdentity scoped = ActingIdentity.agent("agent-mail", "EMAIL_ASSISTANT", Origin.MENTION, 12L);
+    Map<String, SimpleToolDefinition> shipped = McpToolUtils.parseToolDefinitions(getClass().getClassLoader()
+                                                                                            .getResource("ai-tool-definitions.json"))
+                                                            .stream()
+                                                            .collect(Collectors.toMap(SimpleToolDefinition::getName, tool -> tool));
+    String lookup = "{\"username\":\"mary\"}";
+    String search = "{\"query\":\"mary\"}";
+
+    assertThat(shipped).containsKeys("search_users", "get_user_by_username");
+    assertThat(service.enforce("get_user_by_username", shipped.get("get_user_by_username"), lookup, scoped)).isSameAs(lookup);
+    assertThatThrownBy(() -> service.enforce("search_users", shipped.get("search_users"), search, scoped))
+        .isInstanceOf(SpaceScopeRefusedException.class)
+        .hasMessageContaining("isn't available");
+    assertThat(service.enforce("search_users", shipped.get("search_users"), search, ActingIdentity.person("john", Origin.CHAT)))
+        .isSameAs(search);
   }
 
   /**
