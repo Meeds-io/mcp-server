@@ -337,6 +337,9 @@ public class SpaceMcpTool implements McpToolPlugin {
       // user is checked against the space as stored right before its removal
       usernames.forEach(u -> {
         Space current = spaceService.getSpaceById(spaceId);
+        if (current == null) {
+          throw new IllegalStateException(MSG_SPACE_DOESN_T_EXIST.formatted(spaceId));
+        }
         checkNotOnlyManager(current, u);
         current.setEditor(currentUsername);
         spaceService.removeMember(current, u);
@@ -660,15 +663,6 @@ public class SpaceMcpTool implements McpToolPlugin {
     return space;
   }
 
-  /**
-   * Refuses an operation that would leave the space without any manager, as the
-   * Social REST endpoint does (precondition failed) when the target user is the
-   * only manager of the space.
-   *
-   * @param space the space the user is removed from, or loses its manager role
-   *          in
-   * @param username the user to remove
-   */
   /**
    * Refuses a list of users to remove that holds every manager of the space:
    * none of them is the only manager, yet removing them all would leave the
