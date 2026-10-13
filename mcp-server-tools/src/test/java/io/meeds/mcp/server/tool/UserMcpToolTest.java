@@ -178,10 +178,13 @@ class UserMcpToolTest extends IntegrationTestBase {
     Identity john = identityManager.getOrCreateUserIdentity(USERNAME);
     Identity root = identityManager.getOrCreateUserIdentity("root");
     relationshipManager.inviteToConnect(root, john);
+    try {
+      userMcpTool.refuseConnectionRequest("root");
 
-    userMcpTool.refuseConnectionRequest("root");
-
-    assertNotEquals(Relationship.Type.PENDING, relationshipManager.getStatus(john, root));
+      assertNotEquals(Relationship.Type.PENDING, relationshipManager.getStatus(john, root));
+    } finally {
+      deleteRelationshipIfPresent(john, root);
+    }
   }
 
   /**
