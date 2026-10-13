@@ -29,6 +29,7 @@ import static io.meeds.mcp.server.tool.util.UserToolUtils.toUserModel;
 import java.io.ByteArrayInputStream;
 import java.io.IOException;
 import java.io.InputStream;
+import java.util.Arrays;
 import java.util.Collections;
 import java.util.List;
 import java.util.Objects;
@@ -79,6 +80,8 @@ public class SpaceMcpTool implements McpToolPlugin {
   private static final String     MSG_SPACE_USER_NOT_ADMIN = "Space with Id '%s' can't be managed by current user";
 
   private static final String     MSG_SPACE_ONLY_MANAGER   = "User '%s' is the only manager of space '%s'. Promote another member to manager first.";
+
+  private static final String     MSG_SPACE_ALL_MANAGERS   = "Removing these users would leave space '%s' without a manager. Promote another member to manager first.";
 
   private static final String     MSG_SPACE_USER_NOT_DELETER = "Space with Id '%s' can't be deleted by current user";
 
@@ -300,8 +303,14 @@ public class SpaceMcpTool implements McpToolPlugin {
     } else if (!spaceService.canManageSpace(space, currentUsername)) {
       throw new IllegalStateException(MSG_SPACE_USER_NOT_ADMIN.formatted(spaceId));
     } else if (CollectionUtils.isNotEmpty(usernamesToRemove)) {
-      usernamesToRemove.forEach(u -> checkNotOnlyManager(space, normalize(u)));
-      usernamesToRemove.forEach(u -> spaceService.removeMember(space, normalize(u)));
+      List<String> usernames = usernamesToRemove.stream().map(this::normalize).distinct().toList();
+      usernames.forEach(u -> checkNotOnlyManager(space, u));
+      checkKeepsAManager(space, usernames);
+      // each removal changes the managers the next check reads
+      usernames.forEach(u -> {
+        checkNotOnlyManager(space, u);
+        spaceService.removeMember(space, u);
+      });
     }
   }
 
@@ -618,12 +627,40 @@ public class SpaceMcpTool implements McpToolPlugin {
    *          in
    * @param username the user to remove
    */
+  /**
+   * Refuses a list of users to remove that holds every manager of the space:
+   * none of them is the only manager, yet removing them all would leave the
+   * space without one.
+   *
+   * @param space the space
+   * @param usernames the users to remove, normalized
+   * @throws IllegalStateException when the list holds every manager
+   */
+  private void checkKeepsAManager(Space space, List<String> usernames) {
+    String[] managers = space.getManagers();
+    if (managers != null && managers.length > 0 && usernames.containsAll(Arrays.asList(managers))) {
+      throw new IllegalStateException(MSG_SPACE_ALL_MANAGERS.formatted(space.getDisplayName()));
+    }
+  }
+
+  /**
+   * Refuses to remove the only manager of a space from it, or the manager
+   * role from them.
+   *
+   * @param space the space
+   * @param username the user, normalized
+   * @throws IllegalStateException when the user is the space's only manager
+   */
   private void checkNotOnlyManager(Space space, String username) {
     if (spaceService.isOnlyManager(space, username)) {
       throw new IllegalStateException(MSG_SPACE_ONLY_MANAGER.formatted(username, space.getDisplayName()));
     }
   }
 
+  /**
+   * @param username a username, possibly prefixed with "@"
+   * @return the username without its "@" prefix
+   */
   private String normalize(String username) {
     return username != null && username.startsWith("@") ? username.substring(1) : username;
   }

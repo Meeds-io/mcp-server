@@ -134,6 +134,36 @@ class SpaceMcpToolAclTest {
   }
 
   /**
+   * A list holding every manager of the space is refused before any removal,
+   * though none of them is the only manager. Mutant: the up-front check left
+   * out, which removed both managers.
+   */
+  @Test
+  void removeUsersFromSpaceRefusesRemovingEveryManager() {
+    allowManagement();
+    space.setManagers(new String[] { "paul", "mary" });
+
+    assertThrows(IllegalStateException.class,
+                 () -> spaceMcpTool.removeUsersFromSpace(SPACE_ID, List.of("@paul", "mary")));
+
+    verify(spaceService, never()).removeMember(any(Space.class), any());
+  }
+
+  /**
+   * A list that keeps a manager removes the managers it names.
+   */
+  @Test
+  void removeUsersFromSpaceRemovesManagersWhenOneRemains() {
+    allowManagement();
+    space.setManagers(new String[] { "paul", "mary", "jack" });
+
+    spaceMcpTool.removeUsersFromSpace(SPACE_ID, List.of("paul", "mary"));
+
+    verify(spaceService).removeMember(space, "paul");
+    verify(spaceService).removeMember(space, "mary");
+  }
+
+  /**
    * Members who aren't the only manager are removed, the "@" prefix being
    * ignored.
    */
