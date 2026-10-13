@@ -56,6 +56,12 @@ import lombok.NoArgsConstructor;
  * object argument and {@code false_only_args}, each of the latter false or
  * absent.
  * <p>
+ * {@code space_admin: true} marks a write that administers the space itself
+ * (its settings, its members and their roles, its join requests, its
+ * deletion) rather than adding content to it. The server enforces nothing
+ * more for it; a caller that lets someone approve such a write reads the flag
+ * to ask the approver for the right to manage the space.
+ * <p>
  * Owned by the add-on that ships the tool: always read from its file, never
  * from the persisted copy an administrator edits.
  */
@@ -89,6 +95,9 @@ public class SpaceScopeDeclaration {
 
   @JsonProperty("false_only_args")
   private List<String>       falseOnlyArgs;
+
+  @JsonProperty("space_admin")
+  private boolean            spaceAdmin;
 
   /**
    * @return true when the declaration names a space argument and nothing else
