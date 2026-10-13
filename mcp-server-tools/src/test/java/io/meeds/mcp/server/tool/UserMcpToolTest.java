@@ -526,6 +526,43 @@ class UserMcpToolTest extends IntegrationTestBase {
   }
 
   @Test
+  void setMyAvatarAndBannerRefuseNonEditableImageForNonAdministrator() throws Exception {
+    ProfilePropertySetting avatar = createNonEditableSetting(Profile.AVATAR);
+    ProfilePropertySetting banner = createNonEditableSetting(Profile.BANNER);
+    ConversationState.setCurrent(new ConversationState(new org.exoplatform.services.security.Identity("james")));
+    try {
+      assertThrows(IllegalAccessException.class, () -> userMcpTool.setMyAvatar(null, PNG_1PX, null, null));
+      assertThrows(IllegalAccessException.class, () -> userMcpTool.setMyBanner(null, PNG_1PX, null, null));
+
+      // Only the avatar becomes editable: the banner stays refused
+      avatar.setEditable(true);
+      profilePropertyService.updatePropertySetting(avatar);
+      assertNotNull(userMcpTool.setMyAvatar(null, PNG_1PX, null, null));
+      assertThrows(IllegalAccessException.class, () -> userMcpTool.setMyBanner(null, PNG_1PX, null, null));
+
+      banner.setEditable(true);
+      profilePropertyService.updatePropertySetting(banner);
+      assertNotNull(userMcpTool.setMyBanner(null, PNG_1PX, null, null));
+    } finally {
+      profilePropertyService.deleteProfilePropertySetting(avatar.getId());
+      profilePropertyService.deleteProfilePropertySetting(banner.getId());
+    }
+  }
+
+  @Test
+  void setMyAvatarAndBannerAllowNonEditableImageForAdministrator() throws Exception {
+    ProfilePropertySetting avatar = createNonEditableSetting(Profile.AVATAR);
+    ProfilePropertySetting banner = createNonEditableSetting(Profile.BANNER);
+    try {
+      assertNotNull(userMcpTool.setMyAvatar(null, PNG_1PX, null, null));
+      assertNotNull(userMcpTool.setMyBanner(null, PNG_1PX, null, null));
+    } finally {
+      profilePropertyService.deleteProfilePropertySetting(avatar.getId());
+      profilePropertyService.deleteProfilePropertySetting(banner.getId());
+    }
+  }
+
+  @Test
   void setMyAvatarRequiresASource() {
     assertThrows(IllegalArgumentException.class, () -> userMcpTool.setMyAvatar(null, null, null, null));
   }
