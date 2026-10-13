@@ -24,11 +24,13 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyBoolean;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
+import java.util.ArrayList;
 import java.util.List;
 
 import org.junit.jupiter.api.AfterEach;
@@ -204,6 +206,26 @@ class SpaceMcpToolAclTest {
 
     verify(spaceService).removeMember(space, "paul");
     verify(spaceService).removeMember(space, "mary");
+  }
+
+  /**
+   * The space passed to each removal carries the current user as its editor,
+   * on the instance re-read right before that removal.
+   */
+  @Test
+  void removeUsersFromSpaceSetsEditorOnTheSpaceOfEachRemoval() {
+    allowManagement();
+    Space stored = new Space();
+    stored.setId(String.valueOf(SPACE_ID));
+    when(spaceService.getSpaceById(SPACE_ID)).thenReturn(space, space, stored, stored);
+    List<String> editors = new ArrayList<>();
+    doAnswer(invocation -> editors.add(invocation.<Space> getArgument(0).getEditor())).when(spaceService)
+                                                                                    .removeMember(any(Space.class), anyString());
+
+    spaceMcpTool.removeUsersFromSpace(SPACE_ID, List.of("paul", "mary"));
+
+    assertEquals(List.of(USERNAME, USERNAME), editors);
+    assertEquals(USERNAME, stored.getEditor());
   }
 
   /**
