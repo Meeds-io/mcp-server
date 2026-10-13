@@ -151,10 +151,17 @@ public class UserMcpTool implements McpToolPlugin {
     }
   }
 
-  // Sets the current user's profile avatar from an image provided as exactly one
-  // of an http(s) URL, a base64 string, or an ACL-checked reference to a file
-  // already attached to a platform object. Acts as the current user, so the
-  // avatar always belongs to the caller.
+  /**
+   * Sets the current user's profile avatar from an image provided as exactly one
+   * of an http(s) URL, a base64 string, or an ACL-checked reference to a file
+   * already attached to a platform object. Acts as the current user, so the
+   * avatar always belongs to the caller. Refused with an
+   * {@code IllegalAccessException}, before the image is fetched, when the
+   * platform marks the avatar as not editable, unless the user is an
+   * administrator.
+   *
+   * @return the updated user
+   */
   public UserModel setMyAvatar(String imageUrl,
                                String imageBase64,
                                String attachmentObjectType,
@@ -162,9 +169,16 @@ public class UserMcpTool implements McpToolPlugin {
     return setProfileImage(Profile.AVATAR, imageUrl, imageBase64, attachmentObjectType, attachmentObjectId);
   }
 
-  // Sets the current user's profile banner from an image provided as exactly one
-  // of an http(s) URL, a base64 string, or an ACL-checked reference to a readable
-  // platform attachment. Acts as the current user.
+  /**
+   * Sets the current user's profile banner from an image provided as exactly one
+   * of an http(s) URL, a base64 string, or an ACL-checked reference to a readable
+   * platform attachment. Acts as the current user. Refused with an
+   * {@code IllegalAccessException}, before the image is fetched, when the
+   * platform marks the banner as not editable, unless the user is an
+   * administrator.
+   *
+   * @return the updated user
+   */
   public UserModel setMyBanner(String imageUrl,
                                String imageBase64,
                                String attachmentObjectType,
@@ -172,12 +186,17 @@ public class UserMcpTool implements McpToolPlugin {
     return setProfileImage(Profile.BANNER, imageUrl, imageBase64, attachmentObjectType, attachmentObjectId);
   }
 
+  /**
+   * Sets the avatar or the banner of the current user from the given image
+   * source, once the platform setting of that property allows it.
+   */
   private UserModel setProfileImage(String property,
                                     String imageUrl,
                                     String imageBase64,
                                     String attachmentObjectType,
                                     String attachmentObjectId) throws IllegalAccessException, ObjectNotFoundException {
     String username = getCurrentUserName();
+    assertEditable(username, property);
     UploadToolUtils.FetchedContent image = UploadToolUtils.resolveImage(attachmentService,
                                                                       fileService,
                                                                       getCurrentUserAclIdentity(),
