@@ -138,9 +138,11 @@ public final class McpToolArgumentUtils {
 
   /**
    * Removes the {@code null} optional arguments from raw {@code tools/call}
-   * parameters, as the transport hands them to the request handler: a
-   * {@link Map} deserialized from the JSON-RPC request, or an already typed
-   * {@link CallToolRequest}. Any other shape is returned as is.
+   * parameters. The streamable transport of mcp-core 2.0.0 hands the request
+   * handler a {@link Map} deserialized from the JSON-RPC request; the typed
+   * {@link CallToolRequest} branch is defensive, for a caller that builds the
+   * request itself, and is not reached through that transport today. Any
+   * other shape is returned as is.
    *
    * @param inputSchema the tool's input schema
    * @param params      the {@code tools/call} parameters

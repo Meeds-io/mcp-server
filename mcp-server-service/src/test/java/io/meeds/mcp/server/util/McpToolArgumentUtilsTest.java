@@ -162,12 +162,14 @@ class McpToolArgumentUtilsTest {
    */
   @Test
   void typedRequestIsRebuilt() {
-    CallToolRequest request = new CallToolRequest(TOOL_NAME, arguments(SUMMARY, "Meeting", SPACE_ID, null), null);
+    Map<String, Object> meta = Map.of("progressToken", "token-1");
+    CallToolRequest request = new CallToolRequest(TOOL_NAME, arguments(SUMMARY, "Meeting", SPACE_ID, null), meta);
 
     CallToolRequest cleaned = (CallToolRequest) McpToolArgumentUtils.removeNullOptionalParameters(INPUT_SCHEMA, request);
 
     assertEquals(TOOL_NAME, cleaned.name());
     assertEquals(Map.of(SUMMARY, "Meeting"), cleaned.arguments());
+    assertEquals(meta, cleaned.meta());
   }
 
   /**
