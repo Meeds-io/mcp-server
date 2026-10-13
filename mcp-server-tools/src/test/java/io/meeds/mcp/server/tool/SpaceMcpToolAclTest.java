@@ -36,6 +36,7 @@ import java.util.List;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.mockito.stubbing.Answer;
 import org.springframework.test.util.ReflectionTestUtils;
 
 import org.exoplatform.services.security.ConversationState;
@@ -269,6 +270,27 @@ class SpaceMcpToolAclTest {
     spaceMcpTool.removeUserRoleInSpace(SPACE_ID, "mary", SpaceRole.REDACTOR);
 
     verify(spaceService).removeRedactor(space, "mary");
+  }
+
+  /**
+   * Whatever the role removed, the space passed to the service carries the
+   * current user as its editor.
+   */
+  @Test
+  void removeUserRoleInSpaceSetsEditor() {
+    allowManagement();
+    when(spaceService.isMember(space, "mary")).thenReturn(true);
+    List<String> editors = new ArrayList<>();
+    Answer<Object> recordEditor = invocation -> editors.add(invocation.<Space> getArgument(0).getEditor());
+    doAnswer(recordEditor).when(spaceService).setManager(any(Space.class), eq("mary"), eq(false));
+    doAnswer(recordEditor).when(spaceService).removeRedactor(any(Space.class), eq("mary"));
+    doAnswer(recordEditor).when(spaceService).removePublisher(any(Space.class), eq("mary"));
+
+    spaceMcpTool.removeUserRoleInSpace(SPACE_ID, "mary", SpaceRole.MANAGER);
+    spaceMcpTool.removeUserRoleInSpace(SPACE_ID, "mary", SpaceRole.REDACTOR);
+    spaceMcpTool.removeUserRoleInSpace(SPACE_ID, "mary", SpaceRole.PUBLISHER);
+
+    assertEquals(List.of(USERNAME, USERNAME, USERNAME), editors);
   }
 
   /**

@@ -362,6 +362,17 @@ public class SpaceMcpTool implements McpToolPlugin {
     }
   }
 
+  /**
+   * Removes a role of a member of a space the current user manages. The
+   * current user is the editor of the change, as in the Social REST endpoint.
+   *
+   * @param spaceId the space
+   * @param username the member
+   * @param spaceRole the role to remove
+   * @throws IllegalStateException when the space doesn't exist, the current
+   *           user can't manage it, the user isn't a member of it, or the role
+   *           is the manager one of its only manager
+   */
   public void removeUserRoleInSpace(long spaceId,
                                     String username,
                                     SpaceRole spaceRole) {
@@ -374,6 +385,7 @@ public class SpaceMcpTool implements McpToolPlugin {
       throw new IllegalStateException("User '%s' isn't member of the space '%s' yet, thus it doesn't have any role inside it yet.".formatted(username,
                                                                                                                                              spaceId));
     }
+    space.setEditor(getCurrentUserName());
     switch (spaceRole) {
     case MANAGER: {
       checkNotOnlyManager(space, username);
