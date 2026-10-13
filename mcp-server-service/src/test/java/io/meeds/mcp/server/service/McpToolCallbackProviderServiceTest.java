@@ -834,7 +834,7 @@ class McpToolCallbackProviderServiceTest {
                                                          false,
                                                          false,
                                                          new ToolAnnotations("Greet", true, false, true, false, null));
-    read.setSpaceScope(new SpaceScopeDeclaration("name", "use_scope", null, null, false, null, null, false));
+    read.setSpaceScope(new SpaceScopeDeclaration("name", "use_scope", null, null, false, null, null, false, null));
     when(mcpServerToolService.getToolDefinitionByMethodName(TOOL_METHOD)).thenReturn(read);
     when(mcpServerToolService.isRequireApproval(eq(TOOL_METHOD), any())).thenReturn(false);
     MockHttpServletRequest request = bindRequest(TOOL_CONTEXT_ID, CONVERSATION_ID);
@@ -865,7 +865,7 @@ class McpToolCallbackProviderServiceTest {
                                                           true,
                                                           false,
                                                           new ToolAnnotations("Greet", false, false, false, false, null));
-    write.setSpaceScope(new SpaceScopeDeclaration("name", null, null, null, false, null, null, false));
+    write.setSpaceScope(new SpaceScopeDeclaration("name", null, null, null, false, null, null, false, null));
     when(mcpServerToolService.getToolDefinitionByMethodName(TOOL_METHOD)).thenReturn(write);
     when(mcpToolApprovalService.requestApproval(any(), any(), any(), any(), any(), any(), anyBoolean(), any())).thenReturn(true);
     MockHttpServletRequest request = bindRequest(TOOL_CONTEXT_ID, CONVERSATION_ID);
