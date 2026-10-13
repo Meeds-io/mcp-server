@@ -56,6 +56,13 @@ import lombok.NoArgsConstructor;
  * object argument and {@code false_only_args}, each of the latter false or
  * absent.
  * <p>
+ * An object declaration may say how its id is written, {@code id_format}:
+ * {@value #ID_FORMAT_NUMERIC}, the default, for decimal digits, or
+ * {@value #ID_FORMAT_HEX32} for a JSON string of exactly 32 lowercase
+ * hexadecimal digits, handed to the resolver as sent. An {@code id_format} on
+ * another kind, or any other value, makes the declaration malformed, and the
+ * tool is refused.
+ * <p>
  * {@code space_admin: true} marks a write that administers the space itself
  * (its settings, its members and their roles, its join requests, its
  * deletion) rather than adding content to it. The server enforces nothing
