@@ -147,6 +147,17 @@ public class SpaceMcpTool implements McpToolPlugin {
     return toSpaceModel(spaceService, createdSpace, currentUsername);
   }
 
+  /**
+   * Updates the settings of a space the current user manages. The current user
+   * is the editor of the update, as in the Social REST endpoint.
+   *
+   * @param spaceId the space
+   * @param name the new display name, ignored when blank
+   * @param description the new description, ignored when blank
+   * @param visibility the new visibility, ignored when null
+   * @param registration the new registration, ignored when null
+   * @return the updated space
+   */
   @SneakyThrows
   public SpaceModel updateSpaceSettings(long spaceId,
                                         String name,
@@ -174,6 +185,7 @@ public class SpaceMcpTool implements McpToolPlugin {
       spaceToUpdate.setRegistration(spaceRegistration.name().toLowerCase());
     }
     String currentUsername = getCurrentUserName();
+    spaceToUpdate.setEditor(currentUsername);
     Space updatedSpace = spaceService.updateSpace(spaceToUpdate);
     return toSpaceModel(spaceService, updatedSpace, currentUsername);
   }
