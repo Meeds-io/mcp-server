@@ -515,7 +515,6 @@
     },
     {
       "name": "search_users",
-      "space_scope": { "unscoped": true, "allowed_args": ["query", "offset", "limit"] },
       "icon": "fa-user",
       "title": "Search for users",
       "description": "Search for users across the platform by an optional keyword.",
