@@ -22,6 +22,8 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyBoolean;
+import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
@@ -147,6 +149,33 @@ class SpaceMcpToolAclTest {
                  () -> spaceMcpTool.removeUsersFromSpace(SPACE_ID, List.of("@paul", "mary")));
 
     verify(spaceService, never()).removeMember(any(Space.class), any());
+  }
+
+  /**
+   * A manager who became the only one after the list was checked, through a
+   * change made elsewhere, is not removed: each user is checked against the
+   * space as stored right before its removal. Mutant: the check made on the
+   * space read at the start, which removed the last manager.
+   */
+  @Test
+  void removeUsersFromSpaceRechecksTheStoredSpaceBeforeEachRemoval() {
+    allowManagement();
+    space.setManagers(new String[] { "paul", "mary", "jack" });
+    Space afterPaul = new Space();
+    afterPaul.setId(String.valueOf(SPACE_ID));
+    afterPaul.setManagers(new String[] { "mary" });
+    when(spaceService.getSpaceById(SPACE_ID)).thenReturn(space, space, afterPaul);
+    // as SpaceServiceImpl#isOnlyManager reads it: from the managers of the given object
+    when(spaceService.isOnlyManager(any(Space.class), anyString())).thenAnswer(invocation -> {
+      String[] managers = invocation.<Space> getArgument(0).getManagers();
+      return managers != null && managers.length == 1 && managers[0].equals(invocation.getArgument(1));
+    });
+
+    assertThrows(IllegalStateException.class,
+                 () -> spaceMcpTool.removeUsersFromSpace(SPACE_ID, List.of("paul", "mary")));
+
+    verify(spaceService).removeMember(any(Space.class), eq("paul"));
+    verify(spaceService, never()).removeMember(any(Space.class), eq("mary"));
   }
 
   /**
