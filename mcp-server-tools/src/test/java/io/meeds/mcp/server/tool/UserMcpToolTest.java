@@ -250,8 +250,15 @@ class UserMcpToolTest extends IntegrationTestBase {
    * Registers the position profile property as not editable.
    */
   private ProfilePropertySetting createNonEditablePositionSetting() throws Exception {
+    return createNonEditableSetting(Profile.POSITION);
+  }
+
+  /**
+   * Registers the given profile property as not editable.
+   */
+  private ProfilePropertySetting createNonEditableSetting(String propertyName) throws Exception {
     ProfilePropertySetting setting = new ProfilePropertySetting();
-    setting.setPropertyName(Profile.POSITION);
+    setting.setPropertyName(propertyName);
     setting.setPropertyType("text");
     setting.setActive(true);
     setting.setVisible(true);
@@ -297,6 +304,57 @@ class UserMcpToolTest extends IntegrationTestBase {
 
     List<ExperienceModel> afterRemove = userMcpTool.removeWorkExperience(added.experienceId());
     assertTrue(afterRemove.stream().noneMatch(e -> added.experienceId().equals(e.experienceId())));
+  }
+
+  @Test
+  void workExperienceWritersRefuseNonEditableExperiencesForNonAdministrator() throws Exception {
+    ConversationState.setCurrent(new ConversationState(new org.exoplatform.services.security.Identity("james")));
+    List<ExperienceModel> existing = userMcpTool.addWorkExperience("Meeds", "Engineer", null, null, null, null, null);
+    String experienceId = existing.get(existing.size() - 1).experienceId();
+    ProfilePropertySetting created = createNonEditableSetting(Profile.EXPERIENCES);
+    try {
+      assertThrows(IllegalAccessException.class,
+                   () -> userMcpTool.addWorkExperience("Acme", null, null, null, null, null, null));
+      assertThrows(IllegalAccessException.class,
+                   () -> userMcpTool.updateWorkExperience(experienceId, "Acme", null, null, null, null, null, null));
+      assertThrows(IllegalAccessException.class,
+                   () -> userMcpTool.removeWorkExperience(experienceId));
+      assertEquals(existing.size(), userMcpTool.getMyUserInformation().getExperiences().size());
+      assertEquals("Meeds", userMcpTool.getMyUserInformation().getExperiences().get(0).company());
+
+      created.setEditable(true);
+      profilePropertyService.updatePropertySetting(created);
+      List<ExperienceModel> afterRemove = userMcpTool.removeWorkExperience(experienceId);
+      assertEquals(existing.size() - 1, afterRemove.size());
+    } finally {
+      profilePropertyService.deleteProfilePropertySetting(created.getId());
+      userMcpTool.getMyUserInformation().getExperiences().forEach(e -> removeQuietly(e.experienceId()));
+    }
+  }
+
+  /**
+   * Removes a work experience of the current user, ignoring an unknown id.
+   */
+  private void removeQuietly(String experienceId) {
+    try {
+      userMcpTool.removeWorkExperience(experienceId);
+    } catch (ObjectNotFoundException e) {
+      // already removed
+    }
+  }
+
+  @Test
+  void workExperienceWritersAllowNonEditableExperiencesForAdministrator() throws Exception {
+    ProfilePropertySetting created = createNonEditableSetting(Profile.EXPERIENCES);
+    try {
+      List<ExperienceModel> afterAdd = userMcpTool.addWorkExperience("Meeds", "Engineer", null, null, null, null, null);
+      String experienceId = afterAdd.get(afterAdd.size() - 1).experienceId();
+      userMcpTool.updateWorkExperience(experienceId, "Meeds SA", null, null, null, null, null, null);
+      List<ExperienceModel> afterRemove = userMcpTool.removeWorkExperience(experienceId);
+      assertEquals(afterAdd.size() - 1, afterRemove.size());
+    } finally {
+      profilePropertyService.deleteProfilePropertySetting(created.getId());
+    }
   }
 
   @Test

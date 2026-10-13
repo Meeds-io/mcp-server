@@ -377,6 +377,14 @@ public class UserMcpTool implements McpToolPlugin {
   // Work experience (current user)
   // ---------------------------------------------------------------------------
 
+  /**
+   * Adds a work experience to the current user's profile. Refused with an
+   * {@code IllegalAccessException} when the platform marks the experiences as
+   * not editable, unless the user is an administrator.
+   *
+   * @return the experiences of the current user after the change
+   */
+  @SneakyThrows
   public List<ExperienceModel> addWorkExperience(String company, // NOSONAR
                                                  String position,
                                                  String skills,
@@ -388,6 +396,7 @@ public class UserMcpTool implements McpToolPlugin {
       throw new IllegalArgumentException("'company' is mandatory to add a work experience.");
     }
     String username = getCurrentUserName();
+    assertEditable(username, Profile.EXPERIENCES);
     Profile profile = identityManager.getProfile(identityManager.getOrCreateUserIdentity(username));
     List<Map<String, Object>> experiences = mutableExperiences(profile);
 
@@ -401,6 +410,14 @@ public class UserMcpTool implements McpToolPlugin {
     return saveExperiences(username, profile, experiences);
   }
 
+  /**
+   * Updates a work experience of the current user's profile. Refused with an
+   * {@code IllegalAccessException} when the platform marks the experiences as
+   * not editable, unless the user is an administrator.
+   *
+   * @return the experiences of the current user after the change
+   */
+  @SneakyThrows
   public List<ExperienceModel> updateWorkExperience(String experienceId, // NOSONAR
                                                     String company,
                                                     String position,
@@ -413,6 +430,7 @@ public class UserMcpTool implements McpToolPlugin {
       throw new IllegalArgumentException("'experience_id' is mandatory. Call get_my_user_information first to get the experience_id.");
     }
     String username = getCurrentUserName();
+    assertEditable(username, Profile.EXPERIENCES);
     Profile profile = identityManager.getProfile(identityManager.getOrCreateUserIdentity(username));
     List<Map<String, Object>> experiences = mutableExperiences(profile);
     Map<String, Object> experience = findExperience(experiences, experienceId);
@@ -426,11 +444,20 @@ public class UserMcpTool implements McpToolPlugin {
     return saveExperiences(username, profile, experiences);
   }
 
+  /**
+   * Removes a work experience from the current user's profile. Refused with an
+   * {@code IllegalAccessException} when the platform marks the experiences as
+   * not editable, unless the user is an administrator.
+   *
+   * @return the experiences of the current user after the change
+   */
+  @SneakyThrows
   public List<ExperienceModel> removeWorkExperience(String experienceId) throws ObjectNotFoundException {
     if (StringUtils.isBlank(experienceId)) {
       throw new IllegalArgumentException("'experience_id' is mandatory. Call get_my_user_information first to get the experience_id.");
     }
     String username = getCurrentUserName();
+    assertEditable(username, Profile.EXPERIENCES);
     Profile profile = identityManager.getProfile(identityManager.getOrCreateUserIdentity(username));
     List<Map<String, Object>> experiences = mutableExperiences(profile);
     // findExperience throws ObjectNotFoundException if the id is unknown
@@ -597,6 +624,14 @@ public class UserMcpTool implements McpToolPlugin {
     if (value == null) {
       return;
     }
+    assertEditable(username, propertyName);
+  }
+
+  /**
+   * Refuses a write to a profile field that is not editable, unless the user is
+   * an administrator, as the social REST layer does for every profile field.
+   */
+  private void assertEditable(String username, String propertyName) throws IllegalAccessException {
     ProfilePropertySetting propertySetting = profilePropertyService.getProfileSettingByName(propertyName);
     if (propertySetting != null
         && !propertySetting.isEditable()
