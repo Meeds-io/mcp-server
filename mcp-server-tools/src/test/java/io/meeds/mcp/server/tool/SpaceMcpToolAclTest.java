@@ -183,6 +183,24 @@ class SpaceMcpToolAclTest {
   }
 
   /**
+   * A space deleted while the list is removed is reported as missing, not as a
+   * null pointer failure. Mutant: the null guard removed, which fails with a
+   * NullPointerException when the removal sets its editor.
+   */
+  @Test
+  void removeUsersFromSpaceRefusesASpaceDeletedMeanwhile() {
+    allowManagement();
+    space.setManagers(new String[] { "paul", "mary" });
+    when(spaceService.getSpaceById(SPACE_ID)).thenReturn(space, null);
+
+    IllegalStateException refusal = assertThrows(IllegalStateException.class,
+                                                 () -> spaceMcpTool.removeUsersFromSpace(SPACE_ID, List.of("paul")));
+
+    assertEquals(String.format("Space with Id '%s' doesn't exist", SPACE_ID), refusal.getMessage());
+    verify(spaceService, never()).removeMember(any(Space.class), any());
+  }
+
+  /**
    * A list that keeps a manager removes the managers it names.
    */
   @Test
