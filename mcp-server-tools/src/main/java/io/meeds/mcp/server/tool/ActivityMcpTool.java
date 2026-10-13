@@ -706,8 +706,9 @@ public class ActivityMcpTool implements McpToolPlugin {
    * the reply is posted on. Social performs no such check: the storage attaches
    * the new comment under whatever parent id it is given, so a parent from
    * another activity would silently thread the reply into a stream the caller
-   * never named. The two objects exist and are visible; what is wrong is the
-   * pair of parameters, hence an {@link IllegalArgumentException} (400) that never
+   * never named. The two objects exist; the target activity is visible, the parent
+   * comment's visibility is not checked; what is wrong is the pair of
+   * parameters, hence an {@link IllegalArgumentException} (400) that never
    * names the comment's own activity, which the caller may not be allowed to
    * see, not a 404 that would make the model believe the comment doesn't exist.
    *
