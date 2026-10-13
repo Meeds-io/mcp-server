@@ -830,7 +830,7 @@ class McpToolCallbackProviderServiceTest {
                                                          false,
                                                          false,
                                                          new ToolAnnotations("Greet", true, false, true, false, null));
-    read.setSpaceScope(new SpaceScopeDeclaration("name", "use_scope", null, null, false, null, null));
+    read.setSpaceScope(new SpaceScopeDeclaration("name", "use_scope", null, null, false, null, null, false));
     when(mcpServerToolService.getToolDefinitionByMethodName(TOOL_METHOD)).thenReturn(read);
     when(mcpServerToolService.isRequireApproval(eq(TOOL_METHOD), any())).thenReturn(false);
     MockHttpServletRequest request = bindRequest(TOOL_CONTEXT_ID, CONVERSATION_ID);
@@ -861,7 +861,7 @@ class McpToolCallbackProviderServiceTest {
                                                           true,
                                                           false,
                                                           new ToolAnnotations("Greet", false, false, false, false, null));
-    write.setSpaceScope(new SpaceScopeDeclaration("name", null, null, null, false, null, null));
+    write.setSpaceScope(new SpaceScopeDeclaration("name", null, null, null, false, null, null, false));
     when(mcpServerToolService.getToolDefinitionByMethodName(TOOL_METHOD)).thenReturn(write);
     when(mcpToolApprovalService.requestApproval(any(), any(), any(), any(), any(), any(), anyBoolean(), any())).thenReturn(true);
     MockHttpServletRequest request = bindRequest(TOOL_CONTEXT_ID, CONVERSATION_ID);
@@ -884,6 +884,35 @@ class McpToolCallbackProviderServiceTest {
                                                    any(),
                                                    anyBoolean(),
                                                    any());
+  }
+
+  /**
+   * An agent account's approved proposal, limited to a space, to a write that
+   * declares no space scope is refused although a grant covers it: the space
+   * scope check runs before any grant lookup, the tool never runs, and
+   * nothing is traced as started. Mutants: the space scope check moved after
+   * the grant lookup; a covering grant letting an undeclared write run.
+   */
+  @Test
+  void call_spaceScopedAgentWriteUndeclaredWithCoveringGrant_refusedBeforeTheGrant() {// NOSONAR
+    bindAgentAccount();
+    // lenient: the refusal comes before the approval and grant steps these set up, which is what is pinned
+    lenient().when(mcpServerToolService.isRequireApproval(eq(TOOL_METHOD), any())).thenReturn(false);
+    lenient().when(mcpServerToolService.isApprovalGatedTool(TOOL_METHOD)).thenReturn(true);
+    McpToolGrant grant = McpToolGrant.builder().id(9L).ownerType(McpToolGrantOwnerType.USER).build();
+    lenient().when(mcpToolGrantService.findApplicableGrant(any(), any())).thenReturn(grant);
+    MockHttpServletRequest request = bindRequest(TOOL_CONTEXT_ID, CONVERSATION_ID);
+    addAgentAccountHeaders(request);
+    request.addHeader(TOOL_CONTEXT_SPACE_SCOPE_PARAM, "12");
+
+    SpaceScopeRefusedException e = assertThrows(SpaceScopeRefusedException.class, () -> toolCallback.call(TOOL_INPUT));
+
+    assertTrue(e.getMessage().contains("space with id 12"), e.getMessage());
+    verify(mcpToolGrantService, never()).findApplicableGrant(any(), any());
+    verify(mcpToolGrantService, never()).recordUse(any(), any());
+    verify(mcpToolApprovalService).traceToolExecution(argThatIs(UserToolRequestType.TOOL_EXECUTION_DENIED));
+    verify(mcpToolApprovalService, never()).traceToolExecution(argThatIs(UserToolRequestType.TOOL_EXECUTION_START));
+    verify(mcpToolApprovalService, never()).traceToolExecution(argThatIs(UserToolRequestType.TOOL_EXECUTION_GRANTED));
   }
 
   /**
