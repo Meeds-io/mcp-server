@@ -27,11 +27,15 @@ import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
+import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.List;
 
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.io.TempDir;
 import org.springframework.beans.factory.ObjectProvider;
 
 import io.meeds.mcp.server.constant.Origin;
@@ -40,10 +44,9 @@ import io.meeds.mcp.server.model.SpaceScopeDeclaration;
 import io.meeds.mcp.server.model.SpaceScopeRefusedException;
 import io.meeds.mcp.server.model.SimpleToolDefinition;
 import io.meeds.mcp.server.plugin.SpaceScopeResolver;
+import io.meeds.mcp.server.util.McpToolUtils;
 
 import io.modelcontextprotocol.spec.McpSchema.ToolAnnotations;
-import tools.jackson.databind.DeserializationFeature;
-import tools.jackson.databind.json.JsonMapper;
 
 /**
  * Pins the space scope check: a call limited to one space reads that space and
@@ -313,7 +316,9 @@ class McpToolSpaceScopeServiceTest {
                                                                       null,
                                                                       false,
                                                                       List.of("query"),
-                                                                      List.of("is_favorite"), false, null));
+                                                                      List.of("is_favorite"),
+                                                                      false,
+                                                                      null));
 
     assertThat(service.enforce("search_activities", search, "{\"space_id\":12,\"is_favorite\":false}", SCOPED)).contains("false");
     assertThat(service.enforce("search_activities", search, "{\"space_id\":12,\"is_favorite\":null}", SCOPED)).contains("null");
@@ -484,19 +489,26 @@ class McpToolSpaceScopeServiceTest {
   }
 
   /**
-   * The {@code id_format} is read from the JSON, defaults to a decimal id,
+   * The {@code id_format} is read from the tool definitions file by the
+   * production parser, defaults to a decimal id,
    * and is well formed only on an object declaration, with a known value.
    * Mutants: the property name changed; the kind check removed (a space
    * declaration carrying one is accepted); the value check removed (an unknown
    * format is accepted).
    */
   @Test
-  void idFormatIsParsedAndValidatedOnObjectDeclarationsOnly() throws Exception {
-    JsonMapper mapper = JsonMapper.builder().disable(DeserializationFeature.FAIL_ON_NULL_FOR_PRIMITIVES).build();
-    SpaceScopeDeclaration parsed = mapper.readValue("{\"object_arg\":\"node_id\",\"resolver\":\"document\",\"id_format\":\"hex32\"}",
-                                                    SpaceScopeDeclaration.class);
-    SpaceScopeDeclaration byDefault = mapper.readValue("{\"object_arg\":\"node_id\",\"resolver\":\"document\"}",
-                                                       SpaceScopeDeclaration.class);
+  void idFormatIsParsedAndValidatedOnObjectDeclarationsOnly(@TempDir Path tmp) throws Exception {
+    Path file = tmp.resolve("ai-tool-definitions.json");
+    Files.writeString(file, """
+        { "tools": [
+          { "name": "hex_tool", "input_schema": {},
+            "space_scope": { "object_arg": "node_id", "resolver": "document", "id_format": "hex32" } },
+          { "name": "default_tool", "input_schema": {},
+            "space_scope": { "object_arg": "node_id", "resolver": "document" } } ] }
+        """, StandardCharsets.UTF_8);
+    List<SimpleToolDefinition> tools = McpToolUtils.parseToolDefinitions(file.toUri().toURL());
+    SpaceScopeDeclaration parsed = tools.get(0).getSpaceScope();
+    SpaceScopeDeclaration byDefault = tools.get(1).getSpaceScope();
 
     assertThat(parsed.getIdFormat()).isEqualTo("hex32");
     assertThat(parsed.isHexId()).isTrue();
