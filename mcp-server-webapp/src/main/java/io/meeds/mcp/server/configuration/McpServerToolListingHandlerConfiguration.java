@@ -303,7 +303,9 @@ public class McpServerToolListingHandlerConfiguration {
      *         wrapped by
      *         {@link McpToolArgumentUtils#wrapToolsCallHandler} so that
      *         the SDK's input validation, and then the tool, receive no
-     *         {@code null} for an argument the tool's schema declares optional
+     *         {@code null} for an argument the tool's schema declares
+     *         optional, and a number for a string of digits sent for an
+     *         argument it declares numeric
      */
     private Map<String, McpRequestHandler<?>> retrieveRequestHandlers(DefaultMcpStreamableServerSessionFactory sessionFactory) {
       Map<String, McpRequestHandler<?>> handlers = new HashMap<>(getField(sessionFactory, "requestHandlers"));
