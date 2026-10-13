@@ -294,6 +294,20 @@ public class SpaceMcpTool implements McpToolPlugin {
     }
   }
 
+  /**
+   * Removes users from a space the current user manages. Refused before any
+   * removal when one of them is the space's only manager, or when the list
+   * holds every manager; each user is then checked again against the space as
+   * stored, right before its removal, so that a change made elsewhere
+   * meanwhile never leaves the space without a manager. A refusal at that
+   * point leaves the users removed before it removed.
+   *
+   * @param spaceId the space
+   * @param usernamesToRemove the users, possibly prefixed with "@"
+   * @throws IllegalStateException when the space doesn't exist, the current
+   *           user can't manage it, or a removal would leave it without a
+   *           manager
+   */
   public void removeUsersFromSpace(long spaceId,
                                    List<String> usernamesToRemove) {
     String currentUsername = getCurrentUserName();
@@ -306,10 +320,12 @@ public class SpaceMcpTool implements McpToolPlugin {
       List<String> usernames = usernamesToRemove.stream().map(this::normalize).distinct().toList();
       usernames.forEach(u -> checkNotOnlyManager(space, u));
       checkKeepsAManager(space, usernames);
-      // each removal changes the managers the next check reads
+      // the managers may change elsewhere while the list is removed: each
+      // user is checked against the space as stored right before its removal
       usernames.forEach(u -> {
-        checkNotOnlyManager(space, u);
-        spaceService.removeMember(space, u);
+        Space current = spaceService.getSpaceById(spaceId);
+        checkNotOnlyManager(current, u);
+        spaceService.removeMember(current, u);
       });
     }
   }
