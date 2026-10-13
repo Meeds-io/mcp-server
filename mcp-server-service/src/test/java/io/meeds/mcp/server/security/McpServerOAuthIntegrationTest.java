@@ -401,6 +401,48 @@ class McpServerOAuthIntegrationTest extends McpServiceIntegrationTestSupport {
                                                          .contains(IS_ERROR_FALSE_MESSAGE);
   }
 
+  /**
+   * A model that quotes a numeric id, as one did for {@code search_notes}, is
+   * no longer refused with {@code string found, integer expected}: the tool
+   * receives the number.
+   */
+  @Test
+  @DisplayName("A string of digits for an integer argument reaches the tool as a number")
+  void wholeNumberStringIsTurnedIntoANumberBeforeValidation() throws Exception {
+    String token = issueToken(clientWithScopes("mcp-number-string-" + UUID.randomUUID(), TOOL_READ_SCOPE));
+    String sessionId = initializeSession(token);
+
+    MvcResult result = callToolWithArguments(token,
+                                             sessionId,
+                                             TEST_OPTIONAL_TOOL_NAME,
+                                             "{ \"message\": \"hello\", \"space_id\": \"42\" }");
+
+    assertThat(result.getResponse().getContentAsString()).contains("optional:hello:42")
+                                                         .contains(IS_ERROR_FALSE_MESSAGE)
+                                                         .doesNotContain(VALIDATION_FAILED_MESSAGE);
+  }
+
+  /**
+   * Only a string of digits is turned into a number: any other string for an
+   * integer argument is still refused by the input validation.
+   */
+  @Test
+  @DisplayName("A string that is not a whole number is still refused for an integer argument")
+  void nonNumericStringIsStillRefused() throws Exception {
+    String token = issueToken(clientWithScopes("mcp-non-number-string-" + UUID.randomUUID(), TOOL_READ_SCOPE));
+    String sessionId = initializeSession(token);
+
+    MvcResult result = callToolWithArguments(token,
+                                             sessionId,
+                                             TEST_OPTIONAL_TOOL_NAME,
+                                             "{ \"message\": \"hello\", \"space_id\": \"4a2\" }");
+
+    assertThat(result.getResponse().getContentAsString()).contains(IS_ERROR_TRUE_MESSAGE)
+                                                         .contains(VALIDATION_FAILED_MESSAGE)
+                                                         .contains("/space_id: string found, integer expected")
+                                                         .doesNotContain("optional:");
+  }
+
   @Test
   @DisplayName("A null required argument is still refused by the input validation")
   void nullRequiredArgumentIsStillRefused() throws Exception {
