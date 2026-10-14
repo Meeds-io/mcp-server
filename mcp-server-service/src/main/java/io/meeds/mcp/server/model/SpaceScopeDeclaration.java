@@ -59,9 +59,11 @@ import lombok.NoArgsConstructor;
  * An object declaration may say how its id is written, {@code id_format}:
  * {@value #ID_FORMAT_NUMERIC}, the default, for decimal digits, or
  * {@value #ID_FORMAT_HEX32} for a JSON string of exactly 32 lowercase
- * hexadecimal digits, handed to the resolver as sent. An {@code id_format} on
- * another kind, or any other value, makes the declaration malformed, and the
- * tool is refused.
+ * hexadecimal digits, or {@value #ID_FORMAT_MATRIX_ROOM} for a JSON string
+ * holding a Matrix room id, {@code !} and its local part, with or without
+ * {@code :} and its server name and port; the last two are handed to the
+ * resolver as sent. An {@code id_format} on another kind, or any other
+ * value, makes the declaration malformed, and the tool is refused.
  * <p>
  * {@code space_admin: true} marks a write that administers the space itself
  * (its settings, its members and their roles, its join requests, its
@@ -87,6 +89,9 @@ public class SpaceScopeDeclaration {
 
   /** The {@code id_format} value of an id of 32 lowercase hexadecimal digits. */
   public static final String ID_FORMAT_HEX32 = "hex32";
+
+  /** The {@code id_format} value of a Matrix room id, with or without its server name. */
+  public static final String ID_FORMAT_MATRIX_ROOM = "matrix_room";
 
   @JsonProperty("space_arg")
   private String             spaceArg;
@@ -168,13 +173,23 @@ public class SpaceScopeDeclaration {
   }
 
   /**
+   * @return true when the object id is a Matrix room id; false for the
+   *         default, a decimal number
+   */
+  @JsonIgnore
+  public boolean isMatrixRoomId() {
+    return ID_FORMAT_MATRIX_ROOM.equals(idFormat);
+  }
+
+  /**
    * @return true when no {@code id_format} is given, or an object
    *         declaration gives a known one; an {@code id_format} on any other
    *         kind, or an unknown value, isn't well formed
    */
   private boolean isIdFormatWellFormed() {
     return idFormat == null
-           || isObjectKind() && (ID_FORMAT_NUMERIC.equals(idFormat) || ID_FORMAT_HEX32.equals(idFormat));
+           || isObjectKind()
+              && (ID_FORMAT_NUMERIC.equals(idFormat) || ID_FORMAT_HEX32.equals(idFormat) || ID_FORMAT_MATRIX_ROOM.equals(idFormat));
   }
 
   /**
