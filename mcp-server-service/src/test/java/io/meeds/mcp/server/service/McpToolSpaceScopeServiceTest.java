@@ -513,6 +513,14 @@ class McpToolSpaceScopeServiceTest {
   }
 
   /**
+   * @return an object declaration on {@code conversation_id} resolved by
+   *         {@code chat_room}, whose id is a Matrix room id
+   */
+  private static SpaceScopeDeclaration roomDeclaration() {
+    return new SpaceScopeDeclaration(null, null, "conversation_id", "chat_room", false, List.of("limit"), null, false, "matrix_room");
+  }
+
+  /**
    * @return a read-only by-id tool whose id is a hexadecimal node id
    */
   private static SimpleToolDefinition hexRead() {
@@ -571,6 +579,62 @@ class McpToolSpaceScopeServiceTest {
     assertRefused(() -> service.enforce("t", definition("t", true, onSpace), "{\"space_id\":12}", SCOPED), "isn't available");
     assertRefused(() -> service.enforce("t", definition("t", true, hexDeclaration("hex3")), "{\"node_id\":\"" + NODE_ID + "\"}", SCOPED),
                   "isn't available");
+  }
+
+  /**
+   * {@code matrix_room} is a known id format on an object declaration only:
+   * well formed there, for a read or a write, and malformed on a space
+   * declaration or written in another case. Mutants: the value missing from
+   * the known formats; the kind check removed.
+   */
+  @Test
+  void matrixRoomIdFormatIsWellFormedOnObjectDeclarationsOnly() {
+    SpaceScopeDeclaration room = roomDeclaration();
+    assertThat(room.isMatrixRoomId()).isTrue();
+    assertThat(room.isHexId()).isFalse();
+    assertThat(room.isWellFormedFor(false)).isTrue();
+    assertThat(room.isWellFormedFor(true)).isTrue();
+    assertThat(hexDeclaration("MATRIX_ROOM").isWellFormedFor(false)).isFalse();
+    assertThat(hexDeclaration("hex32").isMatrixRoomId()).isFalse();
+
+    SpaceScopeDeclaration onSpace = spaceDeclaration("use_scope");
+    onSpace.setIdFormat("matrix_room");
+    assertThat(onSpace.isWellFormedFor(false)).isFalse();
+  }
+
+  /**
+   * A Matrix room id runs in both of its stored shapes, the local part alone
+   * and with its server name and port, when the resolver puts the room in the
+   * call's space; the resolver gets the id exactly as sent. A value that isn't
+   * a room id is refused without asking the resolver: no {@code !}, an empty
+   * local part, a space, a slash, a number, an empty server name, a port of
+   * six digits. Mutants: the format check removed; the id rewritten before
+   * the resolver; the {@code !} or the server part's shape loosened.
+   */
+  @Test
+  void matrixRoomObjectRunsInBothShapesAndRefusesAnythingElse() {
+    SpaceScopeResolver resolver = resolver("chat_room");
+    // two different rooms, so a resolver given a rewritten id finds nothing
+    when(resolver.spaceOf("!abc")).thenReturn(SPACE_ID);
+    when(resolver.spaceOf("!xyz:matrix.exo.com:8448")).thenReturn(SPACE_ID);
+    when(resolver.spaceOf("!other:matrix.exo.com")).thenReturn(13L);
+    SimpleToolDefinition read = definition("get_chat_messages", true, roomDeclaration());
+
+    String local = "{\"conversation_id\":\"!abc\"}";
+    String full = "{\"conversation_id\":\"!xyz:matrix.exo.com:8448\"}";
+    assertThat(service.enforce("get_chat_messages", read, local, SCOPED)).isSameAs(local);
+    assertThat(service.enforce("get_chat_messages", read, full, SCOPED)).isSameAs(full);
+    verify(resolver).spaceOf("!xyz:matrix.exo.com:8448");
+    assertThat(refusal(() -> service.enforce("get_chat_messages", read, "{\"conversation_id\":\"!other:matrix.exo.com\"}", SCOPED)))
+                                                                                                                                  .contains("space with id 12");
+
+    List<String> notRoomIds = List.of("abc", "!", "!a b", "!a/b", "!abc:", "!abc:matrix.exo.com:123456", " !abc", "!abc:matrix.exo.com:84x8");
+    for (String value : notRoomIds) {
+      assertRefused(() -> service.enforce("get_chat_messages", read, "{\"conversation_id\":\"" + value + "\"}", SCOPED), "isn't one of them");
+      verify(resolver, never()).spaceOf(value);
+    }
+    assertRefused(() -> service.enforce("get_chat_messages", read, "{\"conversation_id\":12}", SCOPED), "isn't one of them");
+    verify(resolver, never()).spaceOf("12");
   }
 
   /**

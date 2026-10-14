@@ -46,7 +46,9 @@ public interface SpaceScopeResolver {
   /**
    * @param objectId the id the tool call gives: decimal digits, or, when the
    *          declaration says {@code id_format: hex32}, 32 lowercase
-   *          hexadecimal digits exactly as sent
+   *          hexadecimal digits exactly as sent, or, for
+   *          {@code id_format: matrix_room}, a Matrix room id exactly as
+   *          sent, with or without its server name
    * @return the id of the space the object belongs to, or null when it is
    *         missing, belongs to no space or can't be read
    */
