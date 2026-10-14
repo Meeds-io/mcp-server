@@ -98,6 +98,7 @@ import io.meeds.mcp.server.model.SpaceScopeRefusedException;
 import io.meeds.mcp.server.model.SimpleToolDefinition;
 import io.meeds.mcp.server.model.UserToolExecution;
 import io.meeds.mcp.server.model.UserToolRefusedException;
+import io.meeds.mcp.server.model.UserToolDeniedException;
 import io.meeds.mcp.server.plugin.McpToolPlugin;
 import io.meeds.mcp.server.plugin.SpaceScopeResolver;
 
@@ -868,6 +869,109 @@ class McpToolCallbackProviderServiceTest {
   }
 
   /**
+   * A denied call carrying a 2 MB image writes no image to the log, and the
+   * user's denial isn't logged at WARN or above. Mutants: the input logged
+   * as received; the denial logged at WARN.
+   */
+  @Test
+  void call_deniedImageCall_logsNoImageAndNoWarning() {// NOSONAR
+    String image = "B".repeat(2_796_203);
+    ToolCallback uploadCallback = uploadCallback(new UploadToolPlugin());
+    bindRequest(TOOL_CONTEXT_ID, CONVERSATION_ID);
+    when(mcpToolApprovalService.requestApproval(any(), any(), any(), any(), any(), any(), any(), anyBoolean(), any())).thenReturn(false);
+    ListAppender<ILoggingEvent> logged = captureLogs();
+
+    try {
+      assertThrows(UserToolDeniedException.class, () -> uploadCallback.call("{\"image_base64\":\"" + image + "\"}"));
+    } finally {
+      releaseLogs(logged);
+    }
+
+    assertFalse(logged.list.isEmpty());
+    assertTrue(logged.list.stream().noneMatch(event -> event.getLevel().isGreaterOrEqual(Level.WARN)), logged.list::toString);
+    assertTrue(logged.list.stream().noneMatch(event -> event.getFormattedMessage().contains("BBBB")), "image logged");
+    assertTrue(logged.list.stream().anyMatch(event -> event.getFormattedMessage().contains("[image, ")), logged.list::toString);
+  }
+
+  /**
+   * A failing call carrying a 2 MB image logs no image at WARN nor ERROR, and
+   * the explanation sent to the model carries the placeholder instead of it.
+   * Mutants: the input unredacted in the explanation; in the WARN; in the
+   * ERROR.
+   */
+  @Test
+  void call_failingImageCall_explainsAndLogsWithoutTheImage() {// NOSONAR
+    String image = "C".repeat(2_796_203);
+    ToolCallback uploadCallback = uploadCallback(new FailingUploadToolPlugin());
+    bindRequest(TOOL_CONTEXT_ID, CONVERSATION_ID);
+    when(mcpToolApprovalService.requestApproval(any(), any(), any(), any(), any(), any(), any(), anyBoolean(), any())).thenReturn(true);
+    ListAppender<ILoggingEvent> logged = captureLogs();
+
+    IllegalStateException e;
+    try {
+      e = assertThrows(IllegalStateException.class, () -> uploadCallback.call("{\"image_base64\":\"" + image + "\"}"));
+    } finally {
+      releaseLogs(logged);
+    }
+
+    assertTrue(e.getMessage().contains("[image, "), e.getMessage());
+    assertFalse(e.getMessage().contains("CCCC"), "image in the explanation");
+    assertTrue(logged.list.stream().anyMatch(event -> event.getLevel().isGreaterOrEqual(Level.ERROR)));
+    assertTrue(logged.list.stream().anyMatch(event -> event.getLevel() == Level.WARN));
+    assertTrue(logged.list.stream().noneMatch(event -> event.getFormattedMessage().contains("CCCC")), "image logged");
+  }
+
+  /**
+   * Builds the callback of an upload tool that requires approval.
+   *
+   * @param plugin the upload tool
+   * @return its callback
+   */
+  private ToolCallback uploadCallback(McpToolPlugin plugin) {
+    when(mcpServerToolService.getToolDefinitionByMethodName("upload")).thenReturn(new SimpleToolDefinition("upload",
+                                                                                                          "Upload",
+                                                                                                          "Uploads an image",
+                                                                                                          "{\"type\":\"object\",\"properties\":{\"imageBase64\":{\"type\":\"string\"}}}",
+                                                                                                          true,
+                                                                                                          false,
+                                                                                                          null));
+    lenient().when(mcpServerToolService.isAllowedTool(eq("upload"), any())).thenReturn(true);
+    lenient().when(mcpServerToolService.isRequireApproval(eq("upload"), any())).thenReturn(true);
+    return new McpToolCallbackProviderService(applicationContext,
+                                              mcpServerToolService,
+                                              mcpToolApprovalService,
+                                              userAcl,
+                                              List.of(plugin),
+                                              mcpToolGrantService,
+                                              new McpToolSpaceScopeService(spaceScopeResolvers)).getToolCallbacks()[0];
+  }
+
+  /**
+   * Starts capturing what the service logs, down to DEBUG.
+   *
+   * @return the capture
+   */
+  private ListAppender<ILoggingEvent> captureLogs() {
+    Logger logger = (Logger) LoggerFactory.getLogger(McpToolCallbackProviderService.class);
+    ListAppender<ILoggingEvent> logged = new ListAppender<>();
+    logged.start();
+    logger.setLevel(Level.DEBUG);
+    logger.addAppender(logged);
+    return logged;
+  }
+
+  /**
+   * Stops a capture started by {@link #captureLogs()}.
+   *
+   * @param logged the capture
+   */
+  private void releaseLogs(ListAppender<ILoggingEvent> logged) {
+    Logger logger = (Logger) LoggerFactory.getLogger(McpToolCallbackProviderService.class);
+    logger.detachAppender(logged);
+    logger.setLevel(null);
+  }
+
+  /**
    * A call limited to a space, to a tool that declares no space scope, is
    * refused before any card or grant lookup and before the tool runs, traced
    * as out of scope (never as denied, which reads as the user's refusal) and
@@ -1051,6 +1155,14 @@ class McpToolCallbackProviderServiceTest {
 
     public String upload(String imageBase64) {
       return "received " + imageBase64.length();
+    }
+
+  }
+
+  public static class FailingUploadToolPlugin implements McpToolPlugin {
+
+    public String upload(String imageBase64) {
+      throw new UnsupportedOperationException("upload failed");
     }
 
   }
