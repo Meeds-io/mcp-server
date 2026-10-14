@@ -20,6 +20,9 @@ package io.meeds.mcp.server.service;
 
 import static io.meeds.mcp.server.service.McpToolApprovalService.COMETD_CHANNEL;
 import static io.meeds.mcp.server.util.McpToolUtils.AI_AGENT_TOOL_EXECUTION_EVENT;
+import static io.meeds.mcp.server.util.McpToolUtils.AI_AGENT_TOOL_INPUT_PARAM;
+import static io.meeds.mcp.server.util.McpToolUtils.ARGUMENTS_TOO_LARGE_NOTE;
+import static io.meeds.mcp.server.util.McpToolUtils.MAX_PUBLISHED_INPUT_LENGTH;
 import static io.meeds.mcp.server.util.McpToolUtils.AI_AGENT_TOOL_TURN_ID_PARAM;
 import static io.meeds.mcp.server.util.McpToolUtils.MAX_TURN_ID_LENGTH;
 import static org.assertj.core.api.Assertions.assertThat;
@@ -407,6 +410,107 @@ class McpToolApprovalServiceTest {
                                                      null)).isInstanceOf(UserToolTimeoutException.class);
 
     assertThat(publishedApprovalRequest()).doesNotContain("\"" + AI_AGENT_TOOL_TURN_ID_PARAM + "\"");
+  }
+
+  /**
+   * A call input carrying a 2 MB image: the card, its answer, its timeout and
+   * the traces publish the placeholder to the chat and to the listeners, never
+   * the image, while the pending call keeps the full input for grant matching.
+   */
+  @Test
+  @SneakyThrows
+  void publishedStepsCarryThePlaceholderInsteadOfTheImage() {
+    String input = bigImageInput();
+    McpToolGrantRequest grantRequest = new McpToolGrantRequest(REQUEST_ID, USERNAME, "upload", input, "agent-1", "conv", "mcp-internal", false);
+    when(continuationBayeux.isSubscribed(USERNAME, WS_CLIENT_ID)).thenReturn(true);
+
+    Future<Boolean> answered = CompletableFuture.supplyAsync(() -> service.requestApproval(REQUEST_ID,
+                                                                                           "conv",
+                                                                                           "turn-1",
+                                                                                           "upload",
+                                                                                           input,
+                                                                                           USERNAME,
+                                                                                           grantRequest,
+                                                                                           false,
+                                                                                           null));
+    awaitRequestRegistered(REQUEST_ID);
+    assertThat(getRequests().get(REQUEST_ID).getGrantRequest().toolInput()).isEqualTo(input);
+    service.receiveAnswer(REQUEST_ID, WS_CLIENT_ID, true);
+    assertThat(answered.get(1, TimeUnit.SECONDS)).isTrue();
+    assertThatThrownBy(() -> service.requestApproval("timed-out", "conv", "turn-1", "upload", input, USERNAME, grantRequest, false, null))
+                                                                                                                                         .isInstanceOf(UserToolTimeoutException.class);
+    service.traceToolExecution(UserToolExecution.builder()
+                                                .id(REQUEST_ID)
+                                                .username(USERNAME)
+                                                .toolName("upload")
+                                                .toolInput(input)
+                                                .toolExecutionType(UserToolRequestType.TOOL_EXECUTION_START)
+                                                .startTime(System.currentTimeMillis())
+                                                .build());
+
+    ArgumentCaptor<String> messages = ArgumentCaptor.forClass(String.class);
+    verify(continuationService, atLeastOnce()).sendMessage(eq(USERNAME), eq(COMETD_CHANNEL), messages.capture());
+    assertThat(messages.getAllValues()).hasSize(5)
+                                       .allSatisfy(message -> assertThat(message).contains("[image, 2.0 MB]")
+                                                                                 .hasSizeLessThan(2_000));
+    @SuppressWarnings("unchecked")
+    ArgumentCaptor<Map<String, String>> events = ArgumentCaptor.forClass(Map.class);
+    verify(listenerService, atLeastOnce()).broadcast(eq(AI_AGENT_TOOL_EXECUTION_EVENT), eq(USERNAME), events.capture());
+    assertThat(events.getAllValues()).hasSize(5)
+                                     .allSatisfy(event -> assertThat(event.get(AI_AGENT_TOOL_INPUT_PARAM)).contains("[image, 2.0 MB]")
+                                                                                                          .hasSizeLessThan(200));
+  }
+
+  /**
+   * A call input without a {@code _base64} argument is published as it is.
+   */
+  @Test
+  void inputWithoutBase64IsPublishedUnchanged() {
+    String input = "{ \"message\" : \"hello\" }";
+
+    service.traceToolExecution(UserToolExecution.builder()
+                                                .id(REQUEST_ID)
+                                                .username(USERNAME)
+                                                .toolName("tool")
+                                                .toolInput(input)
+                                                .toolExecutionType(UserToolRequestType.TOOL_EXECUTION_START)
+                                                .startTime(System.currentTimeMillis())
+                                                .build());
+
+    @SuppressWarnings("unchecked")
+    ArgumentCaptor<Map<String, String>> events = ArgumentCaptor.forClass(Map.class);
+    verify(listenerService).broadcast(eq(AI_AGENT_TOOL_EXECUTION_EVENT), eq(USERNAME), events.capture());
+    assertThat(events.getValue()).containsEntry(AI_AGENT_TOOL_INPUT_PARAM, input);
+  }
+
+  /**
+   * A long input that can't be read as a JSON object is published as the
+   * note, so that no multi-MB value goes out.
+   */
+  @Test
+  void unparsableLongInputIsPublishedAsTheNote() {
+    String input = "{\"image_base64\":\"" + "A".repeat(MAX_PUBLISHED_INPUT_LENGTH + 1);
+
+    service.traceToolExecution(UserToolExecution.builder()
+                                                .id(REQUEST_ID)
+                                                .username(USERNAME)
+                                                .toolName("tool")
+                                                .toolInput(input)
+                                                .toolExecutionType(UserToolRequestType.TOOL_EXECUTION_START)
+                                                .startTime(System.currentTimeMillis())
+                                                .build());
+
+    @SuppressWarnings("unchecked")
+    ArgumentCaptor<Map<String, String>> events = ArgumentCaptor.forClass(Map.class);
+    verify(listenerService).broadcast(eq(AI_AGENT_TOOL_EXECUTION_EVENT), eq(USERNAME), events.capture());
+    assertThat(events.getValue()).containsEntry(AI_AGENT_TOOL_INPUT_PARAM, ARGUMENTS_TOO_LARGE_NOTE);
+  }
+
+  /**
+   * @return a call input whose image decodes to 2 MB
+   */
+  private static String bigImageInput() {
+    return "{\"image_base64\":\"data:image/png;base64," + "A".repeat(2_796_203) + "\"}";
   }
 
   /**
