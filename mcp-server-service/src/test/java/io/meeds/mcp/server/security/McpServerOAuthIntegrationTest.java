@@ -215,7 +215,7 @@ class McpServerOAuthIntegrationTest extends McpServiceIntegrationTestSupport {
 
     doNothing().when(mcpToolApprovalService).traceToolExecution(any(UserToolExecution.class));
     when(mcpToolApprovalService.requestApproval(anyString(),
-                                                anyString(),
+                                                anyString(), any(),
                                                 anyString(),
                                                 anyString(),
                                                 anyString(),
@@ -504,7 +504,7 @@ class McpServerOAuthIntegrationTest extends McpServiceIntegrationTestSupport {
     assertThat(result.getResponse().getContentAsString()).contains(NO_CONVERSATION_MESSAGE)
                                                          .contains(IS_ERROR_TRUE_MESSAGE)
                                                          .doesNotContain("approval:approve-me");
-    verify(mcpToolApprovalService, never()).requestApproval(anyString(), any(), anyString(), anyString(), anyString(),
+    verify(mcpToolApprovalService, never()).requestApproval(anyString(), any(), any(), anyString(), anyString(), anyString(),
                                                 any(),
                                                 anyBoolean(),
                                                 any());
@@ -535,7 +535,7 @@ class McpServerOAuthIntegrationTest extends McpServiceIntegrationTestSupport {
     assertThat(result.getResponse().getContentAsString()).contains("approval:approve-me")
                                                          .contains(IS_ERROR_FALSE_MESSAGE);
     verify(mcpToolApprovalService).requestApproval(anyString(),
-                                                   eq(conversationId),
+                                                   eq(conversationId), any(),
                                                    eq(TEST_APPROVAL_TOOL_METHOD),
                                                    anyString(),
                                                    eq(USERNAME),
@@ -573,7 +573,7 @@ class McpServerOAuthIntegrationTest extends McpServiceIntegrationTestSupport {
     assertThat(result.getResponse().getContentAsString()).contains(NO_CONVERSATION_MESSAGE)
                                                          .contains(IS_ERROR_TRUE_MESSAGE)
                                                          .doesNotContain("approval:approve-me");
-    verify(mcpToolApprovalService, never()).requestApproval(anyString(), any(), anyString(), anyString(), anyString(),
+    verify(mcpToolApprovalService, never()).requestApproval(anyString(), any(), any(), anyString(), anyString(), anyString(),
                                                 any(),
                                                 anyBoolean(),
                                                 any());
@@ -675,7 +675,7 @@ class McpServerOAuthIntegrationTest extends McpServiceIntegrationTestSupport {
                                                          .doesNotContain(WRITE_MESSAGE);
 
     verify(mcpToolApprovalService, never()).requestApproval(anyString(),
-                                                   any(),
+                                                   any(), any(),
                                                    eq("testWriteTool"),
                                                    anyString(),
                                                    eq(USERNAME),
@@ -704,7 +704,7 @@ class McpServerOAuthIntegrationTest extends McpServiceIntegrationTestSupport {
     assertThat(result.getResponse().getContentAsString()).contains(WRITE_MESSAGE)
                                                          .contains(IS_ERROR_FALSE_MESSAGE);
 
-    verify(mcpToolApprovalService, never()).requestApproval(anyString(), anyString(), anyString(), anyString(), anyString(),
+    verify(mcpToolApprovalService, never()).requestApproval(anyString(), anyString(), any(), anyString(), anyString(), anyString(),
                                                 any(),
                                                 anyBoolean(),
                                                 any());
@@ -742,7 +742,7 @@ class McpServerOAuthIntegrationTest extends McpServiceIntegrationTestSupport {
     }
     MvcResult allowed = callTool(token, sessionId, TEST_WRITE_TOOL_NAME, MESSAGE);
     assertThat(allowed.getResponse().getContentAsString()).contains(WRITE_MESSAGE).contains(IS_ERROR_FALSE_MESSAGE);
-    verify(mcpToolApprovalService, never()).requestApproval(anyString(), any(), anyString(), anyString(), anyString(),
+    verify(mcpToolApprovalService, never()).requestApproval(anyString(), any(), any(), anyString(), anyString(), anyString(),
                                                             any(),
                                                             anyBoolean(),
                                                             any());
