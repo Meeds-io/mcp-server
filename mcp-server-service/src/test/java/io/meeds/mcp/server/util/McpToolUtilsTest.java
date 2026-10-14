@@ -519,6 +519,21 @@ class McpToolUtilsTest {
   }
 
   /**
+   * An image argument spelled as the tool binds it, {@code imageBase64}, or
+   * as {@code image_Base64}, is redacted on a short input too: both bind to
+   * the tool's {@code imageBase64}. Mutants: the text shortcut case
+   * sensitive; the raw name matched instead of the bound one.
+   */
+  @Test
+  void redactBase64FindsACamelCaseImageArgument() {
+    String camelCase = "{\"imageBase64\":\"" + "A".repeat(4_000) + "\"}";
+    String mixed = "{\"image_Base64\":\"" + "A".repeat(4_000) + "\"}";
+
+    assertEquals("{\"imageBase64\":\"[image, 3 KB]\"}", redactBase64ForPublication(camelCase));
+    assertEquals("{\"image_Base64\":\"[image, 3 KB]\"}", redactBase64ForPublication(mixed));
+  }
+
+  /**
    * A top-level string argument named exactly {@code base64}, as the document
    * tools name their file, becomes a file placeholder, short or long, while a
    * nested one or a longer name containing it stays. Mutants: the exact name

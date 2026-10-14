@@ -107,11 +107,19 @@ public class McpToolUtils {
   /** Longest turn id echoed back to the chat; a longer one is dropped. */
   public static final int           MAX_TURN_ID_LENGTH                            = 200;
 
-  /** Suffix of the argument names that carry a base64 image. */
-  public static final String        BASE64_ARGUMENT_SUFFIX                        = "_base64";
+  /**
+   * Suffix of the bound name ({@link #toCamelCase(String)} of the argument
+   * name) of an argument that carries a base64 image: {@code image_base64},
+   * {@code imageBase64} and {@code image_Base64} all bind to
+   * {@code imageBase64}.
+   */
+  public static final String        BASE64_IMAGE_BOUND_NAME_SUFFIX                = "Base64";
 
-  /** Name of the argument that carries a base64 file, as the document tools name it. */
-  public static final String        BASE64_FILE_ARGUMENT_NAME                     = "base64";
+  /**
+   * Bound name of the argument that carries a base64 file, as the document
+   * tools name it.
+   */
+  public static final String        BASE64_FILE_BOUND_NAME                        = "base64";
 
   /**
    * Longest call input published as is when it can't be read as a JSON
@@ -687,13 +695,15 @@ public class McpToolUtils {
 
   /**
    * Prepares a call input for publication to the chat, to the platform
-   * listeners and to the logs: each top-level string argument whose name ends
-   * with {@value #BASE64_ARGUMENT_SUFFIX} is replaced by
-   * {@code [image, <size>]}, and the one named exactly
-   * {@value #BASE64_FILE_ARGUMENT_NAME} by {@code [file, <size>]}, the size
-   * being the decoded one (KB below 1 MB, otherwise MB with one decimal).
-   * Argument names are read once parsed, so a name written with a JSON escape
-   * is found too. An input without such an argument is returned as is. An input
+   * listeners and to the logs: an argument is matched on the name the tool
+   * binds it to, {@link #toCamelCase(String)} of its name, so that every
+   * spelling a tool accepts is caught. Each top-level string argument whose
+   * bound name ends with {@value #BASE64_IMAGE_BOUND_NAME_SUFFIX} is replaced
+   * by {@code [image, <size>]}, and the one whose bound name is exactly
+   * {@value #BASE64_FILE_BOUND_NAME} by {@code [file, <size>]}, the size being
+   * the decoded one (KB below 1 MB, otherwise MB with one decimal). Argument
+   * names are read once parsed, so a name written with a JSON escape is found
+   * too. An input without such an argument is returned as is. An input
    * that can't be read as a JSON object is returned as is, or replaced by
    * {@link #ARGUMENTS_TOO_LARGE_NOTE} when longer than
    * {@value #MAX_PUBLISHED_INPUT_LENGTH} characters. It is meant for what is
@@ -706,9 +716,9 @@ public class McpToolUtils {
   public static String redactBase64ForPublication(String toolInput) {
     if (toolInput == null
         || toolInput.length() <= MAX_PUBLISHED_INPUT_LENGTH
-           && !toolInput.contains(BASE64_FILE_ARGUMENT_NAME)
+           && !toolInput.toLowerCase(Locale.ROOT).contains(BASE64_FILE_BOUND_NAME)
            && !toolInput.contains("\\u")) {
-      // no argument name can hold the base64 marker, even escaped
+      // no argument name can hold the base64 marker, in any case, even escaped
       return toolInput;
     }
     JsonNode node;
@@ -723,7 +733,7 @@ public class McpToolUtils {
     ObjectNode object = (ObjectNode) node;
     List<String> redacted = new ArrayList<>();
     for (String name : object.propertyNames()) {
-      if ((name.endsWith(BASE64_ARGUMENT_SUFFIX) || name.equals(BASE64_FILE_ARGUMENT_NAME)) && object.get(name).isString()) {
+      if (base64Kind(name) != null && object.get(name).isString()) {
         redacted.add(name);
       }
     }
@@ -731,10 +741,26 @@ public class McpToolUtils {
       return toolInput;
     }
     for (String name : redacted) {
-      String kind = name.equals(BASE64_FILE_ARGUMENT_NAME) ? "file" : "image";
-      object.put(name, "[%s, %s]".formatted(kind, formatDecodedSize(object.get(name).stringValue())));
+      object.put(name, "[%s, %s]".formatted(base64Kind(name), formatDecodedSize(object.get(name).stringValue())));
     }
     return CHAIN_MAPPER.writeValueAsString(object);
+  }
+
+  /**
+   * Tells what base64 content an argument carries, from the name the tool
+   * binds it to ({@link #toCamelCase(String)} of the argument name).
+   *
+   * @param name the argument name, as the caller sent it
+   * @return {@code file} for the bound name {@value #BASE64_FILE_BOUND_NAME},
+   *         {@code image} for a bound name ending with
+   *         {@value #BASE64_IMAGE_BOUND_NAME_SUFFIX}, null otherwise
+   */
+  private static String base64Kind(String name) {
+    String boundName = toCamelCase(name);
+    if (BASE64_FILE_BOUND_NAME.equals(boundName)) {
+      return "file";
+    }
+    return boundName != null && boundName.endsWith(BASE64_IMAGE_BOUND_NAME_SUFFIX) ? "image" : null;
   }
 
   /**
