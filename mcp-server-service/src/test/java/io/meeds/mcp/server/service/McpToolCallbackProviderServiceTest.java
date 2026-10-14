@@ -298,7 +298,8 @@ class McpToolCallbackProviderServiceTest {
 
   /**
    * A call carrying a 2 MB image runs the tool, and is decided on, with the
-   * full input: only what is published is shortened, by the approval service.
+   * full input: only what is published or logged is shortened. Mutant: the
+   * success log written with the input the tool runs on.
    */
   @Test
   void call_imageArgumentReachesTheToolAndTheGrantDecisionWhole() {// NOSONAR
@@ -323,9 +324,17 @@ class McpToolCallbackProviderServiceTest {
     bindRequest(TOOL_CONTEXT_ID, CONVERSATION_ID);
     when(mcpToolApprovalService.requestApproval(any(), any(), any(), any(), any(), any(), any(), anyBoolean(), any())).thenReturn(true);
 
-    String output = uploadCallback.call(input);
+    ListAppender<ILoggingEvent> logged = captureLogs();
+    String output;
+    try {
+      output = uploadCallback.call(input);
+    } finally {
+      releaseLogs(logged);
+    }
 
     assertEquals("\"received " + image.length() + "\"", output);
+    assertTrue(logged.list.stream().anyMatch(event -> event.getFormattedMessage().contains("[image, ")), logged.list::toString);
+    assertTrue(logged.list.stream().noneMatch(event -> event.getFormattedMessage().contains("AAAA")), "image logged");
     ArgumentCaptor<McpToolGrantRequest> grantRequest = ArgumentCaptor.forClass(McpToolGrantRequest.class);
     @SuppressWarnings("unchecked")
     ArgumentCaptor<Map<String, Object>> arguments = ArgumentCaptor.forClass(Map.class);
