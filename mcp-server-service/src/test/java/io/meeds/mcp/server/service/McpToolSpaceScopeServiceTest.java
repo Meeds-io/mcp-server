@@ -24,6 +24,7 @@ import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -394,6 +395,45 @@ class McpToolSpaceScopeServiceTest {
       assertRefused(() -> service.enforce("get_activity", objectRead(), input, SCOPED), "can only reach an item");
     }
     verify(resolver, never()).spaceOf(anyString());
+  }
+
+  /**
+   * A JSON integer that is zero or negative is no id, as its string form
+   * isn't: an object argument holding one is refused without asking the
+   * resolver, even one that would answer the call's space for anything, and
+   * a space argument holding one is refused; a positive integer and a
+   * canonical decimal string still run, and a hex32 id is read as before.
+   * Mutant: the sign check on the integer removed, which hands 0, -7 and
+   * the smallest long to the resolver.
+   */
+  @Test
+  void zeroOrNegativeIntegerIdIsRefusedBeforeAnyResolver() {
+    SpaceScopeResolver activity = resolver("activity");
+    lenient().when(activity.spaceOf(anyString())).thenReturn(SPACE_ID);
+    SpaceScopeResolver document = resolver("document");
+    lenient().when(document.spaceOf(anyString())).thenReturn(SPACE_ID);
+    SimpleToolDefinition numeric = definition("get_document_by_id", true, hexDeclaration("numeric"));
+
+    for (String value : List.of("0", "-7", String.valueOf(Long.MIN_VALUE))) {
+      assertRefused(() -> service.enforce("get_activity", objectRead(), "{\"activity_id\":" + value + "}", SCOPED), "can only reach an item");
+      assertRefused(() -> service.enforce("get_document_by_id", numeric, "{\"node_id\":" + value + "}", SCOPED), "can only reach an item");
+      assertRefused(() -> service.enforce("get_activities", spaceRead("use_scope"), "{\"space_id\":" + value + "}", SCOPED), "space_id 12");
+      assertRefused(() -> service.enforce("create_activity", spaceWrite(), "{\"space_id\":" + value + ",\"html_content\":\"hi\"}", PROPOSAL),
+                    "space_id 12");
+    }
+    verify(activity, never()).spaceOf(anyString());
+    verify(document, never()).spaceOf(anyString());
+
+    String positive = "{\"activity_id\":7}";
+    String canonical = "{\"activity_id\":\"7\"}";
+    assertThat(service.enforce("get_activity", objectRead(), positive, SCOPED)).isSameAs(positive);
+    assertThat(service.enforce("get_activity", objectRead(), canonical, SCOPED)).isEqualTo(canonical);
+    assertThat(service.enforce("get_activities", spaceRead("use_scope"), "{\"space_id\":12}", SCOPED)).isEqualTo("{\"space_id\":12}");
+    assertThat(service.enforce("get_activities", spaceRead("use_scope"), "{\"space_id\":\"12\"}", SCOPED)).isEqualTo("{\"space_id\":\"12\"}");
+    String hex = "{\"node_id\":\"" + NODE_ID + "\"}";
+    assertThat(service.enforce("get_document_by_id", hexRead(), hex, SCOPED)).isSameAs(hex);
+    verify(activity, times(2)).spaceOf("7");
+    verify(document).spaceOf(NODE_ID);
   }
 
   /**
