@@ -361,16 +361,18 @@ public class McpToolSpaceScopeService {
   }
 
   /**
-   * Reads an id the way the tool will: a JSON integer, or a string of decimal
-   * digits with no sign and no leading zero, so that the value checked is the
-   * value the tool receives.
+   * Reads an id the way the tool will: a positive JSON integer, or a string
+   * of decimal digits with no sign and no leading zero, so that the value
+   * checked is the value the tool receives. Zero and a negative integer are
+   * no id, as their string forms aren't, and never reach a resolver.
    *
    * @param value the argument value
    * @return the id, or null when the value isn't one
    */
   private Long toId(JsonNode value) {
     if (value.isIntegralNumber() && value.canConvertToLong()) {
-      return value.longValue();
+      long id = value.longValue();
+      return id > 0 ? id : null;
     } else if (value.isString() && DECIMAL_ID.matcher(value.stringValue()).matches()) {
       try {
         return Long.valueOf(value.stringValue());
