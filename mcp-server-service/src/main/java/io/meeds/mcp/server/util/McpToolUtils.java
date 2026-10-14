@@ -751,9 +751,12 @@ public class McpToolUtils {
    * bound name ends with {@value #BASE64_IMAGE_BOUND_NAME_SUFFIX} is replaced
    * by {@code [image, <size>]}, and the one whose bound name is exactly
    * {@value #BASE64_FILE_BOUND_NAME} by {@code [file, <size>]}, the size being
-   * the decoded one (KB below 1 MB, otherwise MB with one decimal). Argument
-   * names are read once parsed, so a name written with a JSON escape is found
-   * too. An input without such an argument is returned as is. An input
+   * the decoded one (KB below 1 MB, otherwise MB with one decimal). Every
+   * input is parsed, whatever its length, and argument names are read once
+   * parsed, so no spelling of a top-level name escapes the match: a name
+   * written with a JSON escape, in another case or with underscores the
+   * binding drops is found too. An input without such an argument is returned
+   * as is, never re-serialised. An input
    * that can't be read as a JSON object is returned as is, or replaced by
    * {@link #ARGUMENTS_TOO_LARGE_NOTE} when longer than
    * {@value #MAX_PUBLISHED_INPUT_LENGTH} characters. It is meant for what is
@@ -764,12 +767,8 @@ public class McpToolUtils {
    * @return the input to publish
    */
   public static String redactBase64ForPublication(String toolInput) {
-    if (toolInput == null
-        || toolInput.length() <= MAX_PUBLISHED_INPUT_LENGTH
-           && !toolInput.toLowerCase(Locale.ROOT).contains(BASE64_FILE_BOUND_NAME)
-           && !toolInput.contains("\\u")) {
-      // no argument name can hold the base64 marker, in any case, even escaped
-      return toolInput;
+    if (toolInput == null) {
+      return null;
     }
     JsonNode node;
     try {
