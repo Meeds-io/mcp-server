@@ -555,13 +555,28 @@ class McpToolUtilsTest {
   void redactBase64LeavesAnInputWithoutTheSuffixUntouched() {
     String spaced = "{ \"message\" : \"h\\u00e9llo\",  \"n\":1 }";
     String large = "{\"html\":\"" + "x".repeat(MAX_PUBLISHED_INPUT_LENGTH * 2) + "\"}";
-    String escapedKey = "{ \"image_base64_x\" : \"AAAA\" }";
+    String suffixInsideKey = "{ \"image_base64_x\" : \"AAAA\" }";
 
     assertEquals(spaced, redactBase64ForPublication(spaced));
     assertEquals(large, redactBase64ForPublication(large));
-    assertEquals(escapedKey, redactBase64ForPublication(escapedKey));
+    assertEquals(suffixInsideKey, redactBase64ForPublication(suffixInsideKey));
     assertNull(redactBase64ForPublication(null));
     assertEquals("", redactBase64ForPublication(""));
+  }
+
+  /**
+   * An argument whose name is written with a unicode escape is still found
+   * on a long input, and redacted.
+   */
+  @Test
+  void redactBase64FindsAnEscapedKeyOnALongInput() {
+    String input = "{\"image\\u005fbase64\":\"" + "A".repeat(MAX_PUBLISHED_INPUT_LENGTH * 2) + "\"}";
+
+    String published = redactBase64ForPublication(input);
+
+    assertTrue(published.length() < 100, published);
+    assertTrue(published.contains("[image, "), published);
+    assertFalse(published.contains("AAAA"), published);
   }
 
   /**
