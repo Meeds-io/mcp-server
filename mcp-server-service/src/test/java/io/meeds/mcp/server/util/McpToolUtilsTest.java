@@ -580,6 +580,35 @@ class McpToolUtilsTest {
   }
 
   /**
+   * A short input whose argument name is written with a unicode escape, so
+   * that its text holds no {@code base64}, is redacted too. Mutant: the text shortcut taken on a short input without
+   * looking for an escape.
+   */
+  @Test
+  void redactBase64FindsAnEscapedKeyOnAShortInput() {
+    String input = "{\"image_b\\u0061se64\":\"" + "A".repeat(4_000) + "\"}";
+
+    assertEquals("{\"image_base64\":\"[image, 3 KB]\"}", redactBase64ForPublication(input));
+  }
+
+  /**
+   * A top-level string argument named exactly {@code base64}, as the document
+   * tools name their file, becomes a file placeholder, short or long, while a
+   * nested one or a longer name containing it stays. Mutants: the exact name
+   * not matched; the text shortcut keyed on the image suffix only.
+   */
+  @Test
+  void redactBase64ReplacesTheFileArgumentWithItsDecodedSize() {
+    String shortFile = "{\"title\":\"report.pdf\",\"base64\":\"" + "A".repeat(4_000) + "\"}";
+    String longFile = "{\"base64\":\"" + "A".repeat(MAX_PUBLISHED_INPUT_LENGTH * 2) + "\"}";
+    String others = "{\"nested\":{\"base64\":\"CCCC\"},\"base64x\":\"DDDD\"}";
+
+    assertEquals("{\"title\":\"report.pdf\",\"base64\":\"[file, 3 KB]\"}", redactBase64ForPublication(shortFile));
+    assertEquals("{\"base64\":\"[file, 96 KB]\"}", redactBase64ForPublication(longFile));
+    assertEquals(others, redactBase64ForPublication(others));
+  }
+
+  /**
    * A short input that isn't a JSON object is kept, a long one is replaced by
    * the note so that no multi-MB value is published.
    */
