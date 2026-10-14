@@ -237,13 +237,15 @@ class ActingIdentityTest {
   /**
    * An origin that answers in a space can't be built without the space scope
    * of that space, through any constructor or factory; with one it can, and
-   * the other origins need none. Mutant: the origin check removed.
+   * the other origins need none. A mention in a space's chat room is one of
+   * them. Mutants: the origin check removed; {@code ROOM_MENTION} left out of
+   * the read-scoped origins.
    */
   @Test
   void replyOriginsNeedASpaceScope() {
     PrincipalRef agentAccount = PrincipalRef.agent("agent-mail", AGENT);
     List<String> chain = List.of(AGENT);
-    for (Origin origin : List.of(Origin.MENTION, Origin.TASK_COMMENT, Origin.TASK_ASSIGNMENT)) {
+    for (Origin origin : List.of(Origin.MENTION, Origin.TASK_COMMENT, Origin.TASK_ASSIGNMENT, Origin.ROOM_MENTION)) {
       assertThatThrownBy(() -> ActingIdentity.agent("agent-mail", AGENT, origin)).isInstanceOf(IllegalArgumentException.class)
                                                                                .hasMessageContaining(origin.name());
       assertThatThrownBy(() -> ActingIdentity.person(USER, origin)).isInstanceOf(IllegalArgumentException.class);
