@@ -25,6 +25,7 @@ import static io.meeds.mcp.server.util.McpToolUtils.getClientId;
 import static io.meeds.mcp.server.util.McpToolUtils.getCurrentActingIdentity;
 import static io.meeds.mcp.server.util.McpToolUtils.getCurrentAgentNameId;
 import static io.meeds.mcp.server.util.McpToolUtils.getCurrentConversationId;
+import static io.meeds.mcp.server.util.McpToolUtils.getCurrentTurnId;
 import static io.meeds.mcp.server.util.McpToolUtils.getCurrentUserName;
 import static io.meeds.mcp.server.util.McpToolUtils.getMethodToolFieldValue;
 import static io.meeds.mcp.server.util.McpToolUtils.isCurrentCallRetry;
@@ -314,6 +315,7 @@ public class McpToolCallbackProviderService implements ToolCallbackProvider {
       Authentication authentication = SecurityContextHolder.getContext().getAuthentication();
       String id = UUID.randomUUID().toString();
       String conversationId = getCurrentConversationId();
+      String turnId = getCurrentTurnId();
       ConversationState.setCurrent(new ConversationState(userIdentity));
       UserToolExecutionBuilder executionBuilder = UserToolExecution.builder()
                                                                    .id(id)
@@ -349,7 +351,7 @@ public class McpToolCallbackProviderService implements ToolCallbackProvider {
                                                                    isCurrentCallRetry(),
                                                                    actingIdentity);
         if (alwaysAsk || mcpServerToolService.isRequireApproval(toolMethod.getName(), authentication)) {
-          approveCall(id, grantRequest, alwaysAsk, executionBuilder);
+          approveCall(id, turnId, grantRequest, alwaysAsk, executionBuilder);
         } else if (isAgentActor(actingIdentity) && mcpServerToolService.isApprovalGatedTool(toolMethod.getName())) {
           // an agent account runs an approval-gated tool only under its own
           // grants, whatever scope the internal client's token holds: a plain
@@ -544,12 +546,15 @@ public class McpToolCallbackProviderService implements ToolCallbackProvider {
      * wait, and traced as denied.
      *
      * @param id               the call identifier
+     * @param turnId           the chat turn that started the call, only echoed
+     *                           on the card and never used to decide anything
      * @param grantRequest     the call as the server resolved it
      * @param alwaysAsk        whether the tool is marked "always ask"
      * @param executionBuilder the trace builder of the call
      * @throws UserToolDeniedException when the user denies the call
      */
     private void approveCall(String id,
+                             String turnId,
                              McpToolGrantRequest grantRequest,
                              boolean alwaysAsk,
                              UserToolExecutionBuilder executionBuilder) {
@@ -582,6 +587,7 @@ public class McpToolCallbackProviderService implements ToolCallbackProvider {
                                                                 .build());
       boolean approved = mcpToolApprovalService.requestApproval(id,
                                                                 grantRequest.conversationId(),
+                                                                turnId,
                                                                 toolMethod.getName(),
                                                                 grantRequest.toolInput(),
                                                                 actingIdentity == null ? grantRequest.username() :
