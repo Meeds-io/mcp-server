@@ -208,6 +208,52 @@ class McpToolUtilsTest {
     SecurityContextHolder.getContext().setAuthentication(new BearerTokenAuthentication(principal, accessToken, authorities));
   }
 
+  @Test
+  void getCurrentTurnId_internalClient_returnsTrimmedHeader() {// NOSONAR
+    authenticateAsInternalClient();
+    MockHttpServletRequest request = bindRequestWithTurnId("  turn-7  ");
+
+    assertEquals("turn-7", McpToolUtils.getCurrentTurnId());
+    assertNotNull(request);
+  }
+
+  @Test
+  void getCurrentTurnId_missingBlankOrTooLong_returnsNull() {// NOSONAR
+    authenticateAsInternalClient();
+    bindRequestWithTurnId(null);
+    assertNull(McpToolUtils.getCurrentTurnId());
+
+    bindRequestWithTurnId("   ");
+    assertNull(McpToolUtils.getCurrentTurnId());
+
+    bindRequestWithTurnId("t".repeat(McpToolUtils.MAX_TURN_ID_LENGTH + 1));
+    assertNull(McpToolUtils.getCurrentTurnId());
+
+    String longest = "t".repeat(McpToolUtils.MAX_TURN_ID_LENGTH);
+    bindRequestWithTurnId(longest);
+    assertEquals(longest, McpToolUtils.getCurrentTurnId());
+  }
+
+  @Test
+  void getCurrentTurnId_externalOauthUser_returnsNullEvenWithHeader() {// NOSONAR
+    authenticateAs(USERNAME);
+    bindRequestWithTurnId("turn-7");
+
+    assertNull(McpToolUtils.getCurrentTurnId());
+  }
+
+  private static MockHttpServletRequest bindRequestWithTurnId(String turnId) {
+    MockHttpServletRequest request = new MockHttpServletRequest();
+    request.addHeader(McpToolUtils.TOOL_CONTEXT_ID_PARAM, McpToolUtils.TOOL_CONTEXT_ID);
+    request.addHeader(McpToolUtils.TOOL_CONTEXT_CONVERSATION_ID_PARAM, CONVERSATION_ID);
+    request.addHeader(McpToolUtils.TOOL_CONTEXT_USER_NAME_PARAM, USERNAME);
+    if (turnId != null) {
+      request.addHeader(McpToolUtils.TOOL_CONTEXT_TURN_ID_PARAM, turnId);
+    }
+    RequestContextHolder.setRequestAttributes(new ServletRequestAttributes(request));
+    return request;
+  }
+
   private static void bindRequest(String contextId, String conversationId, String userName) {
     MockHttpServletRequest request = new MockHttpServletRequest();
     if (contextId != null) {
