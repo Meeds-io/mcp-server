@@ -718,8 +718,8 @@ public class McpToolUtils {
    * {@link #TOOL_CONTEXT_TURN_ID_PARAM} header of the internal client only
    * ({@link #getInternalToolCallRequest()}). The value is client-controlled:
    * it is only echoed back, as an opaque correlation value, to the channel of
-   * the user the call runs as, and never decides a grant, an approval or an
-   * identity.
+   * the requesting user and on the {@code ai-agent-tool-execution} event, and
+   * never decides a grant, an approval or an identity.
    *
    * @return the turn id, or null when the call isn't the internal client's,
    *         carries none or one longer than {@link #MAX_TURN_ID_LENGTH}
