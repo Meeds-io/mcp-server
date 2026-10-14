@@ -23,6 +23,9 @@ import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
+import static io.meeds.mcp.server.util.McpToolUtils.ARGUMENTS_TOO_LARGE_NOTE;
+import static io.meeds.mcp.server.util.McpToolUtils.MAX_PUBLISHED_INPUT_LENGTH;
+import static io.meeds.mcp.server.util.McpToolUtils.redactBase64ForPublication;
 
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
@@ -515,4 +518,66 @@ class McpToolUtilsTest {
     long deltaMs = Math.abs(parsed.getTime() - now.getTime());
     assertTrue(deltaMs < 2000, "Expected roundtrip date to be within 2s, got delta=" + deltaMs + "ms");
   }
+
+  /**
+   * A top-level {@code _base64} string becomes its decoded size, a data URI
+   * prefix and whitespace not counted, and the other arguments stay.
+   */
+  @Test
+  void redactBase64ReplacesTheImageWithItsDecodedSize() {
+    String twoMb = "data:image/png;base64," + "AAAA\n".repeat(699_051);
+    String redacted = redactBase64ForPublication("{\"name\":\"x\",\"image_base64\":\"" + twoMb.replace("\n", "\\n") + "\"}");
+
+    assertEquals("{\"name\":\"x\",\"image_base64\":\"[image, 2.0 MB]\"}", redacted);
+    assertEquals("{\"image_base64\":\"[image, 1 KB]\"}", redactBase64ForPublication("{\"image_base64\":\"" + "A".repeat(1_000) + "\"}"));
+    assertEquals("{\"image_base64\":\"[image, 3 KB]\"}", redactBase64ForPublication("{\"image_base64\":\"" + "A".repeat(4_000) + "\"}"));
+  }
+
+  /**
+   * Every top-level argument whose name ends with {@code _base64} is
+   * redacted, and none that is nested or that isn't a string.
+   */
+  @Test
+  void redactBase64OnlyTouchesTopLevelStringsWithTheSuffix() {
+    String redacted = redactBase64ForPublication("{\"a_base64\":\"AAAA\",\"b_base64\":\"BBBBBBBB\",\"n_base64\":5,"
+                                                 + "\"nested\":{\"c_base64\":\"CCCC\"},\"base64x\":\"DDDD\"}");
+
+    assertEquals("{\"a_base64\":\"[image, 1 KB]\",\"b_base64\":\"[image, 1 KB]\",\"n_base64\":5,"
+                 + "\"nested\":{\"c_base64\":\"CCCC\"},\"base64x\":\"DDDD\"}",
+                 redacted);
+  }
+
+  /**
+   * An input without a {@code _base64} argument is published byte for byte,
+   * whatever its length, its spacing or its escapes.
+   */
+  @Test
+  void redactBase64LeavesAnInputWithoutTheSuffixUntouched() {
+    String spaced = "{ \"message\" : \"h\\u00e9llo\",  \"n\":1 }";
+    String large = "{\"html\":\"" + "x".repeat(MAX_PUBLISHED_INPUT_LENGTH * 2) + "\"}";
+    String escapedKey = "{ \"image_base64_x\" : \"AAAA\" }";
+
+    assertEquals(spaced, redactBase64ForPublication(spaced));
+    assertEquals(large, redactBase64ForPublication(large));
+    assertEquals(escapedKey, redactBase64ForPublication(escapedKey));
+    assertNull(redactBase64ForPublication(null));
+    assertEquals("", redactBase64ForPublication(""));
+  }
+
+  /**
+   * A short input that isn't a JSON object is kept, a long one is replaced by
+   * the note so that no multi-MB value is published.
+   */
+  @Test
+  void redactBase64BoundsAnInputThatIsNotAJsonObject() {
+    String shortBroken = "{\"image_base64\":\"AAAA";
+    String longBroken = "{\"image_base64\":\"" + "A".repeat(MAX_PUBLISHED_INPUT_LENGTH + 1);
+    String longArray = "[\"image_base64\"," + "\"A\",".repeat(MAX_PUBLISHED_INPUT_LENGTH) + "1]";
+
+    assertEquals(shortBroken, redactBase64ForPublication(shortBroken));
+    assertEquals(ARGUMENTS_TOO_LARGE_NOTE, redactBase64ForPublication(longBroken));
+    assertEquals(ARGUMENTS_TOO_LARGE_NOTE, redactBase64ForPublication(longArray));
+    assertEquals("{\"_note\":\"[arguments too large to show]\"}", ARGUMENTS_TOO_LARGE_NOTE);
+  }
+
 }
