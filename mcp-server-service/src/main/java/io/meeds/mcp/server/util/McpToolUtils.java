@@ -43,6 +43,7 @@ import org.commonmark.node.Node;
 import org.commonmark.parser.Parser;
 import org.commonmark.renderer.html.HtmlRenderer;
 import org.springframework.ai.tool.method.MethodToolCallback;
+import org.springframework.ai.util.JacksonUtils;
 import org.springframework.security.core.Authentication;
 import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.security.oauth2.core.OAuth2TokenIntrospectionClaimNames;
@@ -123,13 +124,20 @@ public class McpToolUtils {
   public static final String        BASE64_FILE_BOUND_NAME                        = "base64";
 
   /**
-   * Longest call input published as is when it can't be read as a JSON
-   * object; a longer one is replaced by {@link #ARGUMENTS_TOO_LARGE_NOTE}.
+   * Longest call input replaced by {@link #ARGUMENTS_NOT_READABLE_NOTE} when it
+   * can't be read as a JSON object; a longer one is replaced by
+   * {@link #ARGUMENTS_TOO_LARGE_NOTE}.
    */
   public static final int           MAX_PUBLISHED_INPUT_LENGTH                    = 65_536;
 
   /** What a published call input becomes when it is too large to be shown. */
   public static final String        ARGUMENTS_TOO_LARGE_NOTE                      = "{\"_note\":\"[arguments too large to show]\"}";
+
+  /**
+   * What a published call input becomes when it can't be read as a JSON
+   * object: it is never published as is, since its content can't be checked.
+   */
+  public static final String        ARGUMENTS_NOT_READABLE_NOTE                   = "{\"_note\":\"[arguments not readable]\"}";
 
   /**
    * Header naming the agent on whose behalf the internal client calls a tool,
@@ -256,6 +264,14 @@ public class McpToolUtils {
   private static final ObjectMapper OBJECT_MAPPER                                 = new ObjectMapper();
 
   private static final JsonMapper   CHAIN_MAPPER                                  = JsonMapper.builder().build();
+
+  /**
+   * The mapper a tool's arguments are bound with: Spring AI's
+   * {@code JsonHelper}, which {@code McpToolCallbackProviderService} uses to
+   * read a call input, wraps this instance. It accepts inputs the strict
+   * {@link #CHAIN_MAPPER} refuses, such as trailing tokens after the object.
+   */
+  private static final JsonMapper   TOOL_ARGUMENTS_MAPPER                         = JacksonUtils.getDefaultJsonMapper();
 
   /** The request attribute holding the acting identity resolved for a call. */
   private static final String       ACTING_IDENTITY_ATTRIBUTE                     = ActingIdentity.class.getName();
@@ -758,12 +774,17 @@ public class McpToolUtils {
    * by {@code [image, <size>]}, and the one whose bound name is exactly
    * {@value #BASE64_FILE_BOUND_NAME} by {@code [file, <size>]}, the size being
    * the decoded one (KB below 1 MB, otherwise MB with one decimal). Every
-   * input is parsed, whatever its length, and argument names are read once
-   * parsed, so no spelling of a top-level name escapes the match: a name
-   * written with a JSON escape, in another case or with underscores the
-   * binding drops is found too. An input without such an argument is returned
-   * as is, never re-serialised. An input
-   * that can't be read as a JSON object is returned as is, or replaced by
+   * input is parsed, whatever its length, with the mapper the tool's arguments
+   * are bound with (Spring AI's default mapper), so an input the tool
+   * accepts is read the same way here, and argument names are read once
+   * parsed: a name written with a JSON escape, in another case or with
+   * underscores the binding drops is found too. An input without such an
+   * argument is returned as is, never re-serialised, when it is exactly one
+   * JSON object; one the tool reads with something after the object is
+   * returned as the object it reads, re-serialised, so the rest is never
+   * published. The publication fails closed: an input that can't be read as a
+   * JSON object is never returned as is, but replaced by
+   * {@link #ARGUMENTS_NOT_READABLE_NOTE}, or by
    * {@link #ARGUMENTS_TOO_LARGE_NOTE} when longer than
    * {@value #MAX_PUBLISHED_INPUT_LENGTH} characters. It is meant for what is
    * published only: the input a tool runs on, or a grant is matched on, must
@@ -778,12 +799,12 @@ public class McpToolUtils {
     }
     JsonNode node;
     try {
-      node = CHAIN_MAPPER.readTree(toolInput);
+      node = TOOL_ARGUMENTS_MAPPER.readTree(toolInput);
     } catch (JacksonException e) {
       node = null;
     }
     if (node == null || !node.isObject()) {
-      return toolInput.length() > MAX_PUBLISHED_INPUT_LENGTH ? ARGUMENTS_TOO_LARGE_NOTE : toolInput;
+      return toolInput.length() > MAX_PUBLISHED_INPUT_LENGTH ? ARGUMENTS_TOO_LARGE_NOTE : ARGUMENTS_NOT_READABLE_NOTE;
     }
     ObjectNode object = (ObjectNode) node;
     List<String> redacted = new ArrayList<>();
@@ -792,7 +813,7 @@ public class McpToolUtils {
         redacted.add(name);
       }
     }
-    if (redacted.isEmpty()) {
+    if (redacted.isEmpty() && isSingleJsonValue(toolInput)) {
       return toolInput;
     }
     for (String name : redacted) {
@@ -800,6 +821,23 @@ public class McpToolUtils {
     }
     return CHAIN_MAPPER.writeValueAsString(object);
   }
+
+  /**
+   * Tells whether a text is exactly one JSON value, with nothing after it, as
+   * the strict {@link #CHAIN_MAPPER} reads it.
+   *
+   * @param text the text to check
+   * @return true when the whole text is one JSON value
+   */
+  private static boolean isSingleJsonValue(String text) {
+    try {
+      CHAIN_MAPPER.readTree(text);
+      return true;
+    } catch (JacksonException e) {
+      return false;
+    }
+  }
+
 
   /**
    * Tells what base64 content an argument carries, from the name the tool
