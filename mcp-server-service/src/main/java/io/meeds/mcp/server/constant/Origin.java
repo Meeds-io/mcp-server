@@ -48,6 +48,9 @@ public enum Origin {
   /** An agent account answering a comment on a task. */
   TASK_COMMENT,
 
+  /** An agent account answering a mention in the chat room of a space. */
+  ROOM_MENTION,
+
   /** An agent account working on a task assigned to it. */
   TASK_ASSIGNMENT,
 
