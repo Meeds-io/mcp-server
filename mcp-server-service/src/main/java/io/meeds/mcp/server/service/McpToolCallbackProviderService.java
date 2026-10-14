@@ -380,7 +380,7 @@ public class McpToolCallbackProviderService implements ToolCallbackProvider {
         log.debug("Call Tool '{}#{}' with input: {}. Output: {}",
                   toolObject.getClass().getName(),
                   toolMethod.getName(),
-                  toolRunInput,
+                  redactBase64ForPublication(toolInput),
                   toolOutput);
         return toolOutput;
       } catch (SpaceScopeRefusedException e) {
