@@ -107,8 +107,11 @@ public class McpToolUtils {
   /** Longest turn id echoed back to the chat; a longer one is dropped. */
   public static final int           MAX_TURN_ID_LENGTH                            = 200;
 
-  /** Suffix of the argument names that carry base64 content. */
+  /** Suffix of the argument names that carry a base64 image. */
   public static final String        BASE64_ARGUMENT_SUFFIX                        = "_base64";
+
+  /** Name of the argument that carries a base64 file, as the document tools name it. */
+  public static final String        BASE64_FILE_ARGUMENT_NAME                     = "base64";
 
   /**
    * Longest call input published as is when it can't be read as a JSON
@@ -683,11 +686,14 @@ public class McpToolUtils {
   }
 
   /**
-   * Prepares a call input for publication to the chat and to the platform
-   * listeners: each top-level string argument whose name ends with
-   * {@value #BASE64_ARGUMENT_SUFFIX} is replaced by {@code [image, <size>]},
-   * the size being the decoded one (KB below 1 MB, otherwise MB with one
-   * decimal). An input without such an argument is returned as is. An input
+   * Prepares a call input for publication to the chat, to the platform
+   * listeners and to the logs: each top-level string argument whose name ends
+   * with {@value #BASE64_ARGUMENT_SUFFIX} is replaced by
+   * {@code [image, <size>]}, and the one named exactly
+   * {@value #BASE64_FILE_ARGUMENT_NAME} by {@code [file, <size>]}, the size
+   * being the decoded one (KB below 1 MB, otherwise MB with one decimal).
+   * Argument names are read once parsed, so a name written with a JSON escape
+   * is found too. An input without such an argument is returned as is. An input
    * that can't be read as a JSON object is returned as is, or replaced by
    * {@link #ARGUMENTS_TOO_LARGE_NOTE} when longer than
    * {@value #MAX_PUBLISHED_INPUT_LENGTH} characters. It is meant for what is
@@ -699,7 +705,10 @@ public class McpToolUtils {
    */
   public static String redactBase64ForPublication(String toolInput) {
     if (toolInput == null
-        || toolInput.length() <= MAX_PUBLISHED_INPUT_LENGTH && !toolInput.contains(BASE64_ARGUMENT_SUFFIX)) {
+        || toolInput.length() <= MAX_PUBLISHED_INPUT_LENGTH
+           && !toolInput.contains(BASE64_FILE_ARGUMENT_NAME)
+           && !toolInput.contains("\\u")) {
+      // no argument name can hold the base64 marker, even escaped
       return toolInput;
     }
     JsonNode node;
@@ -714,7 +723,7 @@ public class McpToolUtils {
     ObjectNode object = (ObjectNode) node;
     List<String> redacted = new ArrayList<>();
     for (String name : object.propertyNames()) {
-      if (name.endsWith(BASE64_ARGUMENT_SUFFIX) && object.get(name).isString()) {
+      if ((name.endsWith(BASE64_ARGUMENT_SUFFIX) || name.equals(BASE64_FILE_ARGUMENT_NAME)) && object.get(name).isString()) {
         redacted.add(name);
       }
     }
@@ -722,7 +731,8 @@ public class McpToolUtils {
       return toolInput;
     }
     for (String name : redacted) {
-      object.put(name, "[image, %s]".formatted(formatDecodedSize(object.get(name).stringValue())));
+      String kind = name.equals(BASE64_FILE_ARGUMENT_NAME) ? "file" : "image";
+      object.put(name, "[%s, %s]".formatted(kind, formatDecodedSize(object.get(name).stringValue())));
     }
     return CHAIN_MAPPER.writeValueAsString(object);
   }
