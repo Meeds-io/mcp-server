@@ -86,10 +86,9 @@ class CommentSpaceScopeResolverTest {
   /**
    * A comment on a user stream's activity, a comment whose parent is missing,
    * is itself a comment or isn't named, a missing comment and a failing
-   * lookup belong to no space. Mutants: the parent's comment check removed;
-   * the exception let through. Removing the parent's space check is an
-   * equivalent mutant: the number conversion then throws, and the catch
-   * answers null the same way.
+   * lookup belong to no space, and so does a parent whose space id isn't a
+   * plain number, a signed one included. Mutants: the parent's comment or
+   * space check removed; the exception let through.
    */
   @Test
   void otherCommentsBelongToNoSpace() {
@@ -99,12 +98,16 @@ class CommentSpaceScopeResolverTest {
     ExoSocialActivity parentMissing = activity(true, null, "404");
     ExoSocialActivity parentIsComment = activity(true, null, "2");
     ExoSocialActivity noParent = activity(true, null, null);
+    ExoSocialActivity signedSpacePost = activity(false, "+12", null);
+    ExoSocialActivity onSignedSpace = activity(true, null, "3");
     when(activityManager.getActivity("1")).thenReturn(userStreamPost);
     when(activityManager.getActivity("2")).thenReturn(commentAsParent);
     when(activityManager.getActivity("11")).thenReturn(onUserStream);
     when(activityManager.getActivity("12")).thenReturn(parentMissing);
     when(activityManager.getActivity("13")).thenReturn(parentIsComment);
     when(activityManager.getActivity("14")).thenReturn(noParent);
+    when(activityManager.getActivity("3")).thenReturn(signedSpacePost);
+    when(activityManager.getActivity("17")).thenReturn(onSignedSpace);
     when(activityManager.getActivity("15")).thenThrow(new IllegalStateException("database down"));
 
     assertThat(resolver.spaceOf("11")).isNull();
@@ -113,6 +116,7 @@ class CommentSpaceScopeResolverTest {
     assertThat(resolver.spaceOf("14")).isNull();
     assertThat(resolver.spaceOf("15")).isNull();
     assertThat(resolver.spaceOf("16")).isNull();
+    assertThat(resolver.spaceOf("17")).isNull();
     verify(activityManager, never()).getActivity((String) null);
   }
 
