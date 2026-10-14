@@ -31,6 +31,7 @@ import static io.meeds.mcp.server.util.McpToolUtils.TOOL_CONTEXT_ON_BEHALF_OF_PA
 import static io.meeds.mcp.server.util.McpToolUtils.TOOL_CONTEXT_ORIGIN_PARAM;
 import static io.meeds.mcp.server.util.McpToolUtils.TOOL_CONTEXT_SPACE_SCOPE_PARAM;
 import static io.meeds.mcp.server.util.McpToolUtils.TOOL_CONTEXT_RETRY_MESSAGE_ID_PARAM;
+import static io.meeds.mcp.server.util.McpToolUtils.TOOL_CONTEXT_TURN_ID_PARAM;
 import static io.meeds.mcp.server.util.McpToolUtils.TOOL_CONTEXT_USER_NAME_PARAM;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
@@ -41,6 +42,7 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyBoolean;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.ArgumentMatchers.isNull;
 import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
@@ -192,7 +194,7 @@ class McpToolCallbackProviderServiceTest {
   void call_approvalGatedTool_takesConversationFromInternalClientHeader() {// NOSONAR
     bindRequest(TOOL_CONTEXT_ID, CONVERSATION_ID);
     when(mcpToolApprovalService.requestApproval(anyString(),
-                                                eq(CONVERSATION_ID),
+                                                eq(CONVERSATION_ID), any(),
                                                 eq(TOOL_METHOD),
                                                 anyString(),
                                                 eq(USERNAME),
@@ -204,7 +206,7 @@ class McpToolCallbackProviderServiceTest {
 
     assertTrue(output.contains("Hello Bob"), output);
     verify(mcpToolApprovalService).requestApproval(anyString(),
-                                                   eq(CONVERSATION_ID),
+                                                   eq(CONVERSATION_ID), any(),
                                                    eq(TOOL_METHOD),
                                                    anyString(),
                                                    eq(USERNAME),
@@ -220,7 +222,7 @@ class McpToolCallbackProviderServiceTest {
     IllegalStateException e = assertThrows(IllegalStateException.class, () -> toolCallback.call(TOOL_INPUT));
 
     assertTrue(e.getMessage().contains("conversation"), e.getMessage());
-    verify(mcpToolApprovalService, never()).requestApproval(any(), any(), any(), any(), any(), any(), anyBoolean(), any());
+    verify(mcpToolApprovalService, never()).requestApproval(any(), any(), any(), any(), any(), any(), any(), anyBoolean(), any());
   }
 
   @Test
@@ -228,7 +230,7 @@ class McpToolCallbackProviderServiceTest {
     IllegalStateException e = assertThrows(IllegalStateException.class, () -> toolCallback.call(TOOL_INPUT));
 
     assertTrue(e.getMessage().contains(TOOL_METHOD), e.getMessage());
-    verify(mcpToolApprovalService, never()).requestApproval(any(), any(), any(), any(), any(), any(), anyBoolean(), any());
+    verify(mcpToolApprovalService, never()).requestApproval(any(), any(), any(), any(), any(), any(), any(), anyBoolean(), any());
     verify(mcpToolApprovalService, never()).traceToolExecution(argThatIs(UserToolRequestType.APPROVAL_REQUEST));
     verify(mcpToolApprovalService).traceToolExecution(argThatIs(UserToolRequestType.TOOL_EXECUTION_ERROR));
   }
@@ -240,7 +242,7 @@ class McpToolCallbackProviderServiceTest {
     String output = toolCallback.call(TOOL_INPUT);
 
     assertTrue(output.contains("Hello Bob"), output);
-    verify(mcpToolApprovalService, never()).requestApproval(any(), any(), any(), any(), any(), any(), anyBoolean(), any());
+    verify(mcpToolApprovalService, never()).requestApproval(any(), any(), any(), any(), any(), any(), any(), anyBoolean(), any());
   }
 
   /**
@@ -257,7 +259,7 @@ class McpToolCallbackProviderServiceTest {
     String output = toolCallback.call(TOOL_INPUT);
 
     assertTrue(output.contains("Hello Bob"), output);
-    verify(mcpToolApprovalService, never()).requestApproval(any(), any(), any(), any(), any(), any(), anyBoolean(), any());
+    verify(mcpToolApprovalService, never()).requestApproval(any(), any(), any(), any(), any(), any(), any(), anyBoolean(), any());
     verify(mcpToolGrantService).recordUse(eq(grant), any());
     verify(mcpToolApprovalService).traceToolExecution(org.mockito.ArgumentMatchers.argThat(execution -> execution != null
         && execution.getToolExecutionType() == UserToolRequestType.TOOL_EXECUTION_GRANTED
@@ -275,7 +277,7 @@ class McpToolCallbackProviderServiceTest {
     MockHttpServletRequest request = bindRequest(TOOL_CONTEXT_ID, CONVERSATION_ID);
     request.addHeader(TOOL_CONTEXT_AGENT_NAME_ID_PARAM, "agent-1");
     request.addHeader(TOOL_CONTEXT_RETRY_MESSAGE_ID_PARAM, "12");
-    when(mcpToolApprovalService.requestApproval(any(), any(), any(), any(), any(), any(), anyBoolean(), any())).thenReturn(true);
+    when(mcpToolApprovalService.requestApproval(any(), any(), any(), any(), any(), any(), any(), anyBoolean(), any())).thenReturn(true);
 
     toolCallback.call("{\"user_name\":\"Bob\"}");
 
@@ -316,7 +318,7 @@ class McpToolCallbackProviderServiceTest {
   @Test
   void call_argumentSetToNull_grantDecisionGetsTheArguments() {// NOSONAR
     bindRequest(TOOL_CONTEXT_ID, CONVERSATION_ID);
-    when(mcpToolApprovalService.requestApproval(any(), any(), any(), any(), any(), any(), anyBoolean(), any())).thenReturn(true);
+    when(mcpToolApprovalService.requestApproval(any(), any(), any(), any(), any(), any(), any(), anyBoolean(), any())).thenReturn(true);
 
     toolCallback.call("{\"name\":\"Bob\",\"title\":null}");
 
@@ -337,7 +339,7 @@ class McpToolCallbackProviderServiceTest {
   @Test
   void call_sameArgumentTwice_aValueWinsOverANull() {// NOSONAR
     bindRequest(TOOL_CONTEXT_ID, CONVERSATION_ID);
-    when(mcpToolApprovalService.requestApproval(any(), any(), any(), any(), any(), any(), anyBoolean(), any())).thenReturn(true);
+    when(mcpToolApprovalService.requestApproval(any(), any(), any(), any(), any(), any(), any(), anyBoolean(), any())).thenReturn(true);
 
     toolCallback.call("{\"user_name\":null,\"userName\":\"Bob\"}");
     ConversationState.setCurrent(new ConversationState(new Identity(USERNAME)));
@@ -370,6 +372,49 @@ class McpToolCallbackProviderServiceTest {
   }
 
   /**
+   * The chat turn of the internal client's request reaches the card; the call
+   * runs the same way, the turn id deciding nothing.
+   */
+  @Test
+  void call_approvalGatedTool_passesTheTurnIdFromTheInternalClientHeaderToTheCard() {// NOSONAR
+    MockHttpServletRequest request = bindRequest(TOOL_CONTEXT_ID, CONVERSATION_ID);
+    request.addHeader(TOOL_CONTEXT_TURN_ID_PARAM, "turn-7");
+    when(mcpToolApprovalService.requestApproval(any(), any(), any(), any(), any(), any(), any(), anyBoolean(), any())).thenReturn(true);
+
+    String output = toolCallback.call(TOOL_INPUT);
+
+    assertTrue(output.contains("Hello Bob"), output);
+    verify(mcpToolApprovalService).requestApproval(anyString(),
+                                                   eq(CONVERSATION_ID),
+                                                   eq("turn-7"),
+                                                   eq(TOOL_METHOD),
+                                                   anyString(),
+                                                   eq(USERNAME),
+                                                   any(),
+                                                   anyBoolean(),
+                                                   any());
+  }
+
+  @Test
+  void call_approvalGatedTool_withoutTurnIdHeader_asksWithNoTurnId() {// NOSONAR
+    bindRequest(TOOL_CONTEXT_ID, CONVERSATION_ID);
+    when(mcpToolApprovalService.requestApproval(any(), any(), any(), any(), any(), any(), any(), anyBoolean(), any())).thenReturn(true);
+
+    String output = toolCallback.call(TOOL_INPUT);
+
+    assertTrue(output.contains("Hello Bob"), output);
+    verify(mcpToolApprovalService).requestApproval(anyString(),
+                                                   eq(CONVERSATION_ID),
+                                                   isNull(),
+                                                   eq(TOOL_METHOD),
+                                                   anyString(),
+                                                   eq(USERNAME),
+                                                   any(),
+                                                   anyBoolean(),
+                                                   any());
+  }
+
+  /**
    * Without a grant, the card offers "Always allow" when a grant store is
    * installed, with the limit the tool's evaluator proposes.
    */
@@ -380,12 +425,12 @@ class McpToolCallbackProviderServiceTest {
     when(mcpToolGrantService.isGrantStoreAvailable()).thenReturn(true);
     when(mcpToolGrantService.allowsStandingApproval(eq(TOOL_METHOD), any())).thenReturn(true);
     when(mcpToolGrantService.proposeConstraint(eq(TOOL_METHOD), any())).thenReturn(constraint);
-    when(mcpToolApprovalService.requestApproval(any(), any(), any(), any(), any(), any(), anyBoolean(), any())).thenReturn(true);
+    when(mcpToolApprovalService.requestApproval(any(), any(), any(), any(), any(), any(), any(), anyBoolean(), any())).thenReturn(true);
 
     toolCallback.call(TOOL_INPUT);
 
     verify(mcpToolApprovalService).requestApproval(anyString(),
-                                                   eq(CONVERSATION_ID),
+                                                   eq(CONVERSATION_ID), any(),
                                                    eq(TOOL_METHOD),
                                                    anyString(),
                                                    eq(USERNAME),
@@ -403,12 +448,12 @@ class McpToolCallbackProviderServiceTest {
     bindRequest(TOOL_CONTEXT_ID, CONVERSATION_ID);
     when(mcpToolGrantService.isGrantStoreAvailable()).thenReturn(true);
     when(mcpToolGrantService.allowsStandingApproval(eq(TOOL_METHOD), any())).thenReturn(false);
-    when(mcpToolApprovalService.requestApproval(any(), any(), any(), any(), any(), any(), anyBoolean(), any())).thenReturn(true);
+    when(mcpToolApprovalService.requestApproval(any(), any(), any(), any(), any(), any(), any(), anyBoolean(), any())).thenReturn(true);
 
     toolCallback.call(TOOL_INPUT);
 
     verify(mcpToolApprovalService).requestApproval(anyString(),
-                                                   eq(CONVERSATION_ID),
+                                                   eq(CONVERSATION_ID), any(),
                                                    eq(TOOL_METHOD),
                                                    anyString(),
                                                    eq(USERNAME),
@@ -428,13 +473,13 @@ class McpToolCallbackProviderServiceTest {
     when(mcpServerToolService.hasApprovalScope(any())).thenReturn(true);
     lenient().when(mcpToolGrantService.isGrantStoreAvailable()).thenReturn(true);
     lenient().when(mcpToolGrantService.findApplicableGrant(any(), any())).thenReturn(McpToolGrant.builder().id(1L).ownerType(McpToolGrantOwnerType.USER).build());
-    when(mcpToolApprovalService.requestApproval(any(), any(), any(), any(), any(), any(), anyBoolean(), any())).thenReturn(true);
+    when(mcpToolApprovalService.requestApproval(any(), any(), any(), any(), any(), any(), any(), anyBoolean(), any())).thenReturn(true);
 
     toolCallback.call(TOOL_INPUT);
 
     verify(mcpToolGrantService, never()).findApplicableGrant(any(), any());
     verify(mcpToolApprovalService).requestApproval(anyString(),
-                                                   eq(CONVERSATION_ID),
+                                                   eq(CONVERSATION_ID), any(),
                                                    eq(TOOL_METHOD),
                                                    anyString(),
                                                    eq(USERNAME),
@@ -453,7 +498,7 @@ class McpToolCallbackProviderServiceTest {
     lenient().when(mcpServerToolService.isRequireApproval(eq(TOOL_METHOD), any())).thenReturn(false);
     when(mcpServerToolService.isAlwaysAsk(TOOL_METHOD)).thenReturn(true);
     when(mcpServerToolService.hasApprovalScope(any())).thenReturn(true);
-    when(mcpToolApprovalService.requestApproval(any(), any(), any(), any(), any(), any(), anyBoolean(), any())).thenReturn(false);
+    when(mcpToolApprovalService.requestApproval(any(), any(), any(), any(), any(), any(), any(), anyBoolean(), any())).thenReturn(false);
 
     assertThrows(io.meeds.mcp.server.model.UserToolDeniedException.class, () -> toolCallback.call(TOOL_INPUT));
   }
@@ -471,7 +516,7 @@ class McpToolCallbackProviderServiceTest {
     IllegalAccessException e = assertThrows(IllegalAccessException.class, () -> toolCallback.call(TOOL_INPUT));
 
     assertTrue(e.getMessage().contains("every time"), e.getMessage());
-    verify(mcpToolApprovalService, never()).requestApproval(any(), any(), any(), any(), any(), any(), anyBoolean(), any());
+    verify(mcpToolApprovalService, never()).requestApproval(any(), any(), any(), any(), any(), any(), any(), anyBoolean(), any());
     verify(mcpToolApprovalService, never()).traceToolExecution(argThatIs(UserToolRequestType.TOOL_EXECUTION_START));
   }
 
@@ -530,7 +575,7 @@ class McpToolCallbackProviderServiceTest {
   void call_actingIdentityReachesGrantCardAndTrace() {// NOSONAR
     MockHttpServletRequest request = bindRequest(TOOL_CONTEXT_ID, CONVERSATION_ID);
     addIdentityHeaders(request, USERNAME, "USER", USERNAME, null, USERNAME, "[\"COMPLETION\",\"EMAIL_ASSISTANT\"]", "CHAT", "EMAIL_ASSISTANT");
-    when(mcpToolApprovalService.requestApproval(any(), any(), any(), any(), any(), any(), anyBoolean(), any())).thenReturn(true);
+    when(mcpToolApprovalService.requestApproval(any(), any(), any(), any(), any(), any(), any(), anyBoolean(), any())).thenReturn(true);
 
     toolCallback.call(TOOL_INPUT);
 
@@ -541,7 +586,7 @@ class McpToolCallbackProviderServiceTest {
     assertEquals("EMAIL_ASSISTANT", grantRequest.getValue().agentNameId());
     assertEquals(USERNAME, grantRequest.getValue().username());
     verify(mcpToolApprovalService).requestApproval(anyString(),
-                                                   eq(CONVERSATION_ID),
+                                                   eq(CONVERSATION_ID), any(),
                                                    eq(TOOL_METHOD),
                                                    anyString(),
                                                    eq(USERNAME),
@@ -573,7 +618,7 @@ class McpToolCallbackProviderServiceTest {
 
     assertTrue(e.getMessage().contains("nobody"), e.getMessage());
     verify(mcpToolGrantService).findApplicableGrant(any(), any());
-    verify(mcpToolApprovalService, never()).requestApproval(any(), any(), any(), any(), any(), any(), anyBoolean(), any());
+    verify(mcpToolApprovalService, never()).requestApproval(any(), any(), any(), any(), any(), any(), any(), anyBoolean(), any());
     verify(mcpToolApprovalService).traceToolExecution(argThatIs(UserToolRequestType.TOOL_EXECUTION_DENIED));
     verify(mcpToolApprovalService, never()).traceToolExecution(argThatIs(UserToolRequestType.TOOL_EXECUTION_ERROR));
   }
@@ -595,7 +640,7 @@ class McpToolCallbackProviderServiceTest {
 
     assertTrue(e.getMessage().contains("nobody"), e.getMessage());
     assertFalse(e.getMessage().contains("tell the user"), e.getMessage());
-    verify(mcpToolApprovalService, never()).requestApproval(any(), any(), any(), any(), any(), any(), anyBoolean(), any());
+    verify(mcpToolApprovalService, never()).requestApproval(any(), any(), any(), any(), any(), any(), any(), anyBoolean(), any());
     verify(mcpToolApprovalService).traceToolExecution(argThatIs(UserToolRequestType.TOOL_EXECUTION_DENIED));
     verify(mcpToolApprovalService, never()).traceToolExecution(argThatIs(UserToolRequestType.TOOL_EXECUTION_ERROR));
   }
@@ -648,7 +693,7 @@ class McpToolCallbackProviderServiceTest {
     assertEquals("agent-user:EMAIL_ASSISTANT", grantRequest.getValue().agentNameId());
     verify(mcpToolApprovalService).traceToolExecution(argThatIs(UserToolRequestType.TOOL_EXECUTION_DENIED));
     verify(mcpToolApprovalService, never()).traceToolExecution(argThatIs(UserToolRequestType.TOOL_EXECUTION_START));
-    verify(mcpToolApprovalService, never()).requestApproval(any(), any(), any(), any(), any(), any(), anyBoolean(), any());
+    verify(mcpToolApprovalService, never()).requestApproval(any(), any(), any(), any(), any(), any(), any(), anyBoolean(), any());
   }
 
   /**
@@ -816,7 +861,7 @@ class McpToolCallbackProviderServiceTest {
     verify(mcpToolApprovalService, never()).traceToolExecution(argThatIs(UserToolRequestType.TOOL_EXECUTION_DENIED));
     verify(mcpToolApprovalService, never()).traceToolExecution(argThatIs(UserToolRequestType.TOOL_EXECUTION_ERROR));
     verify(mcpToolApprovalService, never()).traceToolExecution(argThatIs(UserToolRequestType.TOOL_EXECUTION_START));
-    verify(mcpToolApprovalService, never()).requestApproval(any(), any(), any(), any(), any(), any(), anyBoolean(), any());
+    verify(mcpToolApprovalService, never()).requestApproval(any(), any(), any(), any(), any(), any(), any(), anyBoolean(), any());
     verify(mcpToolGrantService, never()).findApplicableGrant(any(), any());
   }
 
@@ -867,21 +912,21 @@ class McpToolCallbackProviderServiceTest {
                                                           new ToolAnnotations("Greet", false, false, false, false, null));
     write.setSpaceScope(new SpaceScopeDeclaration("name", null, null, null, false, null, null, false, null));
     when(mcpServerToolService.getToolDefinitionByMethodName(TOOL_METHOD)).thenReturn(write);
-    when(mcpToolApprovalService.requestApproval(any(), any(), any(), any(), any(), any(), anyBoolean(), any())).thenReturn(true);
+    when(mcpToolApprovalService.requestApproval(any(), any(), any(), any(), any(), any(), any(), anyBoolean(), any())).thenReturn(true);
     MockHttpServletRequest request = bindRequest(TOOL_CONTEXT_ID, CONVERSATION_ID);
     addIdentityHeaders(request, USERNAME, "USER", USERNAME, null, USERNAME, "[]", "PROPOSAL", null);
     request.addHeader(TOOL_CONTEXT_SPACE_SCOPE_PARAM, "12");
 
     assertThrows(SpaceScopeRefusedException.class, () -> toolCallback.call("{\"name\":13}"));
     verify(mcpToolGrantService, never()).findApplicableGrant(any(), any());
-    verify(mcpToolApprovalService, never()).requestApproval(any(), any(), any(), any(), any(), any(), anyBoolean(), any());
+    verify(mcpToolApprovalService, never()).requestApproval(any(), any(), any(), any(), any(), any(), any(), anyBoolean(), any());
 
     String output = toolCallback.call("{\"name\":12}");
 
     assertTrue(output.contains("Hello 12"), output);
     verify(mcpToolGrantService).findApplicableGrant(any(), any());
     verify(mcpToolApprovalService).requestApproval(anyString(),
-                                                   eq(CONVERSATION_ID),
+                                                   eq(CONVERSATION_ID), any(),
                                                    eq(TOOL_METHOD),
                                                    anyString(),
                                                    eq(USERNAME),
