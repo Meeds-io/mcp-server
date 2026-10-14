@@ -97,6 +97,16 @@ public class McpToolUtils {
   public static final String        TOOL_CONTEXT_CONVERSATION_ID_PARAM            = "conversationId";
 
   /**
+   * Request header of the internal MCP client carrying the chat turn that
+   * started the call. It is client-controlled and only an opaque correlation
+   * value: see {@link #getCurrentTurnId()}.
+   */
+  public static final String        TOOL_CONTEXT_TURN_ID_PARAM                    = "turnId";
+
+  /** Longest turn id echoed back to the chat; a longer one is dropped. */
+  public static final int           MAX_TURN_ID_LENGTH                            = 200;
+
+  /**
    * Header naming the agent on whose behalf the internal client calls a tool,
    * trusted under the same gate as {@link #TOOL_CONTEXT_USER_NAME_PARAM}.
    */
@@ -156,6 +166,12 @@ public class McpToolUtils {
   public static final String        AI_AGENT_TOOL_USERNAME_PARAM                  = "username";
 
   public static final String        AI_AGENT_TOOL_CONVERSATION_ID_PARAM           = "conversationId";
+
+  /**
+   * Parameter of an approval request carrying the chat turn id of the call, so
+   * that the page can match the card to the call it started.
+   */
+  public static final String        AI_AGENT_TOOL_TURN_ID_PARAM                   = "turnId";
 
   public static final String        AI_AGENT_TOOL_INPUT_PARAM                     = "toolInput";
 
@@ -678,6 +694,34 @@ public class McpToolUtils {
   public static String getCurrentConversationId() {
     HttpServletRequest request = getInternalToolCallRequest();
     return request == null ? null : StringUtils.trimToNull(request.getHeader(TOOL_CONTEXT_CONVERSATION_ID_PARAM));
+  }
+
+  /**
+   * Resolves the chat turn that started the current Tool call, from the
+   * {@link #TOOL_CONTEXT_TURN_ID_PARAM} header of the internal client only
+   * ({@link #getInternalToolCallRequest()}). The value is client-controlled:
+   * it is only echoed back, as an opaque correlation value, to the channel of
+   * the user the call runs as, and never decides a grant, an approval or an
+   * identity.
+   *
+   * @return the turn id, or null when the call isn't the internal client's,
+   *         carries none or one longer than {@link #MAX_TURN_ID_LENGTH}
+   */
+  public static String getCurrentTurnId() {
+    HttpServletRequest request = getInternalToolCallRequest();
+    return request == null ? null : normalizeTurnId(request.getHeader(TOOL_CONTEXT_TURN_ID_PARAM));
+  }
+
+  /**
+   * Bounds a client-supplied turn id.
+   *
+   * @param turnId the raw value, may be null
+   * @return the trimmed value, or null when blank or longer than
+   *         {@link #MAX_TURN_ID_LENGTH}
+   */
+  public static String normalizeTurnId(String turnId) {
+    String trimmed = StringUtils.trimToNull(turnId);
+    return trimmed != null && trimmed.length() <= MAX_TURN_ID_LENGTH ? trimmed : null;
   }
 
   /**
