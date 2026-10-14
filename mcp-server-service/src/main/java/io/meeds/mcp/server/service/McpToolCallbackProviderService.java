@@ -29,6 +29,7 @@ import static io.meeds.mcp.server.util.McpToolUtils.getCurrentTurnId;
 import static io.meeds.mcp.server.util.McpToolUtils.getCurrentUserName;
 import static io.meeds.mcp.server.util.McpToolUtils.getMethodToolFieldValue;
 import static io.meeds.mcp.server.util.McpToolUtils.isCurrentCallRetry;
+import static io.meeds.mcp.server.util.McpToolUtils.redactBase64ForPublication;
 import static io.meeds.mcp.server.util.McpToolUtils.toCamelCase;
 import static io.meeds.mcp.server.util.McpToolUtils.toSnakeCase;
 
@@ -270,8 +271,12 @@ public class McpToolCallbackProviderService implements ToolCallbackProvider {
       } catch (SpaceScopeRefusedException e) {
         // a call outside the run's space is an expected refusal, not an incident
         throw e;
+      } catch (UserToolDeniedException | UserToolTimeoutException e) {
+        // the user's own answer, or no answer, to an approval card: not an incident
+        log.debug("Tool call not run, with input '{}'", redactBase64ForPublication(toolInput), e);
+        throw e;
       } catch (Exception e) {
-        log.warn("Error while call Tool with input '{}'", toolInput, e);
+        log.warn("Error while call Tool with input '{}'", redactBase64ForPublication(toolInput), e);
         throw e;
       }
     }
@@ -364,8 +369,10 @@ public class McpToolCallbackProviderService implements ToolCallbackProvider {
         // Call the Tool
         Map<String, Object> toolArguments = extractToolArguments(toolInput);
         toolArguments = transformSnakeToCamelCaseArguments(toolArguments);
-        toolInput = jsonHelper.toJson(toolArguments);
-        String toolOutput = toolCallback.call(toolInput, toolContext);
+        // toolInput keeps the snake_case argument names the model sent, which
+        // the redaction of what is logged or explained relies on
+        String toolRunInput = jsonHelper.toJson(toolArguments);
+        String toolOutput = toolCallback.call(toolRunInput, toolContext);
         mcpToolApprovalService.traceToolExecution(executionBuilder.toolExecutionType(UserToolRequestType.TOOL_EXECUTION_FINISHED)
                                                                   .toolOutput(toolOutput)
                                                                   .completed(true)
@@ -373,7 +380,7 @@ public class McpToolCallbackProviderService implements ToolCallbackProvider {
         log.debug("Call Tool '{}#{}' with input: {}. Output: {}",
                   toolObject.getClass().getName(),
                   toolMethod.getName(),
-                  toolInput,
+                  toolRunInput,
                   toolOutput);
         return toolOutput;
       } catch (SpaceScopeRefusedException e) {
@@ -404,7 +411,7 @@ public class McpToolCallbackProviderService implements ToolCallbackProvider {
         log.error("Error calling Tool '{}#{}' with input: {}",
                   toolObject.getClass().getName(),
                   toolMethod.getName(),
-                  toolInput,
+                  redactBase64ForPublication(toolInput),
                   cause);
         if (cause instanceof IllegalArgumentException
             || cause instanceof IllegalStateException
@@ -413,7 +420,7 @@ public class McpToolCallbackProviderService implements ToolCallbackProvider {
           throw (Exception) cause;
         } else {
           throw new IllegalStateException(LLM_ERROR_EXPLANATION.formatted(toolMethod.getName(),
-                                                                          toolInput),
+                                                                          redactBase64ForPublication(toolInput)),
                                           e);
         }
       } finally {
