@@ -20,6 +20,8 @@ package io.meeds.mcp.server.service;
 
 import static io.meeds.mcp.server.service.McpToolApprovalService.COMETD_CHANNEL;
 import static io.meeds.mcp.server.util.McpToolUtils.AI_AGENT_TOOL_EXECUTION_EVENT;
+import static io.meeds.mcp.server.util.McpToolUtils.AI_AGENT_TOOL_TURN_ID_PARAM;
+import static io.meeds.mcp.server.util.McpToolUtils.MAX_TURN_ID_LENGTH;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
@@ -328,6 +330,95 @@ class McpToolApprovalServiceTest {
     awaitRequestRegistered(REQUEST_ID);
     service.receiveAnswer(REQUEST_ID, WS_CLIENT_ID, false);
     assertThat(future.get(1, TimeUnit.SECONDS)).isFalse();
+  }
+
+  /**
+   * The card carries the chat turn that started the call, and the decision is
+   * the answer's, never the turn id's.
+   */
+  @Test
+  @SneakyThrows
+  void requestApprovalPublishesTheTurnIdOnTheCard() {
+    when(continuationBayeux.isSubscribed(USERNAME, WS_CLIENT_ID)).thenReturn(true);
+
+    Future<Boolean> future = CompletableFuture.supplyAsync(() -> service.requestApproval(REQUEST_ID,
+                                                                                         "conv",
+                                                                                         "turn-7",
+                                                                                         "tool",
+                                                                                         "{}",
+                                                                                         USERNAME,
+                                                                                         null,
+                                                                                         false,
+                                                                                         null));
+    awaitRequestRegistered(REQUEST_ID);
+    service.receiveAnswer(REQUEST_ID, WS_CLIENT_ID, false);
+
+    assertThat(future.get(1, TimeUnit.SECONDS)).isFalse();
+    assertThat(publishedApprovalRequest()).contains("\"" + AI_AGENT_TOOL_TURN_ID_PARAM + "\":\"turn-7\"");
+  }
+
+  @Test
+  @SneakyThrows
+  void requestApprovalDecisionIsTheSameWithoutATurnId() {
+    when(continuationBayeux.isSubscribed(USERNAME, WS_CLIENT_ID)).thenReturn(true);
+
+    Future<Boolean> future = CompletableFuture.supplyAsync(() -> service.requestApproval(REQUEST_ID,
+                                                                                         "conv",
+                                                                                         null,
+                                                                                         "tool",
+                                                                                         "{}",
+                                                                                         USERNAME,
+                                                                                         null,
+                                                                                         false,
+                                                                                         null));
+    awaitRequestRegistered(REQUEST_ID);
+    service.receiveAnswer(REQUEST_ID, WS_CLIENT_ID, true);
+
+    assertThat(future.get(1, TimeUnit.SECONDS)).isTrue();
+    assertThat(publishedApprovalRequest()).doesNotContain("\"" + AI_AGENT_TOOL_TURN_ID_PARAM + "\"");
+  }
+
+  @Test
+  void requestApprovalOmitsABlankTurnId() {
+    assertThatThrownBy(() -> service.requestApproval(REQUEST_ID,
+                                                     "conv",
+                                                     "   ",
+                                                     "tool",
+                                                     "{}",
+                                                     USERNAME,
+                                                     null,
+                                                     false,
+                                                     null)).isInstanceOf(UserToolTimeoutException.class);
+
+    assertThat(publishedApprovalRequest()).doesNotContain("\"" + AI_AGENT_TOOL_TURN_ID_PARAM + "\"");
+  }
+
+  @Test
+  void requestApprovalDropsAnOverLongTurnId() {
+    assertThatThrownBy(() -> service.requestApproval(REQUEST_ID,
+                                                     "conv",
+                                                     "t".repeat(MAX_TURN_ID_LENGTH + 1),
+                                                     "tool",
+                                                     "{}",
+                                                     USERNAME,
+                                                     null,
+                                                     false,
+                                                     null)).isInstanceOf(UserToolTimeoutException.class);
+
+    assertThat(publishedApprovalRequest()).doesNotContain("\"" + AI_AGENT_TOOL_TURN_ID_PARAM + "\"");
+  }
+
+  /**
+   * @return the APPROVAL_REQUEST message sent to the user, as JSON
+   */
+  private String publishedApprovalRequest() {
+    ArgumentCaptor<String> messages = ArgumentCaptor.forClass(String.class);
+    verify(continuationService, atLeastOnce()).sendMessage(eq(USERNAME), eq(COMETD_CHANNEL), messages.capture());
+    return messages.getAllValues()
+                   .stream()
+                   .filter(m -> m.contains("\"type\":\"" + UserToolRequestType.APPROVAL_REQUEST.name() + "\""))
+                   .findFirst()
+                   .orElseThrow();
   }
 
   /**
