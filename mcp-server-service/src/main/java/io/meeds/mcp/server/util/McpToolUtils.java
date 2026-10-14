@@ -30,6 +30,7 @@ import java.util.Calendar;
 import java.util.Collections;
 import java.util.Date;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.TimeZone;
 import java.util.UUID;
@@ -72,6 +73,7 @@ import lombok.extern.slf4j.Slf4j;
 import tools.jackson.core.JacksonException;
 import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.json.JsonMapper;
+import tools.jackson.databind.node.ObjectNode;
 
 @Slf4j
 public class McpToolUtils {
@@ -104,6 +106,18 @@ public class McpToolUtils {
 
   /** Longest turn id echoed back to the chat; a longer one is dropped. */
   public static final int           MAX_TURN_ID_LENGTH                            = 200;
+
+  /** Suffix of the argument names that carry base64 content. */
+  public static final String        BASE64_ARGUMENT_SUFFIX                        = "_base64";
+
+  /**
+   * Longest call input published as is when it can't be read as a JSON
+   * object; a longer one is replaced by {@link #ARGUMENTS_TOO_LARGE_NOTE}.
+   */
+  public static final int           MAX_PUBLISHED_INPUT_LENGTH                    = 65_536;
+
+  /** What a published call input becomes when it is too large to be shown. */
+  public static final String        ARGUMENTS_TOO_LARGE_NOTE                      = "{\"_note\":\"[arguments too large to show]\"}";
 
   /**
    * Header naming the agent on whose behalf the internal client calls a tool,
@@ -666,6 +680,77 @@ public class McpToolUtils {
   public static String normalizeTurnId(String turnId) {
     String trimmed = StringUtils.trimToNull(turnId);
     return trimmed != null && trimmed.length() <= MAX_TURN_ID_LENGTH ? trimmed : null;
+  }
+
+  /**
+   * Prepares a call input for publication to the chat and to the platform
+   * listeners: each top-level string argument whose name ends with
+   * {@value #BASE64_ARGUMENT_SUFFIX} is replaced by {@code [image, <size>]},
+   * the size being the decoded one (KB below 1 MB, otherwise MB with one
+   * decimal). An input without such an argument is returned as is. An input
+   * that can't be read as a JSON object is returned as is, or replaced by
+   * {@link #ARGUMENTS_TOO_LARGE_NOTE} when longer than
+   * {@value #MAX_PUBLISHED_INPUT_LENGTH} characters. It is meant for what is
+   * published only: the input a tool runs on, or a grant is matched on, must
+   * not go through it.
+   *
+   * @param toolInput the call input, may be null
+   * @return the input to publish
+   */
+  public static String redactBase64ForPublication(String toolInput) {
+    if (toolInput == null
+        || toolInput.length() <= MAX_PUBLISHED_INPUT_LENGTH && !toolInput.contains(BASE64_ARGUMENT_SUFFIX)) {
+      return toolInput;
+    }
+    JsonNode node;
+    try {
+      node = CHAIN_MAPPER.readTree(toolInput);
+    } catch (JacksonException e) {
+      node = null;
+    }
+    if (node == null || !node.isObject()) {
+      return toolInput.length() > MAX_PUBLISHED_INPUT_LENGTH ? ARGUMENTS_TOO_LARGE_NOTE : toolInput;
+    }
+    ObjectNode object = (ObjectNode) node;
+    List<String> redacted = new ArrayList<>();
+    for (String name : object.propertyNames()) {
+      if (name.endsWith(BASE64_ARGUMENT_SUFFIX) && object.get(name).isString()) {
+        redacted.add(name);
+      }
+    }
+    if (redacted.isEmpty()) {
+      return toolInput;
+    }
+    for (String name : redacted) {
+      object.put(name, "[image, %s]".formatted(formatDecodedSize(object.get(name).stringValue())));
+    }
+    return CHAIN_MAPPER.writeValueAsString(object);
+  }
+
+  /**
+   * Approximates the decoded size of a base64 value, ignoring a {@code data:}
+   * prefix and whitespace, and renders it as {@code 12 KB} below 1 MB or as
+   * {@code 2.0 MB}.
+   *
+   * @param base64 the base64 value, a data URI accepted
+   * @return the rendered size
+   */
+  private static String formatDecodedSize(String base64) {
+    int start = base64.startsWith("data:") ? base64.indexOf(',') + 1 : 0;
+    long length = 0;
+    int padding = 0;
+    for (int i = start; i < base64.length(); i++) {
+      char c = base64.charAt(i);
+      if (!Character.isWhitespace(c)) {
+        length++;
+        padding = c == '=' ? padding + 1 : 0;
+      }
+    }
+    long bytes = Math.max(0, length * 3 / 4 - padding);
+    if (bytes < 1024L * 1024L) {
+      return "%d KB".formatted(Math.max(1, (bytes + 1023) / 1024));
+    }
+    return String.format(Locale.ROOT, "%.1f MB", bytes / (1024.0 * 1024.0));
   }
 
   /**
