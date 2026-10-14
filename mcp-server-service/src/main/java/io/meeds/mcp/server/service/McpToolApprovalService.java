@@ -187,42 +187,8 @@ public class McpToolApprovalService {
 
   /**
    * Asks the user to approve a call on a card, offering "Always allow" when
-   * the call is grantable, and waits for the answer.
-   *
-   * @param id                the call identifier
-   * @param conversationId    the chat conversation showing the card
-   * @param toolName          the tool name shown on the card
-   * @param toolInput         the call input shown on the card
-   * @param username          the user asked
-   * @param grantRequest      the call as the server resolved it, the only
-   *                            source of a grant created from this card
-   * @param grantable         whether the card may offer "Always allow"
-   * @param offeredConstraint the argument limit the card may offer, or null
-   * @return true when the user approved, once or always
-   */
-  public boolean requestApproval(String id, // NOSONAR
-                                 String conversationId,
-                                 String toolName,
-                                 String toolInput,
-                                 String username,
-                                 McpToolGrantRequest grantRequest,
-                                 boolean grantable,
-                                 McpToolGrantConstraint offeredConstraint) {
-    return requestApproval(id,
-                           conversationId,
-                           null,
-                           toolName,
-                           toolInput,
-                           username,
-                           grantRequest,
-                           grantable,
-                           offeredConstraint);
-  }
-
-  /**
-   * Asks the user to approve a call on a card, as
-   * {@link #requestApproval(String, String, String, String, String, McpToolGrantRequest, boolean, McpToolGrantConstraint)},
-   * and publishes the chat turn that started the call with the card. The turn
+   * the call is grantable, and waits for the answer. It also publishes the
+   * chat turn that started the call with the card. The turn
    * id is client-controlled: it is only echoed back to the requesting user's
    * channel as an opaque correlation value and never decides a grant, an
    * approval or an identity.

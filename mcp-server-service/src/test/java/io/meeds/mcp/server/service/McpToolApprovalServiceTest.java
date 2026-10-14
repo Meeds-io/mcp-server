@@ -598,6 +598,7 @@ class McpToolApprovalServiceTest {
 
     Future<Boolean> future = CompletableFuture.supplyAsync(() -> service.requestApproval(REQUEST_ID,
                                                                                          "conv",
+                                                                                         null,
                                                                                          "sendEmail",
                                                                                          "{}",
                                                                                          USERNAME,
@@ -682,6 +683,7 @@ class McpToolApprovalServiceTest {
 
     Future<Boolean> answered = CompletableFuture.supplyAsync(() -> service.requestApproval(REQUEST_ID,
                                                                                            "conv",
+                                                                                           null,
                                                                                            "sendEmail",
                                                                                            "{}",
                                                                                            USERNAME,
@@ -691,7 +693,7 @@ class McpToolApprovalServiceTest {
     awaitRequestRegistered(REQUEST_ID);
     service.receiveAnswer(REQUEST_ID, WS_CLIENT_ID, true);
     assertThat(answered.get(1, TimeUnit.SECONDS)).isTrue();
-    assertThatThrownBy(() -> service.requestApproval("timed-out", "conv", "sendEmail", "{}", USERNAME, grantRequest, false, null))
+    assertThatThrownBy(() -> service.requestApproval("timed-out", "conv", null, "sendEmail", "{}", USERNAME, grantRequest, false, null))
                                                                                                                               .isInstanceOf(UserToolTimeoutException.class);
 
     ArgumentCaptor<Map<String, String>> events = ArgumentCaptor.forClass(Map.class);
@@ -716,6 +718,7 @@ class McpToolApprovalServiceTest {
     when(continuationBayeux.isSubscribed(USERNAME, WS_CLIENT_ID)).thenReturn(true);
     Future<Boolean> future = CompletableFuture.supplyAsync(() -> service.requestApproval(REQUEST_ID,
                                                                                          "conv",
+                                                                                         null,
                                                                                          "tool",
                                                                                          "{}",
                                                                                          USERNAME,
@@ -747,6 +750,7 @@ class McpToolApprovalServiceTest {
     });
     Future<Boolean> slow = CompletableFuture.supplyAsync(() -> service.requestApproval("slow",
                                                                                        "conv",
+                                                                                       null,
                                                                                        "send_email",
                                                                                        "{}",
                                                                                        USERNAME,
@@ -765,6 +769,7 @@ class McpToolApprovalServiceTest {
 
     Future<Boolean> other = CompletableFuture.supplyAsync(() -> service.requestApproval("other",
                                                                                         "conv",
+                                                                                        null,
                                                                                         "send_email",
                                                                                         "{}",
                                                                                         USERNAME,
