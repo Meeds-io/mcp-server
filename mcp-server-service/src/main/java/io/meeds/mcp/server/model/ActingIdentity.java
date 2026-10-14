@@ -72,6 +72,7 @@ public record ActingIdentity(PrincipalRef actor,
    */
   public static final Set<Origin> READ_SCOPED_ORIGINS     = Set.copyOf(EnumSet.of(Origin.MENTION,
                                                                                   Origin.TASK_COMMENT,
+                                                                                  Origin.ROOM_MENTION,
                                                                                   Origin.TASK_ASSIGNMENT));
 
   /** What a source scope holds, and an agent name id never does. */
