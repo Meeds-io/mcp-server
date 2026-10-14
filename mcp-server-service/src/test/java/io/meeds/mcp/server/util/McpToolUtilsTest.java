@@ -24,6 +24,7 @@ import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertTrue;
+import static io.meeds.mcp.server.util.McpToolUtils.ARGUMENTS_NOT_READABLE_NOTE;
 import static io.meeds.mcp.server.util.McpToolUtils.ARGUMENTS_TOO_LARGE_NOTE;
 import static io.meeds.mcp.server.util.McpToolUtils.MAX_PUBLISHED_INPUT_LENGTH;
 import static io.meeds.mcp.server.util.McpToolUtils.redactBase64ForPublication;
@@ -41,6 +42,8 @@ import java.util.Set;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
+import org.springframework.ai.util.JsonHelper;
+import org.springframework.core.ParameterizedTypeReference;
 import org.springframework.mock.web.MockHttpServletRequest;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
 import org.springframework.security.core.GrantedAuthority;
@@ -562,7 +565,6 @@ class McpToolUtilsTest {
     assertEquals(large, redactBase64ForPublication(large));
     assertEquals(suffixInsideKey, redactBase64ForPublication(suffixInsideKey));
     assertNull(redactBase64ForPublication(null));
-    assertEquals("", redactBase64ForPublication(""));
   }
 
   /**
@@ -626,16 +628,60 @@ class McpToolUtilsTest {
 
   /**
    * A short input with no base64 argument is returned as the caller wrote it,
-   * never re-serialised, and a short input that is not JSON is returned as
-   * is.
+   * never re-serialised.
    */
   @Test
   void redactBase64LeavesAShortInputWithoutBase64ArgumentUnchanged() {
     String input = "{ \"title\" : \"Weekly\",  \"ratio\": 1.10 }";
-    String notJson = "not a json { input";
 
     assertSame(input, redactBase64ForPublication(input));
-    assertSame(notJson, redactBase64ForPublication(notJson));
+  }
+
+  /**
+   * An input the tool reads although something follows the object (Spring
+   * AI's mapper ignores trailing tokens) is read the same way here: its image
+   * is redacted, and what follows the object is never published, even when
+   * the object carries no image. Mutants: the strict mapper used to read the
+   * input; the input returned as is when no argument is redacted.
+   */
+  @Test
+  void redactBase64ReadsAnInputWithTrailingTokensAsTheToolDoes() {
+    String image = "{\"image_base64\":\"" + "A".repeat(4_000) + "\"} x";
+    String trailingImage = "{\"title\":\"t\"} {\"image_base64\":\"" + "A".repeat(4_000) + "\"}";
+
+    assertEquals("{\"image_base64\":\"[image, 3 KB]\"}", redactBase64ForPublication(image));
+    assertEquals("{\"title\":\"t\"}", redactBase64ForPublication(trailingImage));
+  }
+
+  /**
+   * The redaction reads every input the tool's argument binding reads: what
+   * Spring AI's {@code JsonHelper} binds to a map is read as the same object
+   * here, so no input the tool accepts falls back to the not-readable note.
+   */
+  @Test
+  void redactBase64ReadsWhatTheToolBindingReads() {
+    JsonHelper toolBinding = new JsonHelper();
+    for (String input : List.of("{\"a\":1} x", "{\"a\":1}  ", "{\"a\":\"b\"}\n{\"c\":2}")) {
+      Map<String, Object> bound = toolBinding.fromJson(input, new ParameterizedTypeReference<Map<String, Object>>() {
+      });
+      String published = redactBase64ForPublication(input);
+      assertEquals(bound, toolBinding.fromJson(published, new ParameterizedTypeReference<Map<String, Object>>() {
+      }), input);
+    }
+  }
+
+  /**
+   * An input that can't be read as a JSON object, however short, is never
+   * published as is: it becomes the not-readable note. Mutant: a short
+   * unreadable input returned as is.
+   */
+  @Test
+  void redactBase64NeverPublishesAnUnreadableInputAsIs() {
+    assertEquals(ARGUMENTS_NOT_READABLE_NOTE, redactBase64ForPublication("not a json { input"));
+    assertEquals(ARGUMENTS_NOT_READABLE_NOTE, redactBase64ForPublication("[\"image_base64\",\"AAAA\"]"));
+    assertEquals(ARGUMENTS_NOT_READABLE_NOTE, redactBase64ForPublication("\"AAAA\""));
+    assertEquals(ARGUMENTS_NOT_READABLE_NOTE, redactBase64ForPublication(""));
+    assertEquals("{\"_note\":\"[arguments not readable]\"}", ARGUMENTS_NOT_READABLE_NOTE);
   }
 
   /**
@@ -656,8 +702,8 @@ class McpToolUtilsTest {
   }
 
   /**
-   * A short input that isn't a JSON object is kept, a long one is replaced by
-   * the note so that no multi-MB value is published.
+   * An input that isn't a JSON object is never published as is: a short one
+   * becomes the not-readable note, a long one the too-large note.
    */
   @Test
   void redactBase64BoundsAnInputThatIsNotAJsonObject() {
@@ -665,7 +711,7 @@ class McpToolUtilsTest {
     String longBroken = "{\"image_base64\":\"" + "A".repeat(MAX_PUBLISHED_INPUT_LENGTH + 1);
     String longArray = "[\"image_base64\"," + "\"A\",".repeat(MAX_PUBLISHED_INPUT_LENGTH) + "1]";
 
-    assertEquals(shortBroken, redactBase64ForPublication(shortBroken));
+    assertEquals(ARGUMENTS_NOT_READABLE_NOTE, redactBase64ForPublication(shortBroken));
     assertEquals(ARGUMENTS_TOO_LARGE_NOTE, redactBase64ForPublication(longBroken));
     assertEquals(ARGUMENTS_TOO_LARGE_NOTE, redactBase64ForPublication(longArray));
     assertEquals("{\"_note\":\"[arguments too large to show]\"}", ARGUMENTS_TOO_LARGE_NOTE);
