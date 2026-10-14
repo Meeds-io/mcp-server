@@ -92,6 +92,9 @@ public class McpToolSpaceScopeService {
 
   private static final Pattern                     HEX32_ID           = Pattern.compile("[0-9a-f]{32}");
 
+  private static final Pattern                     MATRIX_ROOM_ID     =
+                                                                  Pattern.compile("![A-Za-z0-9._=\\-]{1,255}(:[A-Za-z0-9.\\-]+(:\\d{1,5})?)?");
+
   private static final JsonMapper                  ARGUMENTS_MAPPER   = JsonMapper.builder()
                                                                                   .enable(StreamReadFeature.STRICT_DUPLICATE_DETECTION)
                                                                                   .build();
@@ -304,7 +307,7 @@ public class McpToolSpaceScopeService {
   private void checkObject(String toolName, SpaceScopeDeclaration declaration, ObjectNode arguments, Long spaceScope) {
     String objectArg = declaration.getObjectArg();
     JsonNode value = arguments.get(objectArg);
-    String objectId = value == null ? null : toObjectId(value, declaration.isHexId());
+    String objectId = value == null ? null : toObjectId(value, declaration);
     if (objectId == null) {
       throw refuse(OUT_OF_SPACE_OBJECT.formatted(spaceScope, toolName, objectArg, value == null ? "(none)" : value));
     }
@@ -387,16 +390,20 @@ public class McpToolSpaceScopeService {
    * Reads the id of an object the way the tool will, in the format the
    * declaration says: a decimal id as {@link #toId(JsonNode)}, in its
    * canonical form; a hexadecimal one only as a JSON string of exactly 32
-   * lowercase hexadecimal digits, as it is, with no case folding or trimming,
-   * so that the value checked is the value the tool receives.
+   * lowercase hexadecimal digits; a Matrix room id only as a JSON string of
+   * {@code !}, its local part and, optionally, {@code :} with its server name
+   * and port. The last two are kept as they are, with no case folding or
+   * trimming, so that the value checked is the value the tool receives.
    *
-   * @param value the argument value
-   * @param hex   true when the declaration says {@code hex32}
+   * @param value       the argument value
+   * @param declaration the declaration giving the id format
    * @return the id to give the resolver, or null when the value isn't one
    */
-  private String toObjectId(JsonNode value, boolean hex) {
-    if (hex) {
+  private String toObjectId(JsonNode value, SpaceScopeDeclaration declaration) {
+    if (declaration.isHexId()) {
       return value.isString() && HEX32_ID.matcher(value.stringValue()).matches() ? value.stringValue() : null;
+    } else if (declaration.isMatrixRoomId()) {
+      return value.isString() && MATRIX_ROOM_ID.matcher(value.stringValue()).matches() ? value.stringValue() : null;
     }
     Long id = toId(value);
     return id == null ? null : String.valueOf(id);
