@@ -45,6 +45,7 @@ import static io.meeds.mcp.server.util.McpToolUtils.AI_AGENT_TOOL_TURN_ID_PARAM;
 import static io.meeds.mcp.server.util.McpToolUtils.AI_AGENT_TOOL_TYPE_PARAM;
 import static io.meeds.mcp.server.util.McpToolUtils.AI_AGENT_TOOL_USERNAME_PARAM;
 import static io.meeds.mcp.server.util.McpToolUtils.normalizeTurnId;
+import static io.meeds.mcp.server.util.McpToolUtils.redactBase64ForPublication;
 import static io.meeds.mcp.server.util.McpToolUtils.toAgentChainJson;
 
 import java.util.Collection;
@@ -343,7 +344,7 @@ public class McpToolApprovalService {
     parameters.put(AI_AGENT_TOOL_DURATION_PARAM, String.valueOf(System.currentTimeMillis() - toolExecution.getStartTime()));
     parameters.put(AI_AGENT_TOOL_TYPE_PARAM, toolExecution.getToolExecutionType().name());
     parameters.put(AI_AGENT_TOOL_NAME_PARAM, StringUtils.defaultIfBlank(toolExecution.getToolName(), ""));
-    parameters.put(AI_AGENT_TOOL_INPUT_PARAM, StringUtils.defaultIfBlank(toolExecution.getToolInput(), ""));
+    parameters.put(AI_AGENT_TOOL_INPUT_PARAM, StringUtils.defaultIfBlank(redactBase64ForPublication(toolExecution.getToolInput()), ""));
     parameters.put(AI_AGENT_TOOL_OUTPUT_PARAM, StringUtils.defaultIfBlank(toolExecution.getToolOutput(), ""));
     parameters.put(AI_AGENT_TOOL_EXEC_COMPLETED_PARAM, String.valueOf(toolExecution.isCompleted()));
     parameters.put(AI_AGENT_TOOL_USERNAME_PARAM, username);
@@ -445,7 +446,7 @@ public class McpToolApprovalService {
     }
     parameters.put(AI_AGENT_TOOL_TYPE_PARAM, UserToolRequestType.APPROVAL_REQUEST.name());
     parameters.put(AI_AGENT_TOOL_NAME_PARAM, StringUtils.defaultIfBlank(toolName, ""));
-    parameters.put(AI_AGENT_TOOL_INPUT_PARAM, StringUtils.defaultIfBlank(toolInput, ""));
+    parameters.put(AI_AGENT_TOOL_INPUT_PARAM, StringUtils.defaultIfBlank(redactBase64ForPublication(toolInput), ""));
     parameters.put(AI_AGENT_TOOL_USERNAME_PARAM, StringUtils.defaultIfBlank(username, ""));
     parameters.put(AI_AGENT_TOOL_GRANTABLE_PARAM, String.valueOf(approvalRequest.isGrantable()));
     if (approvalRequest.isGrantable()) {
@@ -491,7 +492,7 @@ public class McpToolApprovalService {
     parameters.put(AI_AGENT_TOOL_CONVERSATION_ID_PARAM, StringUtils.defaultIfBlank(conversationId, ""));
     parameters.put(AI_AGENT_TOOL_TYPE_PARAM, UserToolRequestType.APPROVAL_ANSWER.name());
     parameters.put(AI_AGENT_TOOL_NAME_PARAM, StringUtils.defaultIfBlank(toolName, ""));
-    parameters.put(AI_AGENT_TOOL_INPUT_PARAM, String.valueOf(toolInput));
+    parameters.put(AI_AGENT_TOOL_INPUT_PARAM, String.valueOf(redactBase64ForPublication(toolInput)));
     parameters.put(AI_AGENT_TOOL_USERNAME_PARAM, StringUtils.defaultIfBlank(username, ""));
     parameters.put(AI_AGENT_TOOL_APPROVED_PARAM, String.valueOf(approvalAnswer.isApproved()));
     McpToolGrant grant = approvalAnswer.getGrant();
@@ -534,7 +535,7 @@ public class McpToolApprovalService {
                                                           AI_AGENT_TOOL_NAME_PARAM,
                                                           StringUtils.defaultIfBlank(toolName, ""),
                                                           AI_AGENT_TOOL_INPUT_PARAM,
-                                                          String.valueOf(toolInput),
+                                                          String.valueOf(redactBase64ForPublication(toolInput)),
                                                           AI_AGENT_TOOL_USERNAME_PARAM,
                                                           StringUtils.defaultIfBlank(username, "")));
     putActingIdentity(parameters, grantRequest);
