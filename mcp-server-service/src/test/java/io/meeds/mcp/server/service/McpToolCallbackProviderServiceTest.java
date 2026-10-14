@@ -296,6 +296,45 @@ class McpToolCallbackProviderServiceTest {
   }
 
   /**
+   * A call carrying a 2 MB image runs the tool, and is decided on, with the
+   * full input: only what is published is shortened, by the approval service.
+   */
+  @Test
+  void call_imageArgumentReachesTheToolAndTheGrantDecisionWhole() {// NOSONAR
+    String image = "data:image/png;base64," + "A".repeat(2_796_203);
+    String input = "{\"image_base64\":\"" + image + "\"}";
+    when(mcpServerToolService.getToolDefinitionByMethodName("upload")).thenReturn(new SimpleToolDefinition("upload",
+                                                                                                          "Upload",
+                                                                                                          "Uploads an image",
+                                                                                                          "{\"type\":\"object\",\"properties\":{\"imageBase64\":{\"type\":\"string\"}}}",
+                                                                                                          true,
+                                                                                                          false,
+                                                                                                          null));
+    lenient().when(mcpServerToolService.isAllowedTool(eq("upload"), any())).thenReturn(true);
+    lenient().when(mcpServerToolService.isRequireApproval(eq("upload"), any())).thenReturn(true);
+    ToolCallback uploadCallback = new McpToolCallbackProviderService(applicationContext,
+                                                                     mcpServerToolService,
+                                                                     mcpToolApprovalService,
+                                                                     userAcl,
+                                                                     List.of(new UploadToolPlugin()),
+                                                                     mcpToolGrantService,
+                                                                     new McpToolSpaceScopeService(spaceScopeResolvers)).getToolCallbacks()[0];
+    bindRequest(TOOL_CONTEXT_ID, CONVERSATION_ID);
+    when(mcpToolApprovalService.requestApproval(any(), any(), any(), any(), any(), any(), any(), anyBoolean(), any())).thenReturn(true);
+
+    String output = uploadCallback.call(input);
+
+    assertEquals("\"received " + image.length() + "\"", output);
+    ArgumentCaptor<McpToolGrantRequest> grantRequest = ArgumentCaptor.forClass(McpToolGrantRequest.class);
+    @SuppressWarnings("unchecked")
+    ArgumentCaptor<Map<String, Object>> arguments = ArgumentCaptor.forClass(Map.class);
+    verify(mcpToolGrantService).findApplicableGrant(grantRequest.capture(), arguments.capture());
+    assertEquals(input, grantRequest.getValue().toolInput());
+    assertEquals(Map.of("imageBase64", image), arguments.getValue());
+    verify(mcpToolApprovalService).requestApproval(any(), any(), any(), eq("upload"), eq(input), any(), any(), anyBoolean(), any());
+  }
+
+  /**
    * A call whose model set an argument to null runs, and the tool receives
    * the null. Mutant: the arguments merged with a collector that rejects a
    * null value, which fails the call.
@@ -1007,6 +1046,14 @@ class McpToolCallbackProviderServiceTest {
     request.addHeader(TOOL_CONTEXT_CONVERSATION_ID_PARAM, conversationId);
     RequestContextHolder.setRequestAttributes(new ServletRequestAttributes(request));
     return request;
+  }
+
+  public static class UploadToolPlugin implements McpToolPlugin {
+
+    public String upload(String imageBase64) {
+      return "received " + imageBase64.length();
+    }
+
   }
 
   public static class GreetingToolPlugin implements McpToolPlugin {
