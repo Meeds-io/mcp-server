@@ -86,8 +86,10 @@ class CommentSpaceScopeResolverTest {
   /**
    * A comment on a user stream's activity, a comment whose parent is missing,
    * is itself a comment or isn't named, a missing comment and a failing
-   * lookup belong to no space. Mutants: the parent's comment or space check
-   * removed; the exception let through.
+   * lookup belong to no space. Mutants: the parent's comment check removed;
+   * the exception let through. Removing the parent's space check is an
+   * equivalent mutant: the number conversion then throws, and the catch
+   * answers null the same way.
    */
   @Test
   void otherCommentsBelongToNoSpace() {
