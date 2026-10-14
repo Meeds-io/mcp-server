@@ -22,6 +22,7 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNull;
+import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static io.meeds.mcp.server.util.McpToolUtils.ARGUMENTS_TOO_LARGE_NOTE;
 import static io.meeds.mcp.server.util.McpToolUtils.MAX_PUBLISHED_INPUT_LENGTH;
@@ -581,8 +582,8 @@ class McpToolUtilsTest {
 
   /**
    * A short input whose argument name is written with a unicode escape, so
-   * that its text holds no {@code base64}, is redacted too. Mutant: the text shortcut taken on a short input without
-   * looking for an escape.
+   * that its text holds no {@code base64}, is redacted too. Mutant: a text
+   * pre-check that skips parsing a short input without {@code base64}.
    */
   @Test
   void redactBase64FindsAnEscapedKeyOnAShortInput() {
@@ -594,8 +595,9 @@ class McpToolUtilsTest {
   /**
    * An image argument spelled as the tool binds it, {@code imageBase64}, or
    * as {@code image_Base64}, is redacted on a short input too: both bind to
-   * the tool's {@code imageBase64}. Mutants: the text shortcut case
-   * sensitive; the raw name matched instead of the bound one.
+   * the tool's {@code imageBase64}. Mutants: a case-sensitive text pre-check
+   * that skips parsing a short input; the raw name matched instead of the
+   * bound one.
    */
   @Test
   void redactBase64FindsACamelCaseImageArgument() {
@@ -607,10 +609,40 @@ class McpToolUtilsTest {
   }
 
   /**
+   * A short input whose argument name binds to {@code imageBase64} or
+   * {@code base64} only once the binding drops an underscore before a digit
+   * ({@code image_base_64}, {@code base_64}) is redacted too, since every input
+   * is parsed. Mutant: a text pre-check that skips parsing a short input whose
+   * lower-cased text holds no {@code base64}.
+   */
+  @Test
+  void redactBase64FindsANameThatBindsThroughAnUnderscoreBeforeADigit() {
+    String image = "{\"image_base_64\":\"" + "A".repeat(4_000) + "\"}";
+    String file = "{\"base_64\":\"" + "A".repeat(4_000) + "\"}";
+
+    assertEquals("{\"image_base_64\":\"[image, 3 KB]\"}", redactBase64ForPublication(image));
+    assertEquals("{\"base_64\":\"[file, 3 KB]\"}", redactBase64ForPublication(file));
+  }
+
+  /**
+   * A short input with no base64 argument is returned as the caller wrote it,
+   * never re-serialised, and a short input that is not JSON is returned as
+   * is.
+   */
+  @Test
+  void redactBase64LeavesAShortInputWithoutBase64ArgumentUnchanged() {
+    String input = "{ \"title\" : \"Weekly\",  \"ratio\": 1.10 }";
+    String notJson = "not a json { input";
+
+    assertSame(input, redactBase64ForPublication(input));
+    assertSame(notJson, redactBase64ForPublication(notJson));
+  }
+
+  /**
    * A top-level string argument named exactly {@code base64}, as the document
    * tools name their file, becomes a file placeholder, short or long, while a
    * nested one or a longer name containing it stays. Mutants: the exact name
-   * not matched; the text shortcut keyed on the image suffix only.
+   * not matched; a text pre-check keyed on the image suffix only.
    */
   @Test
   void redactBase64ReplacesTheFileArgumentWithItsDecodedSize() {
