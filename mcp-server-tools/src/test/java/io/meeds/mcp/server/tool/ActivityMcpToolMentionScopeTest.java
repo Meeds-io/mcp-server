@@ -56,17 +56,17 @@ import io.meeds.mcp.server.model.ActingIdentity;
 import io.meeds.mcp.server.util.McpToolUtils;
 
 /**
- * Pins the mention check of the activity tools whose text is notified as
- * mentions: in a call limited to a space, a post, an image post, a comment or
- * an image comment that mentions a user who isn't a member of that space, or a
- * post edit that adds a mention of one, is refused before anything is written or staged, and so is one
- * that mentions someone when the call's identity can't be read. A call that
- * isn't limited, or a text that mentions no one, goes on to the tool's own
- * steps, which these tests stop at a missing object (a 404) to show the check
- * let it through. Plain mocks, no Spring/Kernel context: {@code MentionUtils}
- * is stubbed with a plain {@code @username} parser, since the real one
- * resolves each user through the container, which other tests of this module
- * start; the tool only consumes the parsed names.
+ * Pins the mention check of the activity tools whose text names people: in a
+ * call limited to a space, a post, an image post, a post edit, a comment or an
+ * image comment that mentions a user who is neither a member nor a super
+ * manager of that space is refused before anything is written or staged, and
+ * so is one that mentions someone when the call's identity can't be read. A
+ * call that isn't limited, or a text that mentions no one, goes on to the
+ * tool's own steps, which these tests stop at a missing object (a 404) to show
+ * the check let it through. Plain mocks, no Spring/Kernel context: {@code
+ * MentionUtils} is stubbed with a plain {@code @username} parser, since the
+ * real one resolves each user through the container, which other tests of this
+ * module start; the tool only consumes the parsed names.
  */
 class ActivityMcpToolMentionScopeTest {
 
@@ -218,22 +218,41 @@ class ActivityMcpToolMentionScopeTest {
   }
 
   /**
-   * In a call limited to a space, a post edit is checked on the mentions it
-   * adds, the ones social notifies: keeping a mention of an outsider the post
-   * already carried updates the post, adding one is refused.
-   * Mutants: the edit checked on every mention it carries, or on none.
+   * In a call limited to a space, a post edit is checked on every user its new
+   * text mentions, like a new post: a mention of an outsider is refused even
+   * when the stored text already carried it, and nothing is updated.
+   * Mutant: the edit checked only on the mentions its text adds.
    */
   @Test
-  void aPostEditOfACallLimitedToASpaceIsCheckedOnTheMentionsItAdds() {
+  void aPostEditOfACallLimitedToASpaceIsCheckedOnEveryMention() {
     scopeSpaceId = SCOPE_SPACE_ID;
     when(activity.getTitle()).thenReturn("<p>Hello @john</p>");
 
-    updateQuietly("Hello @john typo fixed");
-    verify(activityManager).updateActivity(activity, true);
+    assertThrows(IllegalAccessException.class, () -> tool.updateActivity(ACTIVITY_ID, "Hello @john typo fixed", null));
 
-    when(activity.getTitle()).thenReturn("<p>Hello</p>");
-    assertThrows(IllegalAccessException.class, () -> tool.updateActivity(ACTIVITY_ID, "Hello @john", null));
-    verify(activityManager, times(1)).updateActivity(any(), anyBoolean());
+    verify(activityManager, never()).updateActivity(any(), anyBoolean());
+  }
+
+  /**
+   * A super manager of the space the call is limited to counts as one of its
+   * people, as for the platform's own space rules: a post, an edit or a
+   * comment that mentions one goes on, though they aren't a member.
+   * Mutant: the super-manager clause removed.
+   *
+   * @throws Exception when the edit fails after the update, which is not the
+   *           case under test
+   */
+  @Test
+  void aSuperManagerOfTheSpaceMayBeMentioned() throws Exception {
+    scopeSpaceId = SCOPE_SPACE_ID;
+    when(spaceService.isMember(scopeSpace, "sam")).thenReturn(false);
+    when(spaceService.isSuperManager(scopeSpace, "sam")).thenReturn(true);
+
+    assertThrows(ObjectNotFoundException.class, () -> tool.createActivity(POST_SPACE_ID, "Please check @sam", null));
+    assertThrows(ObjectNotFoundException.class, () -> tool.createActivityComment(MISSING_ACTIVITY, "Please check @sam", null));
+    updateQuietly("Please check @sam");
+
+    verify(activityManager).updateActivity(activity, true);
   }
 
   /**
