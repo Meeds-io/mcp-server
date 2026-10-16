@@ -31,10 +31,6 @@ import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
-import java.util.LinkedHashSet;
-import java.util.Set;
-import java.util.regex.Matcher;
-import java.util.regex.Pattern;
 
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
@@ -44,8 +40,8 @@ import org.springframework.test.util.ReflectionTestUtils;
 
 import org.exoplatform.commons.exception.ObjectNotFoundException;
 import org.exoplatform.services.security.ConversationState;
-import org.exoplatform.services.security.Identity;
 import org.exoplatform.social.core.activity.model.ExoSocialActivity;
+import org.exoplatform.social.core.identity.model.Identity;
 import org.exoplatform.social.core.manager.ActivityManager;
 import org.exoplatform.social.core.manager.IdentityManager;
 import org.exoplatform.social.core.space.model.Space;
@@ -63,10 +59,11 @@ import io.meeds.mcp.server.util.McpToolUtils;
  * so is one that mentions someone when the call's identity can't be read. A
  * call that isn't limited, or a text that mentions no one, goes on to the
  * tool's own steps, which these tests stop at a missing object (a 404) to show
- * the check let it through. Plain mocks, no Spring/Kernel context: {@code
- * MentionUtils} is stubbed with a plain {@code @username} parser, since the
- * real one resolves each user through the container, which other tests of this
- * module start; the tool only consumes the parsed names.
+ * the check let it through. Plain mocks, no Spring/Kernel context: the real
+ * {@code MentionUtils} parses the texts, its user lookup given a mocked
+ * {@code IdentityManager} that knows the enabled users of these tests, and
+ * reset after each test so the container tests of this module look theirs up
+ * again.
  */
 class ActivityMcpToolMentionScopeTest {
 
@@ -84,7 +81,6 @@ class ActivityMcpToolMentionScopeTest {
 
   private static final String     NO_MENTION        = "Please check";
 
-  private static final Pattern    MENTION           = Pattern.compile("@([A-Za-z0-9_.-]*[A-Za-z0-9_])");
 
   private final ActivityManager   activityManager   = mock(ActivityManager.class);
 
@@ -100,7 +96,7 @@ class ActivityMcpToolMentionScopeTest {
 
   private boolean                 scopeUnreadable;
 
-  private MockedStatic<MentionUtils> mentionUtils;
+  private final IdentityManager   mentionIdentityManager = mock(IdentityManager.class);
 
   private final ActivityMcpTool   tool              = new ActivityMcpTool() {
                                                       @Override
@@ -114,12 +110,16 @@ class ActivityMcpToolMentionScopeTest {
 
   @BeforeEach
   void setUp() {
-    mentionUtils = mockStatic(MentionUtils.class);
-    mentionUtils.when(() -> MentionUtils.getMentionedUsernames(any())).thenAnswer(invocation -> mentions(invocation.getArgument(0)));
+    for (String login : new String[] { "mary", "paul", "john", "sam" }) {
+      Identity identity = mock(Identity.class);
+      when(identity.isEnable()).thenReturn(true);
+      when(mentionIdentityManager.getOrCreateUserIdentity(login)).thenReturn(identity);
+    }
+    ReflectionTestUtils.setField(MentionUtils.class, "identityManager", mentionIdentityManager);
     ReflectionTestUtils.setField(tool, "activityManager", activityManager);
     ReflectionTestUtils.setField(tool, "identityManager", identityManager);
     ReflectionTestUtils.setField(tool, "spaceService", spaceService);
-    ConversationState.setCurrent(new ConversationState(new Identity("root")));
+    ConversationState.setCurrent(new ConversationState(new org.exoplatform.services.security.Identity("root")));
     when(spaceService.getSpaceById(SCOPE_SPACE_ID)).thenReturn(scopeSpace);
     when(spaceService.isMember(scopeSpace, "mary")).thenReturn(true);
     when(spaceService.isMember(scopeSpace, "paul")).thenReturn(true);
@@ -131,23 +131,8 @@ class ActivityMcpToolMentionScopeTest {
 
   @AfterEach
   void tearDown() {
-    mentionUtils.close();
+    ReflectionTestUtils.setField(MentionUtils.class, "identityManager", null);
     ConversationState.setCurrent(null);
-  }
-
-  /**
-   * @param text a text, may be null
-   * @return the logins it mentions as {@code @login}
-   */
-  private static Set<String> mentions(String text) {
-    Set<String> logins = new LinkedHashSet<>();
-    if (text != null) {
-      Matcher matcher = MENTION.matcher(text);
-      while (matcher.find()) {
-        logins.add(matcher.group(1));
-      }
-    }
-    return logins;
   }
 
   /**
@@ -253,6 +238,25 @@ class ActivityMcpToolMentionScopeTest {
     updateQuietly("Please check @sam");
 
     verify(activityManager).updateActivity(activity, true);
+  }
+
+  /**
+   * A role mention such as {@code @member:<space identity id>} is not a user:
+   * the real parser keeps only enabled users, so a post edit naming the
+   * space's members by role goes on in a call limited to that space.
+   * Mutant: the role mention taken for a user (an outsider).
+   *
+   * @throws Exception when the edit fails after the update, which is not the
+   *           case under test
+   */
+  @Test
+  void aRoleMentionIsNotAUser() throws Exception {
+    scopeSpaceId = SCOPE_SPACE_ID;
+
+    updateQuietly("Please check @member:12");
+
+    verify(activityManager).updateActivity(activity, true);
+    verify(spaceService, never()).getSpaceById(SCOPE_SPACE_ID);
   }
 
   /**
