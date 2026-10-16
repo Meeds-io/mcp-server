@@ -31,6 +31,11 @@ import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
+import java.util.LinkedHashSet;
+import java.util.Set;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
+
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -45,6 +50,7 @@ import org.exoplatform.social.core.manager.ActivityManager;
 import org.exoplatform.social.core.manager.IdentityManager;
 import org.exoplatform.social.core.space.model.Space;
 import org.exoplatform.social.core.space.spi.SpaceService;
+import org.exoplatform.social.core.utils.MentionUtils;
 
 import io.meeds.mcp.server.model.ActingIdentity;
 import io.meeds.mcp.server.util.McpToolUtils;
@@ -57,8 +63,10 @@ import io.meeds.mcp.server.util.McpToolUtils;
  * that mentions someone when the call's identity can't be read. A call that
  * isn't limited, or a text that mentions no one, goes on to the tool's own
  * steps, which these tests stop at a missing object (a 404) to show the check
- * let it through. Plain mocks, no Spring/Kernel context; the real
- * {@code MentionUtils} parses the text, as the mention notifications do.
+ * let it through. Plain mocks, no Spring/Kernel context: {@code MentionUtils}
+ * is stubbed with a plain {@code @username} parser, since the real one
+ * resolves each user through the container, which other tests of this module
+ * start; the tool only consumes the parsed names.
  */
 class ActivityMcpToolMentionScopeTest {
 
@@ -76,6 +84,8 @@ class ActivityMcpToolMentionScopeTest {
 
   private static final String     NO_MENTION        = "Please check";
 
+  private static final Pattern    MENTION           = Pattern.compile("@([A-Za-z0-9_.-]*[A-Za-z0-9_])");
+
   private final ActivityManager   activityManager   = mock(ActivityManager.class);
 
   private final IdentityManager   identityManager   = mock(IdentityManager.class);
@@ -90,6 +100,8 @@ class ActivityMcpToolMentionScopeTest {
 
   private boolean                 scopeUnreadable;
 
+  private MockedStatic<MentionUtils> mentionUtils;
+
   private final ActivityMcpTool   tool              = new ActivityMcpTool() {
                                                       @Override
                                                       protected Long getScopeSpaceId() {
@@ -102,6 +114,8 @@ class ActivityMcpToolMentionScopeTest {
 
   @BeforeEach
   void setUp() {
+    mentionUtils = mockStatic(MentionUtils.class);
+    mentionUtils.when(() -> MentionUtils.getMentionedUsernames(any())).thenAnswer(invocation -> mentions(invocation.getArgument(0)));
     ReflectionTestUtils.setField(tool, "activityManager", activityManager);
     ReflectionTestUtils.setField(tool, "identityManager", identityManager);
     ReflectionTestUtils.setField(tool, "spaceService", spaceService);
@@ -117,7 +131,23 @@ class ActivityMcpToolMentionScopeTest {
 
   @AfterEach
   void tearDown() {
+    mentionUtils.close();
     ConversationState.setCurrent(null);
+  }
+
+  /**
+   * @param text a text, may be null
+   * @return the logins it mentions as {@code @login}
+   */
+  private static Set<String> mentions(String text) {
+    Set<String> logins = new LinkedHashSet<>();
+    if (text != null) {
+      Matcher matcher = MENTION.matcher(text);
+      while (matcher.find()) {
+        logins.add(matcher.group(1));
+      }
+    }
+    return logins;
   }
 
   /**
