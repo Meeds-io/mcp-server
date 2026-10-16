@@ -522,6 +522,23 @@ public class ActivityMcpTool implements McpToolPlugin {
   }
 
   /**
+   * @param previousTitle the stored text of an activity
+   * @param htmlContent   its new text, in HTML or Markdown, or blank to keep it
+   * @return the users the new text mentions and the stored one doesn't, both
+   *         read with the parser the mention notifications use; none when the
+   *         text is kept
+   */
+  private static Collection<String> addedMentions(String previousTitle, String htmlContent) {
+    Collection<String> mentioned = mentionedUsers(htmlContent);
+    if (mentioned.isEmpty()) {
+      return mentioned;
+    }
+    java.util.Set<String> added = new java.util.LinkedHashSet<>(mentioned);
+    added.removeAll(MentionUtils.getMentionedUsernames(previousTitle));
+    return added;
+  }
+
+  /**
    * @return the space the current call is limited to, null when it isn't
    * @throws IllegalStateException when the call's identity can't be read
    */
@@ -586,8 +603,9 @@ public class ActivityMcpTool implements McpToolPlugin {
   /**
    * Changes the text of an activity the current user can edit, or the
    * publication time of one still scheduled. In a call limited to a space,
-   * every user the new text mentions must be a member of that space, since
-   * each mention is notified.
+   * every user the new text mentions and the stored one didn't must be a
+   * member of that space, since social notifies the mentions an edit adds,
+   * not the ones the activity already carried.
    *
    * @param activityId           the activity
    * @param htmlContent          the new text, in HTML or Markdown, or blank to
@@ -596,8 +614,8 @@ public class ActivityMcpTool implements McpToolPlugin {
    *                             activity, or blank to keep it
    * @return the updated activity
    * @throws IllegalAccessException  when the user can't edit the activity, or
-   *                                 the new text mentions a user outside the
-   *                                 space the call is limited to
+   *                                 the new text adds a mention of a user
+   *                                 outside the space the call is limited to
    * @throws ObjectNotFoundException when the activity doesn't exist
    */
   public ActivityModel updateActivity(long activityId,
@@ -613,7 +631,8 @@ public class ActivityMcpTool implements McpToolPlugin {
     } else if (!activityManager.isActivityEditable(activity, authenticatedUserIdentity)) {
       throw new IllegalAccessException("Activity with id '%s' can't be edited by current user".formatted(activityId));
     }
-    checkScopeSpaceMembers(() -> mentionedUsers(htmlContent));
+    String previousTitle = activity.getTitle();
+    checkScopeSpaceMembers(() -> addedMentions(previousTitle, htmlContent));
     Long scheduledTime = parsePublicationStartTime(publicationStartTime);
     if (scheduledTime != null) {
       if (activity.getPublicationStartTime() == null) {
