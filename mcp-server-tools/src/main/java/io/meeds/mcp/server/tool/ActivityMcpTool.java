@@ -28,6 +28,7 @@ import java.time.OffsetDateTime;
 import java.time.ZoneId;
 import java.time.format.DateTimeParseException;
 import java.util.ArrayList;
+import java.util.Collection;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.Iterator;
@@ -35,6 +36,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Map.Entry;
 import java.util.Objects;
+import java.util.function.Supplier;
 import java.util.stream.Stream;
 
 import org.apache.commons.collections4.CollectionUtils;
@@ -69,7 +71,9 @@ import org.exoplatform.social.core.processor.I18NActivityProcessor;
 import org.exoplatform.social.core.profileproperty.ProfilePropertyService;
 import org.exoplatform.social.core.space.model.Space;
 import org.exoplatform.social.core.space.spi.SpaceService;
+import org.exoplatform.social.core.utils.MentionUtils;
 
+import io.meeds.mcp.server.model.ActingIdentity;
 import io.meeds.mcp.server.plugin.McpToolPlugin;
 import io.meeds.mcp.server.tool.model.ActivityCommentModel;
 import io.meeds.mcp.server.tool.model.ActivityModel;
@@ -107,6 +111,12 @@ public class ActivityMcpTool implements McpToolPlugin {
 
   /** Template parameter holding the current text of an edited comment. */
   private static final String     COMMENT_TEMPLATE_PARAM   = "comment";
+
+  private static final String     NOT_SCOPE_SPACE_MEMBER   =
+                                                         "User '%s' isn't a member of the space this call is limited to, so the text can't mention them";
+
+  private static final String     SCOPE_UNREADABLE         =
+                                                         "The space this call is limited to can't be read, so the text can't mention a user";
 
   @Autowired
   private ActivityManager         activityManager;
@@ -322,9 +332,45 @@ public class ActivityMcpTool implements McpToolPlugin {
     }
   }
 
+  /**
+   * Posts an activity as the current user, in a space or in the user's stream.
+   * In a call limited to a space, every user the text mentions must be a
+   * member of that space, since each mention is notified.
+   *
+   * @param spaceId              the space to post in, or null for the user's
+   *                             stream
+   * @param htmlContent          the post, in HTML or Markdown
+   * @param publicationStartTime the scheduled publication time, or null to post
+   *                             now
+   * @return the posted activity
+   * @throws IllegalAccessException  when the user can't post there, or the text
+   *                                 mentions a user outside the space the call
+   *                                 is limited to
+   * @throws ObjectNotFoundException when the space doesn't exist
+   */
   public ActivityModel createActivity(Long spaceId,
                                       String htmlContent,
                                       String publicationStartTime) throws IllegalAccessException, ObjectNotFoundException {
+    checkScopeSpaceMembers(() -> mentionedUsers(htmlContent));
+    return postActivity(spaceId, htmlContent, publicationStartTime);
+  }
+
+  /**
+   * Posts an activity as the current user, without the mention check its
+   * callers have already run.
+   *
+   * @param spaceId              the space to post in, or null for the user's
+   *                             stream
+   * @param htmlContent          the post, in HTML or Markdown
+   * @param publicationStartTime the scheduled publication time, or null to post
+   *                             now
+   * @return the posted activity
+   * @throws IllegalAccessException  when the user can't post there
+   * @throws ObjectNotFoundException when the space doesn't exist
+   */
+  private ActivityModel postActivity(Long spaceId,
+                                     String htmlContent,
+                                     String publicationStartTime) throws IllegalAccessException, ObjectNotFoundException {
     if (StringUtils.isBlank(htmlContent)) {
       throw new IllegalArgumentException("Activity 'content' attribute is mandatory");
     }
@@ -364,6 +410,28 @@ public class ActivityMcpTool implements McpToolPlugin {
     return toActivityModel(activity.getId());
   }
 
+  /**
+   * Posts an activity carrying an image, as the current user; when the image
+   * can't be attached the post is deleted again. In a call limited to a space,
+   * every user the text mentions must be a member of that space, checked
+   * before the image is staged.
+   *
+   * @param spaceId              the space to post in, or null for the user's
+   *                             stream
+   * @param htmlContent          the post, in HTML or Markdown
+   * @param imageUrl             URL of the image, may be null
+   * @param imageBase64          base64 content of the image, may be null
+   * @param attachmentObjectType type of the object an existing attachment is
+   *                             copied from, may be null
+   * @param attachmentObjectId   identifier of the object an existing attachment
+   *                             is copied from, may be null
+   * @param altText              alternative text of the image, may be null
+   * @return the posted activity
+   * @throws IllegalAccessException  when the user can't post there, or the text
+   *                                 mentions a user outside the space the call
+   *                                 is limited to
+   * @throws ObjectNotFoundException when the space doesn't exist
+   */
   public ActivityModel createActivityWithImage(Long spaceId,
                                                String htmlContent,
                                                String imageUrl,
@@ -374,8 +442,9 @@ public class ActivityMcpTool implements McpToolPlugin {
     if (StringUtils.isBlank(imageUrl) && StringUtils.isBlank(imageBase64) && StringUtils.isBlank(attachmentObjectId)) {
       throw new IllegalArgumentException("Provide an image via image_url, image_base64 or attachment_object_id. To post without an image, use create_activity.");
     }
+    checkScopeSpaceMembers(() -> mentionedUsers(htmlContent));
     String uploadId = resolveImageUploadId(imageUrl, imageBase64, attachmentObjectType, attachmentObjectId);
-    ActivityModel model = createActivity(spaceId, htmlContent, null);
+    ActivityModel model = postActivity(spaceId, htmlContent, null);
     try {
       attachUploadToObject(ACTIVITY_OBJECT_TYPE, String.valueOf(model.id()), uploadId, altText);
     } catch (RuntimeException e) {
@@ -442,6 +511,64 @@ public class ActivityMcpTool implements McpToolPlugin {
     }
   }
 
+  /**
+   * @param htmlContent a post or a comment, in HTML or Markdown
+   * @return the users the text mentions, read from the HTML it is stored as,
+   *         with the parser the mention notifications use; none for a blank
+   *         text
+   */
+  private static Collection<String> mentionedUsers(String htmlContent) {
+    return StringUtils.isBlank(htmlContent) ? List.of() : MentionUtils.getMentionedUsernames(markdownToHtml(htmlContent));
+  }
+
+  /**
+   * @return the space the current call is limited to, null when it isn't
+   * @throws IllegalStateException when the call's identity can't be read
+   */
+  protected Long getScopeSpaceId() {
+    ActingIdentity identity = McpToolUtils.getCurrentActingIdentity();
+    return identity == null ? null : identity.spaceScope();
+  }
+
+  /**
+   * Checks the users a text written in a call limited to a space mentions are
+   * members of that space. Each mention is notified, and the space scope reads
+   * the space of the post only, so a mention could otherwise reach anyone. The
+   * scope is read once, the mentions only for a limited call, and the space
+   * only when someone is mentioned. Role mentions resolve to the post's space
+   * and are not users here. A call that isn't limited is not checked; one
+   * whose identity can't be read is refused when its text mentions someone.
+   *
+   * @param people the users the text mentions, read only for a limited call
+   * @throws IllegalAccessException when the call is limited to a space one of
+   *           them isn't a member of, or its identity can't be read and the
+   *           text mentions someone
+   */
+  private void checkScopeSpaceMembers(Supplier<Collection<String>> people) throws IllegalAccessException {
+    Long spaceId;
+    try {
+      spaceId = getScopeSpaceId();
+    } catch (IllegalStateException e) {
+      if (people.get().isEmpty()) {
+        return;
+      }
+      throw new IllegalAccessException(SCOPE_UNREADABLE);
+    }
+    if (spaceId == null) {
+      return;
+    }
+    Collection<String> usernames = people.get();
+    if (usernames.isEmpty()) {
+      return;
+    }
+    Space space = spaceService.getSpaceById(spaceId);
+    for (String username : usernames) {
+      if (space == null || !spaceService.isMember(space, username)) {
+        throw new IllegalAccessException(NOT_SCOPE_SPACE_MEMBER.formatted(username));
+      }
+    }
+  }
+
   // Best-effort compensating delete used when an activity/comment was just created but its
   // image attachment then failed: without this, the post would stay live with no image and a
   // retry would create a duplicate (see create_activity_with_image / create_activity_comment_with_image).
@@ -456,6 +583,23 @@ public class ActivityMcpTool implements McpToolPlugin {
     }
   }
 
+  /**
+   * Changes the text of an activity the current user can edit, or the
+   * publication time of one still scheduled. In a call limited to a space,
+   * every user the new text mentions must be a member of that space, since
+   * each mention is notified.
+   *
+   * @param activityId           the activity
+   * @param htmlContent          the new text, in HTML or Markdown, or blank to
+   *                             keep it
+   * @param publicationStartTime the new publication time of a scheduled
+   *                             activity, or blank to keep it
+   * @return the updated activity
+   * @throws IllegalAccessException  when the user can't edit the activity, or
+   *                                 the new text mentions a user outside the
+   *                                 space the call is limited to
+   * @throws ObjectNotFoundException when the activity doesn't exist
+   */
   public ActivityModel updateActivity(long activityId,
                                       String htmlContent,
                                       String publicationStartTime) throws IllegalAccessException, ObjectNotFoundException {
@@ -469,6 +613,7 @@ public class ActivityMcpTool implements McpToolPlugin {
     } else if (!activityManager.isActivityEditable(activity, authenticatedUserIdentity)) {
       throw new IllegalAccessException("Activity with id '%s' can't be edited by current user".formatted(activityId));
     }
+    checkScopeSpaceMembers(() -> mentionedUsers(htmlContent));
     Long scheduledTime = parsePublicationStartTime(publicationStartTime);
     if (scheduledTime != null) {
       if (activity.getPublicationStartTime() == null) {
@@ -666,6 +811,36 @@ public class ActivityMcpTool implements McpToolPlugin {
    * "already HTML" ({@code <p>}, {@code <ul>}, {@code <li>}, {@code <div>},
    * {@code <img }). Any other text is rendered as CommonMark, which keeps raw
    * HTML as written and leaves Markdown inside a raw HTML block unrendered.
+   * In a call limited to a space, every user the rendered comment mentions
+   * must be a member of that space, since each mention is notified: the
+   * mentions are read from the HTML that is saved, as Social reads them, so
+   * Markdown around a mention ({@code **@user**}) cannot hide it from the
+   * check.
+   *
+   * @param activityId      identifier of the activity to comment on
+   * @param comment         comment text, Markdown or HTML
+   * @param parentCommentId identifier of the comment to reply to, or null for a
+   *                        top-level comment
+   * @return the created comment
+   * @throws IllegalAccessException  when the activity isn't viewable by the
+   *                                 current user, or the comment mentions a
+   *                                 user outside the space the call is
+   *                                 limited to
+   * @throws ObjectNotFoundException when the activity or the parent comment
+   *                                 doesn't exist
+   */
+  public ActivityCommentModel createActivityComment(long activityId,
+                                                    String comment,
+                                                    Long parentCommentId) throws IllegalAccessException,
+                                                                          ObjectNotFoundException {
+    checkScopeSpaceMembers(() -> mentionedUsers(comment));
+    return saveActivityComment(activityId, comment, parentCommentId);
+  }
+
+  /**
+   * Posts a comment, or a threaded reply, as the current user, without the
+   * mention check its callers have already run. The text is rendered from
+   * Markdown to HTML as {@link #createActivityComment} describes.
    *
    * @param activityId      identifier of the activity to comment on
    * @param comment         comment text, Markdown or HTML
@@ -677,10 +852,10 @@ public class ActivityMcpTool implements McpToolPlugin {
    * @throws ObjectNotFoundException when the activity or the parent comment
    *                                 doesn't exist
    */
-  public ActivityCommentModel createActivityComment(long activityId,
-                                                    String comment,
-                                                    Long parentCommentId) throws IllegalAccessException,
-                                                                          ObjectNotFoundException {
+  private ActivityCommentModel saveActivityComment(long activityId,
+                                                   String comment,
+                                                   Long parentCommentId) throws IllegalAccessException,
+                                                                         ObjectNotFoundException {
     org.exoplatform.services.security.Identity authenticatedUserIdentity = getCurrentUserAclIdentity();
     ExoSocialActivity activity = activityManager.getActivity(String.valueOf(activityId));
     if (activity == null) {
@@ -758,7 +933,10 @@ public class ActivityMcpTool implements McpToolPlugin {
    * @param altText              alternative text of the image, may be null
    * @return the created comment
    * @throws IllegalAccessException  when the activity isn't viewable by the
-   *                                 current user
+   *                                 current user, or the comment mentions a
+   *                                 user outside the space the call is
+   *                                 limited to (checked before the image is
+   *                                 staged)
    * @throws ObjectNotFoundException when the activity doesn't exist
    */
   public ActivityCommentModel createActivityCommentWithImage(long activityId,
@@ -772,8 +950,9 @@ public class ActivityMcpTool implements McpToolPlugin {
     if (StringUtils.isBlank(imageUrl) && StringUtils.isBlank(imageBase64) && StringUtils.isBlank(attachmentObjectId)) {
       throw new IllegalArgumentException("Provide an image via image_url, image_base64 or attachment_object_id. To comment without an image, use create_activity_comment.");
     }
+    checkScopeSpaceMembers(() -> mentionedUsers(comment));
     String uploadId = resolveImageUploadId(imageUrl, imageBase64, attachmentObjectType, attachmentObjectId);
-    ActivityCommentModel model = createActivityComment(activityId, comment, null);
+    ActivityCommentModel model = saveActivityComment(activityId, comment, null);
     // a comment is itself an activity; its attachment uses object type "activity" with the
     // comment's *prefixed* id ("comment<id>"), which is the metadata object id the comment renders from
     String commentActivityId = COMMENT_ID_PREFIX + model.id();
