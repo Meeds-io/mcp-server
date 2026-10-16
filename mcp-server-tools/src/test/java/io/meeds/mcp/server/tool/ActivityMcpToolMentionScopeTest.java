@@ -70,7 +70,7 @@ class ActivityMcpToolMentionScopeTest {
 
   private static final long       MISSING_ACTIVITY  = 35L;
 
-  private static final String     MEMBER_MENTION    = "Please check @mary";
+  private static final String     MEMBER_MENTION    = "Please check @mary and @paul";
 
   private static final String     OUTSIDER_MENTION  = "Please check @mary and @john";
 
@@ -108,6 +108,7 @@ class ActivityMcpToolMentionScopeTest {
     ConversationState.setCurrent(new ConversationState(new Identity("root")));
     when(spaceService.getSpaceById(SCOPE_SPACE_ID)).thenReturn(scopeSpace);
     when(spaceService.isMember(scopeSpace, "mary")).thenReturn(true);
+    when(spaceService.isMember(scopeSpace, "paul")).thenReturn(true);
     when(spaceService.isMember(scopeSpace, "john")).thenReturn(false);
     when(activityManager.getActivity(String.valueOf(ACTIVITY_ID))).thenReturn(activity);
     when(activityManager.isActivityEditable(any(), any())).thenReturn(true);
@@ -163,8 +164,9 @@ class ActivityMcpToolMentionScopeTest {
    * In a call limited to a space, a text that mentions members only, or no
    * one, goes on to the tool's own steps (here the missing post space or
    * activity), the space being loaded once per call for the text that
-   * mentions someone and not at all for the one that mentions no one; a post
-   * edit with mentions of members updates the activity.
+   * mentions someone (two members here) and not at all for the one that
+   * mentions no one; a post edit with mentions of members updates the
+   * activity.
    * Mutants: the membership test inverted, the space loaded per mention or
    * for a text without mentions.
    *
@@ -183,6 +185,20 @@ class ActivityMcpToolMentionScopeTest {
 
     verify(spaceService, times(3)).getSpaceById(SCOPE_SPACE_ID);
     verify(activityManager).updateActivity(activity, true);
+  }
+
+  /**
+   * A call limited to a space that no longer exists can't mention anyone,
+   * members of no space: the text is refused.
+   * Mutant: a missing space taken as no restriction.
+   */
+  @Test
+  void aCallLimitedToAMissingSpaceMentionsNoOne() {
+    scopeSpaceId = SCOPE_SPACE_ID + 1;
+
+    assertThrows(IllegalAccessException.class, () -> tool.createActivity(POST_SPACE_ID, MEMBER_MENTION, null));
+    assertThrows(IllegalAccessException.class, () -> tool.createActivityComment(MISSING_ACTIVITY, MEMBER_MENTION, null));
+    assertThrows(ObjectNotFoundException.class, () -> tool.createActivity(POST_SPACE_ID, NO_MENTION, null));
   }
 
   /**
