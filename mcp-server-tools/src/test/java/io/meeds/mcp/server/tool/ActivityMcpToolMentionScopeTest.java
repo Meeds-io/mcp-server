@@ -51,9 +51,9 @@ import io.meeds.mcp.server.util.McpToolUtils;
 
 /**
  * Pins the mention check of the activity tools whose text is notified as
- * mentions: in a call limited to a space, a post, an image post, a post edit,
- * a comment or an image comment that mentions a user who isn't a member of
- * that space is refused before anything is written or staged, and so is one
+ * mentions: in a call limited to a space, a post, an image post, a comment or
+ * an image comment that mentions a user who isn't a member of that space, or a
+ * post edit that adds a mention of one, is refused before anything is written or staged, and so is one
  * that mentions someone when the call's identity can't be read. A call that
  * isn't limited, or a text that mentions no one, goes on to the tool's own
  * steps, which these tests stop at a missing object (a 404) to show the check
@@ -185,6 +185,25 @@ class ActivityMcpToolMentionScopeTest {
 
     verify(spaceService, times(3)).getSpaceById(SCOPE_SPACE_ID);
     verify(activityManager).updateActivity(activity, true);
+  }
+
+  /**
+   * In a call limited to a space, a post edit is checked on the mentions it
+   * adds, the ones social notifies: keeping a mention of an outsider the post
+   * already carried updates the post, adding one is refused.
+   * Mutants: the edit checked on every mention it carries, or on none.
+   */
+  @Test
+  void aPostEditOfACallLimitedToASpaceIsCheckedOnTheMentionsItAdds() {
+    scopeSpaceId = SCOPE_SPACE_ID;
+    when(activity.getTitle()).thenReturn("<p>Hello @john</p>");
+
+    updateQuietly("Hello @john typo fixed");
+    verify(activityManager).updateActivity(activity, true);
+
+    when(activity.getTitle()).thenReturn("<p>Hello</p>");
+    assertThrows(IllegalAccessException.class, () -> tool.updateActivity(ACTIVITY_ID, "Hello @john", null));
+    verify(activityManager, times(1)).updateActivity(any(), anyBoolean());
   }
 
   /**
