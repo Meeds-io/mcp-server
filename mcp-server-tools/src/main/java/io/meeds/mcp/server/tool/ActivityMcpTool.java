@@ -334,8 +334,9 @@ public class ActivityMcpTool implements McpToolPlugin {
 
   /**
    * Posts an activity as the current user, in a space or in the user's stream.
-   * In a call limited to a space, every user the text mentions must be a
-   * member of that space, since each mention is notified.
+   * In a call limited to a space, a post must not name anyone outside that
+   * space: every user the text mentions must be a member or a super manager
+   * of it.
    *
    * @param spaceId              the space to post in, or null for the user's
    *                             stream
@@ -522,23 +523,6 @@ public class ActivityMcpTool implements McpToolPlugin {
   }
 
   /**
-   * @param previousTitle the stored text of an activity
-   * @param htmlContent   its new text, in HTML or Markdown, or blank to keep it
-   * @return the users the new text mentions and the stored one doesn't, both
-   *         read with the parser the mention notifications use; none when the
-   *         text is kept
-   */
-  private static Collection<String> addedMentions(String previousTitle, String htmlContent) {
-    Collection<String> mentioned = mentionedUsers(htmlContent);
-    if (mentioned.isEmpty()) {
-      return mentioned;
-    }
-    java.util.Set<String> added = new java.util.LinkedHashSet<>(mentioned);
-    added.removeAll(MentionUtils.getMentionedUsernames(previousTitle));
-    return added;
-  }
-
-  /**
    * @return the space the current call is limited to, null when it isn't
    * @throws IllegalStateException when the call's identity can't be read
    */
@@ -549,17 +533,18 @@ public class ActivityMcpTool implements McpToolPlugin {
 
   /**
    * Checks the users a text written in a call limited to a space mentions are
-   * members of that space. Each mention is notified, and the space scope reads
-   * the space of the post only, so a mention could otherwise reach anyone. The
-   * scope is read once, the mentions only for a limited call, and the space
-   * only when someone is mentioned. Role mentions resolve to the post's space
-   * and are not users here. A call that isn't limited is not checked; one
-   * whose identity can't be read is refused when its text mentions someone.
+   * members, or super managers, of that space: a post or a comment of such a
+   * call must not name anyone outside the space, and the space scope reads the
+   * space of the post only, not the people its text names. The scope is read
+   * once, the mentions only for a limited call, and the space only when
+   * someone is mentioned. Role mentions resolve to the post's space and are
+   * not users here. A call that isn't limited is not checked; one whose
+   * identity can't be read is refused when its text mentions someone.
    *
    * @param people the users the text mentions, read only for a limited call
    * @throws IllegalAccessException when the call is limited to a space one of
-   *           them isn't a member of, or its identity can't be read and the
-   *           text mentions someone
+   *           them is neither a member nor a super manager of, or its identity
+   *           can't be read and the text mentions someone
    */
   private void checkScopeSpaceMembers(Supplier<Collection<String>> people) throws IllegalAccessException {
     Long spaceId;
@@ -580,7 +565,7 @@ public class ActivityMcpTool implements McpToolPlugin {
     }
     Space space = spaceService.getSpaceById(spaceId);
     for (String username : usernames) {
-      if (space == null || !spaceService.isMember(space, username)) {
+      if (space == null || !(spaceService.isMember(space, username) || spaceService.isSuperManager(space, username))) {
         throw new IllegalAccessException(NOT_SCOPE_SPACE_MEMBER.formatted(username));
       }
     }
@@ -603,9 +588,8 @@ public class ActivityMcpTool implements McpToolPlugin {
   /**
    * Changes the text of an activity the current user can edit, or the
    * publication time of one still scheduled. In a call limited to a space,
-   * every user the new text mentions and the stored one didn't must be a
-   * member of that space, since social notifies the mentions an edit adds,
-   * not the ones the activity already carried.
+   * the new text must not name anyone outside that space: every user it
+   * mentions must be a member or a super manager of it.
    *
    * @param activityId           the activity
    * @param htmlContent          the new text, in HTML or Markdown, or blank to
@@ -614,8 +598,8 @@ public class ActivityMcpTool implements McpToolPlugin {
    *                             activity, or blank to keep it
    * @return the updated activity
    * @throws IllegalAccessException  when the user can't edit the activity, or
-   *                                 the new text adds a mention of a user
-   *                                 outside the space the call is limited to
+   *                                 the new text mentions a user outside the
+   *                                 space the call is limited to
    * @throws ObjectNotFoundException when the activity doesn't exist
    */
   public ActivityModel updateActivity(long activityId,
@@ -631,8 +615,7 @@ public class ActivityMcpTool implements McpToolPlugin {
     } else if (!activityManager.isActivityEditable(activity, authenticatedUserIdentity)) {
       throw new IllegalAccessException("Activity with id '%s' can't be edited by current user".formatted(activityId));
     }
-    String previousTitle = activity.getTitle();
-    checkScopeSpaceMembers(() -> addedMentions(previousTitle, htmlContent));
+    checkScopeSpaceMembers(() -> mentionedUsers(htmlContent));
     Long scheduledTime = parsePublicationStartTime(publicationStartTime);
     if (scheduledTime != null) {
       if (activity.getPublicationStartTime() == null) {
@@ -830,11 +813,11 @@ public class ActivityMcpTool implements McpToolPlugin {
    * "already HTML" ({@code <p>}, {@code <ul>}, {@code <li>}, {@code <div>},
    * {@code <img }). Any other text is rendered as CommonMark, which keeps raw
    * HTML as written and leaves Markdown inside a raw HTML block unrendered.
-   * In a call limited to a space, every user the rendered comment mentions
-   * must be a member of that space, since each mention is notified: the
-   * mentions are read from the HTML that is saved, as Social reads them, so
-   * Markdown around a mention ({@code **@user**}) cannot hide it from the
-   * check.
+   * In a call limited to a space, a comment must not name anyone outside that
+   * space: every user the rendered comment mentions must be a member or a
+   * super manager of it. The mentions are read from the HTML that is saved,
+   * as Social reads them, so Markdown around a mention ({@code **@user**})
+   * cannot hide it from the check.
    *
    * @param activityId      identifier of the activity to comment on
    * @param comment         comment text, Markdown or HTML
