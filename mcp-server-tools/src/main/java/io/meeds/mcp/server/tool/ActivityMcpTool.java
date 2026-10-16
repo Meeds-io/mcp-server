@@ -414,8 +414,8 @@ public class ActivityMcpTool implements McpToolPlugin {
   /**
    * Posts an activity carrying an image, as the current user; when the image
    * can't be attached the post is deleted again. In a call limited to a space,
-   * every user the text mentions must be a member of that space, checked
-   * before the image is staged.
+   * every user the text mentions must be a member or a super manager of that
+   * space, checked before the image is staged.
    *
    * @param spaceId              the space to post in, or null for the user's
    *                             stream
