@@ -93,7 +93,7 @@ class ActivityMcpToolCommentEditAclTest extends IntegrationTestBase {
                                                   () -> activityMcpTool.updateComment(comment.id(), "Rewritten by Mary"));
 
     assertEquals("Comment with id '%s' can't be edited by current user".formatted(comment.id()), refusal.getMessage());
-    assertEquals("Words written by John", storedTitle(comment.id()));
+    assertEquals("<p>Words written by John</p>", storedTitle(comment.id()));
   }
 
   /**
@@ -115,7 +115,7 @@ class ActivityMcpToolCommentEditAclTest extends IntegrationTestBase {
     assertNotNull(activityMcpTool.getActivityComment(comment.id()), "the manager must be able to read the comment");
 
     assertThrows(IllegalAccessException.class, () -> activityMcpTool.updateComment(comment.id(), "Rewritten by John"));
-    assertEquals("Words written by Mary", storedTitle(comment.id()));
+    assertEquals("<p>Words written by Mary</p>", storedTitle(comment.id()));
   }
 
   /**
@@ -135,7 +135,7 @@ class ActivityMcpToolCommentEditAclTest extends IntegrationTestBase {
     ActivityCommentModel updated = activityMcpTool.updateComment(comment.id(), "Second version");
 
     assertEquals(comment.id(), updated.id());
-    assertEquals("Second version", storedTitle(comment.id()));
+    assertEquals("<p>Second version</p>", storedTitle(comment.id()));
   }
 
   /**
