@@ -25,9 +25,11 @@ import static io.meeds.mcp.server.util.McpToolUtils.getClientId;
 import static io.meeds.mcp.server.util.McpToolUtils.getCurrentActingIdentity;
 import static io.meeds.mcp.server.util.McpToolUtils.getCurrentAgentNameId;
 import static io.meeds.mcp.server.util.McpToolUtils.getCurrentConversationId;
+import static io.meeds.mcp.server.util.McpToolUtils.getCurrentTurnId;
 import static io.meeds.mcp.server.util.McpToolUtils.getCurrentUserName;
 import static io.meeds.mcp.server.util.McpToolUtils.getMethodToolFieldValue;
 import static io.meeds.mcp.server.util.McpToolUtils.isCurrentCallRetry;
+import static io.meeds.mcp.server.util.McpToolUtils.redactBase64ForPublication;
 import static io.meeds.mcp.server.util.McpToolUtils.toCamelCase;
 import static io.meeds.mcp.server.util.McpToolUtils.toSnakeCase;
 
@@ -269,8 +271,12 @@ public class McpToolCallbackProviderService implements ToolCallbackProvider {
       } catch (SpaceScopeRefusedException e) {
         // a call outside the run's space is an expected refusal, not an incident
         throw e;
+      } catch (UserToolDeniedException | UserToolTimeoutException e) {
+        // the user's own answer, or no answer, to an approval card: not an incident
+        log.debug("Tool call not run, with input '{}'", redactBase64ForPublication(toolInput), e);
+        throw e;
       } catch (Exception e) {
-        log.warn("Error while call Tool with input '{}'", toolInput, e);
+        log.warn("Error while call Tool with input '{}'", redactBase64ForPublication(toolInput), e);
         throw e;
       }
     }
@@ -314,6 +320,7 @@ public class McpToolCallbackProviderService implements ToolCallbackProvider {
       Authentication authentication = SecurityContextHolder.getContext().getAuthentication();
       String id = UUID.randomUUID().toString();
       String conversationId = getCurrentConversationId();
+      String turnId = getCurrentTurnId();
       ConversationState.setCurrent(new ConversationState(userIdentity));
       UserToolExecutionBuilder executionBuilder = UserToolExecution.builder()
                                                                    .id(id)
@@ -349,7 +356,7 @@ public class McpToolCallbackProviderService implements ToolCallbackProvider {
                                                                    isCurrentCallRetry(),
                                                                    actingIdentity);
         if (alwaysAsk || mcpServerToolService.isRequireApproval(toolMethod.getName(), authentication)) {
-          approveCall(id, grantRequest, alwaysAsk, executionBuilder);
+          approveCall(id, turnId, grantRequest, alwaysAsk, executionBuilder);
         } else if (isAgentActor(actingIdentity) && mcpServerToolService.isApprovalGatedTool(toolMethod.getName())) {
           // an agent account runs an approval-gated tool only under its own
           // grants, whatever scope the internal client's token holds: a plain
@@ -362,8 +369,10 @@ public class McpToolCallbackProviderService implements ToolCallbackProvider {
         // Call the Tool
         Map<String, Object> toolArguments = extractToolArguments(toolInput);
         toolArguments = transformSnakeToCamelCaseArguments(toolArguments);
-        toolInput = jsonHelper.toJson(toolArguments);
-        String toolOutput = toolCallback.call(toolInput, toolContext);
+        // toolInput keeps the snake_case argument names the model sent, which
+        // the redaction of what is logged or explained relies on
+        String toolRunInput = jsonHelper.toJson(toolArguments);
+        String toolOutput = toolCallback.call(toolRunInput, toolContext);
         mcpToolApprovalService.traceToolExecution(executionBuilder.toolExecutionType(UserToolRequestType.TOOL_EXECUTION_FINISHED)
                                                                   .toolOutput(toolOutput)
                                                                   .completed(true)
@@ -371,7 +380,7 @@ public class McpToolCallbackProviderService implements ToolCallbackProvider {
         log.debug("Call Tool '{}#{}' with input: {}. Output: {}",
                   toolObject.getClass().getName(),
                   toolMethod.getName(),
-                  toolInput,
+                  redactBase64ForPublication(toolInput),
                   toolOutput);
         return toolOutput;
       } catch (SpaceScopeRefusedException e) {
@@ -402,7 +411,7 @@ public class McpToolCallbackProviderService implements ToolCallbackProvider {
         log.error("Error calling Tool '{}#{}' with input: {}",
                   toolObject.getClass().getName(),
                   toolMethod.getName(),
-                  toolInput,
+                  redactBase64ForPublication(toolInput),
                   cause);
         if (cause instanceof IllegalArgumentException
             || cause instanceof IllegalStateException
@@ -411,7 +420,7 @@ public class McpToolCallbackProviderService implements ToolCallbackProvider {
           throw (Exception) cause;
         } else {
           throw new IllegalStateException(LLM_ERROR_EXPLANATION.formatted(toolMethod.getName(),
-                                                                          toolInput),
+                                                                          redactBase64ForPublication(toolInput)),
                                           e);
         }
       } finally {
@@ -544,12 +553,15 @@ public class McpToolCallbackProviderService implements ToolCallbackProvider {
      * wait, and traced as denied.
      *
      * @param id               the call identifier
+     * @param turnId           the chat turn that started the call, only echoed
+     *                           on the card and never used to decide anything
      * @param grantRequest     the call as the server resolved it
      * @param alwaysAsk        whether the tool is marked "always ask"
      * @param executionBuilder the trace builder of the call
      * @throws UserToolDeniedException when the user denies the call
      */
     private void approveCall(String id,
+                             String turnId,
                              McpToolGrantRequest grantRequest,
                              boolean alwaysAsk,
                              UserToolExecutionBuilder executionBuilder) {
@@ -582,6 +594,7 @@ public class McpToolCallbackProviderService implements ToolCallbackProvider {
                                                                 .build());
       boolean approved = mcpToolApprovalService.requestApproval(id,
                                                                 grantRequest.conversationId(),
+                                                                turnId,
                                                                 toolMethod.getName(),
                                                                 grantRequest.toolInput(),
                                                                 actingIdentity == null ? grantRequest.username() :

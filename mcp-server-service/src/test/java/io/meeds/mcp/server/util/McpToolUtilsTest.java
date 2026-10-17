@@ -22,7 +22,12 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNull;
+import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertTrue;
+import static io.meeds.mcp.server.util.McpToolUtils.ARGUMENTS_NOT_READABLE_NOTE;
+import static io.meeds.mcp.server.util.McpToolUtils.ARGUMENTS_TOO_LARGE_NOTE;
+import static io.meeds.mcp.server.util.McpToolUtils.MAX_PUBLISHED_INPUT_LENGTH;
+import static io.meeds.mcp.server.util.McpToolUtils.redactBase64ForPublication;
 
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
@@ -35,6 +40,8 @@ import java.util.Map;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
+import org.springframework.ai.util.JsonHelper;
+import org.springframework.core.ParameterizedTypeReference;
 import org.springframework.mock.web.MockHttpServletRequest;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
 import org.springframework.security.core.GrantedAuthority;
@@ -204,6 +211,52 @@ class McpToolUtilsTest {
                                                           Instant.now(),
                                                           Instant.now().plusSeconds(60));
     SecurityContextHolder.getContext().setAuthentication(new BearerTokenAuthentication(principal, accessToken, authorities));
+  }
+
+  @Test
+  void getCurrentTurnId_internalClient_returnsTrimmedHeader() {// NOSONAR
+    authenticateAsInternalClient();
+    MockHttpServletRequest request = bindRequestWithTurnId("  turn-7  ");
+
+    assertEquals("turn-7", McpToolUtils.getCurrentTurnId());
+    assertNotNull(request);
+  }
+
+  @Test
+  void getCurrentTurnId_missingBlankOrTooLong_returnsNull() {// NOSONAR
+    authenticateAsInternalClient();
+    bindRequestWithTurnId(null);
+    assertNull(McpToolUtils.getCurrentTurnId());
+
+    bindRequestWithTurnId("   ");
+    assertNull(McpToolUtils.getCurrentTurnId());
+
+    bindRequestWithTurnId("t".repeat(McpToolUtils.MAX_TURN_ID_LENGTH + 1));
+    assertNull(McpToolUtils.getCurrentTurnId());
+
+    String longest = "t".repeat(McpToolUtils.MAX_TURN_ID_LENGTH);
+    bindRequestWithTurnId(longest);
+    assertEquals(longest, McpToolUtils.getCurrentTurnId());
+  }
+
+  @Test
+  void getCurrentTurnId_externalOauthUser_returnsNullEvenWithHeader() {// NOSONAR
+    authenticateAs(USERNAME);
+    bindRequestWithTurnId("turn-7");
+
+    assertNull(McpToolUtils.getCurrentTurnId());
+  }
+
+  private static MockHttpServletRequest bindRequestWithTurnId(String turnId) {
+    MockHttpServletRequest request = new MockHttpServletRequest();
+    request.addHeader(McpToolUtils.TOOL_CONTEXT_ID_PARAM, McpToolUtils.TOOL_CONTEXT_ID);
+    request.addHeader(McpToolUtils.TOOL_CONTEXT_CONVERSATION_ID_PARAM, CONVERSATION_ID);
+    request.addHeader(McpToolUtils.TOOL_CONTEXT_USER_NAME_PARAM, USERNAME);
+    if (turnId != null) {
+      request.addHeader(McpToolUtils.TOOL_CONTEXT_TURN_ID_PARAM, turnId);
+    }
+    RequestContextHolder.setRequestAttributes(new ServletRequestAttributes(request));
+    return request;
   }
 
   private static void bindRequest(String contextId, String conversationId, String userName) {
@@ -396,4 +449,199 @@ class McpToolUtilsTest {
     long deltaMs = Math.abs(parsed.getTime() - now.getTime());
     assertTrue(deltaMs < 2000, "Expected roundtrip date to be within 2s, got delta=" + deltaMs + "ms");
   }
+
+  /**
+   * A top-level {@code _base64} string becomes its decoded size, a data URI
+   * prefix and whitespace not counted, and the other arguments stay.
+   */
+  @Test
+  void redactBase64ReplacesTheImageWithItsDecodedSize() {
+    String twoMb = "data:image/png;base64," + "AAAA\n".repeat(699_051);
+    String redacted = redactBase64ForPublication("{\"name\":\"x\",\"image_base64\":\"" + twoMb.replace("\n", "\\n") + "\"}");
+
+    assertEquals("{\"name\":\"x\",\"image_base64\":\"[image, 2.0 MB]\"}", redacted);
+    assertEquals("{\"image_base64\":\"[image, 1 KB]\"}", redactBase64ForPublication("{\"image_base64\":\"" + "A".repeat(1_000) + "\"}"));
+    assertEquals("{\"image_base64\":\"[image, 3 KB]\"}", redactBase64ForPublication("{\"image_base64\":\"" + "A".repeat(4_000) + "\"}"));
+  }
+
+  /**
+   * Every top-level argument whose name ends with {@code _base64} is
+   * redacted, and none that is nested or that isn't a string.
+   */
+  @Test
+  void redactBase64OnlyTouchesTopLevelStringsWithTheSuffix() {
+    String redacted = redactBase64ForPublication("{\"a_base64\":\"AAAA\",\"b_base64\":\"BBBBBBBB\",\"n_base64\":5,"
+                                                 + "\"nested\":{\"c_base64\":\"CCCC\"},\"base64x\":\"DDDD\"}");
+
+    assertEquals("{\"a_base64\":\"[image, 1 KB]\",\"b_base64\":\"[image, 1 KB]\",\"n_base64\":5,"
+                 + "\"nested\":{\"c_base64\":\"CCCC\"},\"base64x\":\"DDDD\"}",
+                 redacted);
+  }
+
+  /**
+   * An input without a {@code _base64} argument is published byte for byte,
+   * whatever its length, its spacing or its escapes.
+   */
+  @Test
+  void redactBase64LeavesAnInputWithoutTheSuffixUntouched() {
+    String spaced = "{ \"message\" : \"h\\u00e9llo\",  \"n\":1 }";
+    String large = "{\"html\":\"" + "x".repeat(MAX_PUBLISHED_INPUT_LENGTH * 2) + "\"}";
+    String suffixInsideKey = "{ \"image_base64_x\" : \"AAAA\" }";
+
+    assertEquals(spaced, redactBase64ForPublication(spaced));
+    assertEquals(large, redactBase64ForPublication(large));
+    assertEquals(suffixInsideKey, redactBase64ForPublication(suffixInsideKey));
+    assertNull(redactBase64ForPublication(null));
+  }
+
+  /**
+   * An argument whose name is written with a unicode escape is still found
+   * on a long input, and redacted.
+   */
+  @Test
+  void redactBase64FindsAnEscapedKeyOnALongInput() {
+    String input = "{\"image\\u005fbase64\":\"" + "A".repeat(MAX_PUBLISHED_INPUT_LENGTH * 2) + "\"}";
+
+    String published = redactBase64ForPublication(input);
+
+    assertTrue(published.length() < 100, published);
+    assertTrue(published.contains("[image, "), published);
+    assertFalse(published.contains("AAAA"), published);
+  }
+
+  /**
+   * A short input whose argument name is written with a unicode escape, so
+   * that its text holds no {@code base64}, is redacted too. Mutant: a text
+   * pre-check that skips parsing a short input without {@code base64}.
+   */
+  @Test
+  void redactBase64FindsAnEscapedKeyOnAShortInput() {
+    String input = "{\"image_b\\u0061se64\":\"" + "A".repeat(4_000) + "\"}";
+
+    assertEquals("{\"image_base64\":\"[image, 3 KB]\"}", redactBase64ForPublication(input));
+  }
+
+  /**
+   * An image argument spelled as the tool binds it, {@code imageBase64}, or
+   * as {@code image_Base64}, is redacted on a short input too: both bind to
+   * the tool's {@code imageBase64}. Mutants: a case-sensitive text pre-check
+   * that skips parsing a short input; the raw name matched instead of the
+   * bound one.
+   */
+  @Test
+  void redactBase64FindsACamelCaseImageArgument() {
+    String camelCase = "{\"imageBase64\":\"" + "A".repeat(4_000) + "\"}";
+    String mixed = "{\"image_Base64\":\"" + "A".repeat(4_000) + "\"}";
+
+    assertEquals("{\"imageBase64\":\"[image, 3 KB]\"}", redactBase64ForPublication(camelCase));
+    assertEquals("{\"image_Base64\":\"[image, 3 KB]\"}", redactBase64ForPublication(mixed));
+  }
+
+  /**
+   * A short input whose argument name binds to {@code imageBase64} or
+   * {@code base64} only once the binding drops an underscore before a digit
+   * ({@code image_base_64}, {@code base_64}) is redacted too, since every input
+   * is parsed. Mutant: a text pre-check that skips parsing a short input whose
+   * lower-cased text holds no {@code base64}.
+   */
+  @Test
+  void redactBase64FindsANameThatBindsThroughAnUnderscoreBeforeADigit() {
+    String image = "{\"image_base_64\":\"" + "A".repeat(4_000) + "\"}";
+    String file = "{\"base_64\":\"" + "A".repeat(4_000) + "\"}";
+
+    assertEquals("{\"image_base_64\":\"[image, 3 KB]\"}", redactBase64ForPublication(image));
+    assertEquals("{\"base_64\":\"[file, 3 KB]\"}", redactBase64ForPublication(file));
+  }
+
+  /**
+   * A short input with no base64 argument is returned as the caller wrote it,
+   * never re-serialised.
+   */
+  @Test
+  void redactBase64LeavesAShortInputWithoutBase64ArgumentUnchanged() {
+    String input = "{ \"title\" : \"Weekly\",  \"ratio\": 1.10 }";
+
+    assertSame(input, redactBase64ForPublication(input));
+  }
+
+  /**
+   * An input the tool reads although something follows the object (Spring
+   * AI's mapper ignores trailing tokens) is read the same way here: its image
+   * is redacted, and what follows the object is never published, even when
+   * the object carries no image. Mutants: the strict mapper used to read the
+   * input; the input returned as is when no argument is redacted.
+   */
+  @Test
+  void redactBase64ReadsAnInputWithTrailingTokensAsTheToolDoes() {
+    String image = "{\"image_base64\":\"" + "A".repeat(4_000) + "\"} x";
+    String trailingImage = "{\"title\":\"t\"} {\"image_base64\":\"" + "A".repeat(4_000) + "\"}";
+
+    assertEquals("{\"image_base64\":\"[image, 3 KB]\"}", redactBase64ForPublication(image));
+    assertEquals("{\"title\":\"t\"}", redactBase64ForPublication(trailingImage));
+  }
+
+  /**
+   * The redaction reads every input the tool's argument binding reads: what
+   * Spring AI's {@code JsonHelper} binds to a map is read as the same object
+   * here, so no input the tool accepts falls back to the not-readable note.
+   */
+  @Test
+  void redactBase64ReadsWhatTheToolBindingReads() {
+    JsonHelper toolBinding = new JsonHelper();
+    for (String input : List.of("{\"a\":1} x", "{\"a\":1}  ", "{\"a\":\"b\"}\n{\"c\":2}")) {
+      Map<String, Object> bound = toolBinding.fromJson(input, new ParameterizedTypeReference<Map<String, Object>>() {
+      });
+      String published = redactBase64ForPublication(input);
+      assertEquals(bound, toolBinding.fromJson(published, new ParameterizedTypeReference<Map<String, Object>>() {
+      }), input);
+    }
+  }
+
+  /**
+   * An input that can't be read as a JSON object, however short, is never
+   * published as is: it becomes the not-readable note. Mutant: a short
+   * unreadable input returned as is.
+   */
+  @Test
+  void redactBase64NeverPublishesAnUnreadableInputAsIs() {
+    assertEquals(ARGUMENTS_NOT_READABLE_NOTE, redactBase64ForPublication("not a json { input"));
+    assertEquals(ARGUMENTS_NOT_READABLE_NOTE, redactBase64ForPublication("[\"image_base64\",\"AAAA\"]"));
+    assertEquals(ARGUMENTS_NOT_READABLE_NOTE, redactBase64ForPublication("\"AAAA\""));
+    assertEquals(ARGUMENTS_NOT_READABLE_NOTE, redactBase64ForPublication(""));
+    assertEquals("{\"_note\":\"[arguments not readable]\"}", ARGUMENTS_NOT_READABLE_NOTE);
+  }
+
+  /**
+   * A top-level string argument named exactly {@code base64}, as the document
+   * tools name their file, becomes a file placeholder, short or long, while a
+   * nested one or a longer name containing it stays. Mutants: the exact name
+   * not matched; a text pre-check keyed on the image suffix only.
+   */
+  @Test
+  void redactBase64ReplacesTheFileArgumentWithItsDecodedSize() {
+    String shortFile = "{\"title\":\"report.pdf\",\"base64\":\"" + "A".repeat(4_000) + "\"}";
+    String longFile = "{\"base64\":\"" + "A".repeat(MAX_PUBLISHED_INPUT_LENGTH * 2) + "\"}";
+    String others = "{\"nested\":{\"base64\":\"CCCC\"},\"base64x\":\"DDDD\"}";
+
+    assertEquals("{\"title\":\"report.pdf\",\"base64\":\"[file, 3 KB]\"}", redactBase64ForPublication(shortFile));
+    assertEquals("{\"base64\":\"[file, 96 KB]\"}", redactBase64ForPublication(longFile));
+    assertEquals(others, redactBase64ForPublication(others));
+  }
+
+  /**
+   * An input that isn't a JSON object is never published as is: a short one
+   * becomes the not-readable note, a long one the too-large note.
+   */
+  @Test
+  void redactBase64BoundsAnInputThatIsNotAJsonObject() {
+    String shortBroken = "{\"image_base64\":\"AAAA";
+    String longBroken = "{\"image_base64\":\"" + "A".repeat(MAX_PUBLISHED_INPUT_LENGTH + 1);
+    String longArray = "[\"image_base64\"," + "\"A\",".repeat(MAX_PUBLISHED_INPUT_LENGTH) + "1]";
+
+    assertEquals(ARGUMENTS_NOT_READABLE_NOTE, redactBase64ForPublication(shortBroken));
+    assertEquals(ARGUMENTS_TOO_LARGE_NOTE, redactBase64ForPublication(longBroken));
+    assertEquals(ARGUMENTS_TOO_LARGE_NOTE, redactBase64ForPublication(longArray));
+    assertEquals("{\"_note\":\"[arguments too large to show]\"}", ARGUMENTS_TOO_LARGE_NOTE);
+  }
+
 }
