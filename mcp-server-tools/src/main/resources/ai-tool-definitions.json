@@ -2262,7 +2262,7 @@
       "space_scope": { "space_arg": "space_id" },
       "icon": "fa-users",
       "title": "Delete a space",
-      "description": "Permanently delete a space and all its content. The current user must be a manager of the space. This is irreversible.",
+      "description": "Permanently delete a space and all its content. The current user must be allowed to delete the space, which a manager may not be. This is irreversible.",
       "input_schema": {
         "type": "object",
         "properties": {

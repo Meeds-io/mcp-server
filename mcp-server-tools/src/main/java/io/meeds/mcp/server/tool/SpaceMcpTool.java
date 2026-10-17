@@ -29,6 +29,7 @@ import static io.meeds.mcp.server.tool.util.UserToolUtils.toUserModel;
 import java.io.ByteArrayInputStream;
 import java.io.IOException;
 import java.io.InputStream;
+import java.util.Arrays;
 import java.util.Collections;
 import java.util.List;
 import java.util.Objects;
@@ -77,6 +78,12 @@ public class SpaceMcpTool implements McpToolPlugin {
   private static final String     MSG_SPACE_DOESN_T_EXIST  = "Space with Id '%s' doesn't exist";
 
   private static final String     MSG_SPACE_USER_NOT_ADMIN = "Space with Id '%s' can't be managed by current user";
+
+  private static final String     MSG_SPACE_ONLY_MANAGER   = "User '%s' is the only manager of space '%s'. Promote another member to manager first.";
+
+  private static final String     MSG_SPACE_ALL_MANAGERS   = "Removing these users would leave space '%s' without a manager. Promote another member to manager first.";
+
+  private static final String     MSG_SPACE_USER_NOT_DELETER = "Space with Id '%s' can't be deleted by current user";
 
   @Autowired
   private SpaceService            spaceService;
@@ -140,6 +147,17 @@ public class SpaceMcpTool implements McpToolPlugin {
     return toSpaceModel(spaceService, createdSpace, currentUsername);
   }
 
+  /**
+   * Updates the settings of a space the current user manages. The current user
+   * is the editor of the update, as in the Social REST endpoint.
+   *
+   * @param spaceId the space
+   * @param name the new display name, ignored when blank
+   * @param description the new description, ignored when blank
+   * @param visibility the new visibility, ignored when null
+   * @param registration the new registration, ignored when null
+   * @return the updated space
+   */
   @SneakyThrows
   public SpaceModel updateSpaceSettings(long spaceId,
                                         String name,
@@ -167,6 +185,7 @@ public class SpaceMcpTool implements McpToolPlugin {
       spaceToUpdate.setRegistration(spaceRegistration.name().toLowerCase());
     }
     String currentUsername = getCurrentUserName();
+    spaceToUpdate.setEditor(currentUsername);
     Space updatedSpace = spaceService.updateSpace(spaceToUpdate);
     return toSpaceModel(spaceService, updatedSpace, currentUsername);
   }
@@ -287,6 +306,21 @@ public class SpaceMcpTool implements McpToolPlugin {
     }
   }
 
+  /**
+   * Removes users from a space the current user manages. Refused before any
+   * removal when one of them is the space's only manager, or when the list
+   * holds every manager; each user is then checked again against the space as
+   * stored, right before its removal, so that a change made elsewhere
+   * meanwhile never leaves the space without a manager. A refusal at that
+   * point leaves the users removed before it removed. The current user is the
+   * editor of each removal, as in the Social REST endpoint.
+   *
+   * @param spaceId the space
+   * @param usernamesToRemove the users, possibly prefixed with "@"
+   * @throws IllegalStateException when the space doesn't exist, the current
+   *           user can't manage it, or a removal would leave it without a
+   *           manager
+   */
   public void removeUsersFromSpace(long spaceId,
                                    List<String> usernamesToRemove) {
     String currentUsername = getCurrentUserName();
@@ -296,7 +330,20 @@ public class SpaceMcpTool implements McpToolPlugin {
     } else if (!spaceService.canManageSpace(space, currentUsername)) {
       throw new IllegalStateException(MSG_SPACE_USER_NOT_ADMIN.formatted(spaceId));
     } else if (CollectionUtils.isNotEmpty(usernamesToRemove)) {
-      usernamesToRemove.forEach(u -> spaceService.removeMember(space, u.startsWith("@") ? u.substring(1) : u));
+      List<String> usernames = usernamesToRemove.stream().map(this::normalize).distinct().toList();
+      usernames.forEach(u -> checkNotOnlyManager(space, u));
+      checkKeepsAManager(space, usernames);
+      // the managers may change elsewhere while the list is removed: each
+      // user is checked against the space as stored right before its removal
+      usernames.forEach(u -> {
+        Space current = spaceService.getSpaceById(spaceId);
+        if (current == null) {
+          throw new IllegalStateException(MSG_SPACE_DOESN_T_EXIST.formatted(spaceId));
+        }
+        checkNotOnlyManager(current, u);
+        current.setEditor(currentUsername);
+        spaceService.removeMember(current, u);
+      });
     }
   }
 
@@ -330,6 +377,17 @@ public class SpaceMcpTool implements McpToolPlugin {
     }
   }
 
+  /**
+   * Removes a role of a member of a space the current user manages. The
+   * current user is the editor of the change, as in the Social REST endpoint.
+   *
+   * @param spaceId the space
+   * @param username the member
+   * @param spaceRole the role to remove
+   * @throws IllegalStateException when the space doesn't exist, the current
+   *           user can't manage it, the user isn't a member of it, or the role
+   *           is the manager one of its only manager
+   */
   public void removeUserRoleInSpace(long spaceId,
                                     String username,
                                     SpaceRole spaceRole) {
@@ -342,8 +400,10 @@ public class SpaceMcpTool implements McpToolPlugin {
       throw new IllegalStateException("User '%s' isn't member of the space '%s' yet, thus it doesn't have any role inside it yet.".formatted(username,
                                                                                                                                              spaceId));
     }
+    space.setEditor(getCurrentUserName());
     switch (spaceRole) {
     case MANAGER: {
+      checkNotOnlyManager(space, username);
       spaceService.setManager(space, username, false);
       break;
     }
@@ -537,8 +597,22 @@ public class SpaceMcpTool implements McpToolPlugin {
                                   .toList();
   }
 
+  /**
+   * Deletes a space the current user holds the delete permission on, with the
+   * current user as the editor of the deletion, as the Social REST endpoint
+   * does.
+   *
+   * @param spaceId technical id of the space
+   * @throws ObjectNotFoundException when the space doesn't exist
+   * @throws SpaceException when the space service refuses the deletion
+   */
   public void deleteSpace(long spaceId) throws ObjectNotFoundException, SpaceException {
-    Space space = manageableSpace(spaceId);
+    String currentUsername = getCurrentUserName();
+    Space space = requireSpace(spaceId);
+    if (!spaceService.canDeleteSpace(space, currentUsername)) {
+      throw new IllegalStateException(MSG_SPACE_USER_NOT_DELETER.formatted(spaceId));
+    }
+    space.setEditor(currentUsername);
     spaceService.deleteSpace(space);
   }
 
@@ -589,6 +663,40 @@ public class SpaceMcpTool implements McpToolPlugin {
     return space;
   }
 
+  /**
+   * Refuses a list of users to remove that holds every manager of the space:
+   * none of them is the only manager, yet removing them all would leave the
+   * space without one.
+   *
+   * @param space the space
+   * @param usernames the users to remove, normalized
+   * @throws IllegalStateException when the list holds every manager
+   */
+  private void checkKeepsAManager(Space space, List<String> usernames) {
+    String[] managers = space.getManagers();
+    if (managers != null && managers.length > 0 && usernames.containsAll(Arrays.asList(managers))) {
+      throw new IllegalStateException(MSG_SPACE_ALL_MANAGERS.formatted(space.getDisplayName()));
+    }
+  }
+
+  /**
+   * Refuses to remove the only manager of a space from it, or the manager
+   * role from them.
+   *
+   * @param space the space
+   * @param username the user, normalized
+   * @throws IllegalStateException when the user is the space's only manager
+   */
+  private void checkNotOnlyManager(Space space, String username) {
+    if (spaceService.isOnlyManager(space, username)) {
+      throw new IllegalStateException(MSG_SPACE_ONLY_MANAGER.formatted(username, space.getDisplayName()));
+    }
+  }
+
+  /**
+   * @param username a username, possibly prefixed with "@"
+   * @return the username without its "@" prefix
+   */
   private String normalize(String username) {
     return username != null && username.startsWith("@") ? username.substring(1) : username;
   }
