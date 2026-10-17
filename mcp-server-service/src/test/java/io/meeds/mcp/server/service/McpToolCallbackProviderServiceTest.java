@@ -786,12 +786,13 @@ class McpToolCallbackProviderServiceTest {
   /**
    * A call limited to a space, to a tool that declares no space scope, is
    * refused before any card or grant lookup and before the tool runs, traced
-   * as denied and not logged as an incident, and the model reads which space
-   * it may reach. Mutants: the space scope check not called from the wrapper;
-   * the refusal logged at WARN or ERROR.
+   * as out of scope (never as denied, which reads as the user's refusal) and
+   * not logged as an incident, and the model reads which space it may reach.
+   * Mutants: the space scope check not called from the wrapper; the refusal
+   * logged at WARN or ERROR; the refusal traced as denied.
    */
   @Test
-  void call_spaceScopedCallToAnUndeclaredTool_refusedAsDenied() {// NOSONAR
+  void call_spaceScopedCallToAnUndeclaredTool_refusedAsOutOfScope() {// NOSONAR
     MockHttpServletRequest request = bindRequest(TOOL_CONTEXT_ID, CONVERSATION_ID);
     addIdentityHeaders(request, USERNAME, "USER", USERNAME, null, USERNAME, "[\"COMPLETION\"]", "MENTION", "COMPLETION");
     request.addHeader(TOOL_CONTEXT_SPACE_SCOPE_PARAM, "12");
@@ -810,7 +811,9 @@ class McpToolCallbackProviderServiceTest {
     assertTrue(logged.list.stream().noneMatch(event -> event.getLevel().isGreaterOrEqual(Level.WARN)), logged.list::toString);
 
     assertTrue(e.getMessage().contains("space with id 12"), e.getMessage());
-    verify(mcpToolApprovalService).traceToolExecution(argThatIs(UserToolRequestType.TOOL_EXECUTION_DENIED));
+    verify(mcpToolApprovalService).traceToolExecution(argThatIs(UserToolRequestType.TOOL_EXECUTION_OUT_OF_SCOPE));
+    verify(mcpToolApprovalService, never()).traceToolExecution(argThatIs(UserToolRequestType.TOOL_EXECUTION_DENIED));
+    verify(mcpToolApprovalService, never()).traceToolExecution(argThatIs(UserToolRequestType.TOOL_EXECUTION_ERROR));
     verify(mcpToolApprovalService, never()).traceToolExecution(argThatIs(UserToolRequestType.TOOL_EXECUTION_START));
     verify(mcpToolApprovalService, never()).requestApproval(any(), any(), any(), any(), any(), any(), anyBoolean(), any());
     verify(mcpToolGrantService, never()).findApplicableGrant(any(), any());
