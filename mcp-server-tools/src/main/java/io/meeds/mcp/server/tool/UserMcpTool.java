@@ -151,10 +151,17 @@ public class UserMcpTool implements McpToolPlugin {
     }
   }
 
-  // Sets the current user's profile avatar from an image provided as exactly one
-  // of an http(s) URL, a base64 string, or an ACL-checked reference to a file
-  // already attached to a platform object. Acts as the current user, so the
-  // avatar always belongs to the caller.
+  /**
+   * Sets the current user's profile avatar from an image provided as exactly one
+   * of an http(s) URL, a base64 string, or an ACL-checked reference to a file
+   * already attached to a platform object. Acts as the current user, so the
+   * avatar always belongs to the caller. Refused with an
+   * {@code IllegalAccessException}, before the image is fetched, when the
+   * platform marks the avatar as not editable, unless the user is an
+   * administrator.
+   *
+   * @return the updated user
+   */
   public UserModel setMyAvatar(String imageUrl,
                                String imageBase64,
                                String attachmentObjectType,
@@ -162,9 +169,16 @@ public class UserMcpTool implements McpToolPlugin {
     return setProfileImage(Profile.AVATAR, imageUrl, imageBase64, attachmentObjectType, attachmentObjectId);
   }
 
-  // Sets the current user's profile banner from an image provided as exactly one
-  // of an http(s) URL, a base64 string, or an ACL-checked reference to a readable
-  // platform attachment. Acts as the current user.
+  /**
+   * Sets the current user's profile banner from an image provided as exactly one
+   * of an http(s) URL, a base64 string, or an ACL-checked reference to a readable
+   * platform attachment. Acts as the current user. Refused with an
+   * {@code IllegalAccessException}, before the image is fetched, when the
+   * platform marks the banner as not editable, unless the user is an
+   * administrator.
+   *
+   * @return the updated user
+   */
   public UserModel setMyBanner(String imageUrl,
                                String imageBase64,
                                String attachmentObjectType,
@@ -172,12 +186,17 @@ public class UserMcpTool implements McpToolPlugin {
     return setProfileImage(Profile.BANNER, imageUrl, imageBase64, attachmentObjectType, attachmentObjectId);
   }
 
+  /**
+   * Sets the avatar or the banner of the current user from the given image
+   * source, once the platform setting of that property allows it.
+   */
   private UserModel setProfileImage(String property,
                                     String imageUrl,
                                     String imageBase64,
                                     String attachmentObjectType,
                                     String attachmentObjectId) throws IllegalAccessException, ObjectNotFoundException {
     String username = getCurrentUserName();
+    assertEditable(username, property);
     UploadToolUtils.FetchedContent image = UploadToolUtils.resolveImage(attachmentService,
                                                                       fileService,
                                                                       getCurrentUserAclIdentity(),
@@ -283,23 +302,35 @@ public class UserMcpTool implements McpToolPlugin {
     relationshipManager.inviteToConnect(currentIdentity, target);
   }
 
+  /**
+   * Accepts the pending connection request sent by the given user to the
+   * current user.
+   *
+   * @param username the user who sent the request
+   */
   @SneakyThrows
   public void acceptConnectionRequest(String username) {
     Identity sender = requireIdentity(username);
     Identity currentIdentity = me();
     Relationship relationship = relationshipManager.get(sender, currentIdentity);
-    if (relationship == null || relationship.getStatus() != Relationship.Type.PENDING) {
+    if (relationship == null || relationship.getStatus() != Relationship.Type.PENDING || !isReceiver(relationship, currentIdentity)) {
       throw new IllegalStateException("There is no pending connection request from '%s'. Use list_connection_requests to see incoming requests.".formatted(username));
     }
     relationshipManager.confirm(currentIdentity, sender);
   }
 
+  /**
+   * Refuses the pending connection request sent by the given user to the
+   * current user.
+   *
+   * @param username the user who sent the request
+   */
   @SneakyThrows
   public void refuseConnectionRequest(String username) {
     Identity sender = requireIdentity(username);
     Identity currentIdentity = me();
     Relationship relationship = relationshipManager.get(sender, currentIdentity);
-    if (relationship == null || relationship.getStatus() != Relationship.Type.PENDING) {
+    if (relationship == null || relationship.getStatus() != Relationship.Type.PENDING || !isReceiver(relationship, currentIdentity)) {
       throw new IllegalStateException("There is no pending connection request from '%s'.".formatted(username));
     }
     relationshipManager.deny(currentIdentity, sender);
@@ -315,6 +346,15 @@ public class UserMcpTool implements McpToolPlugin {
     relationshipManager.delete(relationship);
   }
 
+  /**
+   * Updates the given profile fields of the current user. A field the platform
+   * marks as not editable can only be changed by an administrator: for any
+   * other user, a value given for it is refused with an
+   * {@code IllegalAccessException}, before any field is written.
+   *
+   * @return the updated user
+   */
+  @SneakyThrows
   public UserModel updateMyProfile(String aboutMe, // NOSONAR
                                    String position,
                                    String company,
@@ -327,6 +367,15 @@ public class UserMcpTool implements McpToolPlugin {
     String username = getCurrentUserName();
     Identity identity = identityManager.getOrCreateUserIdentity(username);
     Profile profile = identityManager.getProfile(identity);
+    assertEditable(username, Profile.ABOUT_ME, aboutMe);
+    assertEditable(username, Profile.POSITION, position);
+    assertEditable(username, Profile.COMPANY, company);
+    assertEditable(username, Profile.DEPARTMENT, department);
+    assertEditable(username, Profile.TEAM, team);
+    assertEditable(username, Profile.CITY, city);
+    assertEditable(username, Profile.COUNTRY, country);
+    assertEditable(username, Profile.DISPLAYED_PHONE, phones);
+    assertEditable(username, Profile.CONTACT_URLS, urls);
     boolean changed = setIfPresent(profile, Profile.ABOUT_ME, aboutMe);
     changed = setIfPresent(profile, Profile.POSITION, position) || changed;
     changed = setIfPresent(profile, Profile.COMPANY, company) || changed;
@@ -347,6 +396,14 @@ public class UserMcpTool implements McpToolPlugin {
   // Work experience (current user)
   // ---------------------------------------------------------------------------
 
+  /**
+   * Adds a work experience to the current user's profile. Refused with an
+   * {@code IllegalAccessException} when the platform marks the experiences as
+   * not editable, unless the user is an administrator.
+   *
+   * @return the experiences of the current user after the change
+   */
+  @SneakyThrows
   public List<ExperienceModel> addWorkExperience(String company, // NOSONAR
                                                  String position,
                                                  String skills,
@@ -358,6 +415,7 @@ public class UserMcpTool implements McpToolPlugin {
       throw new IllegalArgumentException("'company' is mandatory to add a work experience.");
     }
     String username = getCurrentUserName();
+    assertEditable(username, Profile.EXPERIENCES);
     Profile profile = identityManager.getProfile(identityManager.getOrCreateUserIdentity(username));
     List<Map<String, Object>> experiences = mutableExperiences(profile);
 
@@ -371,6 +429,14 @@ public class UserMcpTool implements McpToolPlugin {
     return saveExperiences(username, profile, experiences);
   }
 
+  /**
+   * Updates a work experience of the current user's profile. Refused with an
+   * {@code IllegalAccessException} when the platform marks the experiences as
+   * not editable, unless the user is an administrator.
+   *
+   * @return the experiences of the current user after the change
+   */
+  @SneakyThrows
   public List<ExperienceModel> updateWorkExperience(String experienceId, // NOSONAR
                                                     String company,
                                                     String position,
@@ -383,6 +449,7 @@ public class UserMcpTool implements McpToolPlugin {
       throw new IllegalArgumentException("'experience_id' is mandatory. Call get_my_user_information first to get the experience_id.");
     }
     String username = getCurrentUserName();
+    assertEditable(username, Profile.EXPERIENCES);
     Profile profile = identityManager.getProfile(identityManager.getOrCreateUserIdentity(username));
     List<Map<String, Object>> experiences = mutableExperiences(profile);
     Map<String, Object> experience = findExperience(experiences, experienceId);
@@ -396,11 +463,20 @@ public class UserMcpTool implements McpToolPlugin {
     return saveExperiences(username, profile, experiences);
   }
 
+  /**
+   * Removes a work experience from the current user's profile. Refused with an
+   * {@code IllegalAccessException} when the platform marks the experiences as
+   * not editable, unless the user is an administrator.
+   *
+   * @return the experiences of the current user after the change
+   */
+  @SneakyThrows
   public List<ExperienceModel> removeWorkExperience(String experienceId) throws ObjectNotFoundException {
     if (StringUtils.isBlank(experienceId)) {
       throw new IllegalArgumentException("'experience_id' is mandatory. Call get_my_user_information first to get the experience_id.");
     }
     String username = getCurrentUserName();
+    assertEditable(username, Profile.EXPERIENCES);
     Profile profile = identityManager.getProfile(identityManager.getOrCreateUserIdentity(username));
     List<Map<String, Object>> experiences = mutableExperiences(profile);
     // findExperience throws ObjectNotFoundException if the id is unknown
@@ -503,6 +579,14 @@ public class UserMcpTool implements McpToolPlugin {
                  .toList();
   }
 
+  /**
+   * Checks whether the given identity is the receiver of a relationship, the
+   * only side allowed to accept or refuse a connection request.
+   */
+  private boolean isReceiver(Relationship relationship, Identity identity) {
+    return relationship.getReceiver() != null && StringUtils.equals(relationship.getReceiver().getId(), identity.getId());
+  }
+
   private Identity me() {
     return identityManager.getOrCreateUserIdentity(getCurrentUserName());
   }
@@ -548,6 +632,31 @@ public class UserMcpTool implements McpToolPlugin {
     }
     profile.setProperty(propertyName, value);
     return true;
+  }
+
+  /**
+   * Refuses a provided value for a profile field that is not editable, unless
+   * the user is an administrator. Absent values are ignored, as they leave the
+   * field untouched.
+   */
+  private void assertEditable(String username, String propertyName, String value) throws IllegalAccessException {
+    if (value == null) {
+      return;
+    }
+    assertEditable(username, propertyName);
+  }
+
+  /**
+   * Refuses a write to a profile field that is not editable, unless the user is
+   * an administrator, as the social REST layer does for every profile field.
+   */
+  private void assertEditable(String username, String propertyName) throws IllegalAccessException {
+    ProfilePropertySetting propertySetting = profilePropertyService.getProfileSettingByName(propertyName);
+    if (propertySetting != null
+        && !propertySetting.isEditable()
+        && !userAcl.getUserIdentity(username).isMemberOf(userAcl.getAdminGroups())) {
+      throw new IllegalAccessException("Not allowed to update non modifiable field '%s'".formatted(propertyName));
+    }
   }
 
   /**

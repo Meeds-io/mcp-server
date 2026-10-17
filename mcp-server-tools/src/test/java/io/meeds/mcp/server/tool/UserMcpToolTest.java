@@ -30,12 +30,15 @@ import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 
 import org.exoplatform.commons.exception.ObjectNotFoundException;
+import org.exoplatform.services.security.ConversationState;
 import org.exoplatform.services.user.UserStateModel;
 import org.exoplatform.social.core.identity.model.Identity;
+import org.exoplatform.social.core.identity.model.Profile;
 import org.exoplatform.social.core.manager.IdentityManager;
 import org.exoplatform.social.core.manager.RelationshipManager;
 import org.exoplatform.social.core.profileproperty.ProfilePropertyService;
 import org.exoplatform.social.core.profileproperty.model.ProfilePropertySetting;
+import org.exoplatform.social.core.relationship.model.Relationship;
 
 import io.meeds.mcp.server.tool.model.ExperienceModel;
 import io.meeds.mcp.server.tool.model.OnlineStatusModel;
@@ -142,6 +145,59 @@ class UserMcpToolTest extends IntegrationTestBase {
     assertThrows(IllegalStateException.class, () -> userMcpTool.acceptConnectionRequest("james"));
   }
 
+  @Test
+  void senderCannotAcceptOwnConnectionRequest() {
+    Identity john = identityManager.getOrCreateUserIdentity(USERNAME);
+    Identity root = identityManager.getOrCreateUserIdentity("root");
+    userMcpTool.sendConnectionRequest("root");
+    try {
+      assertThrows(IllegalStateException.class, () -> userMcpTool.acceptConnectionRequest("root"));
+
+      assertEquals(Relationship.Type.PENDING, relationshipManager.getStatus(john, root));
+    } finally {
+      deleteRelationshipIfPresent(john, root);
+    }
+  }
+
+  @Test
+  void senderCannotRefuseOwnConnectionRequest() {
+    Identity john = identityManager.getOrCreateUserIdentity(USERNAME);
+    Identity root = identityManager.getOrCreateUserIdentity("root");
+    userMcpTool.sendConnectionRequest("root");
+    try {
+      assertThrows(IllegalStateException.class, () -> userMcpTool.refuseConnectionRequest("root"));
+
+      assertEquals(Relationship.Type.PENDING, relationshipManager.getStatus(john, root));
+    } finally {
+      deleteRelationshipIfPresent(john, root);
+    }
+  }
+
+  @Test
+  void receiverCanRefuseIncomingConnectionRequest() {
+    Identity john = identityManager.getOrCreateUserIdentity(USERNAME);
+    Identity root = identityManager.getOrCreateUserIdentity("root");
+    relationshipManager.inviteToConnect(root, john);
+    try {
+      userMcpTool.refuseConnectionRequest("root");
+
+      assertNotEquals(Relationship.Type.PENDING, relationshipManager.getStatus(john, root));
+    } finally {
+      deleteRelationshipIfPresent(john, root);
+    }
+  }
+
+  /**
+   * Removes the relationship between two users when there is one, so a test
+   * does not leak its connection state into the others sharing the database.
+   */
+  private void deleteRelationshipIfPresent(Identity first, Identity second) {
+    Relationship relationship = relationshipManager.get(first, second);
+    if (relationship != null) {
+      relationshipManager.delete(relationship);
+    }
+  }
+
   // --- profile -------------------------------------------------------------
 
   @Test
@@ -158,6 +214,59 @@ class UserMcpToolTest extends IntegrationTestBase {
     assertNotNull(updated);
     assertEquals("Platform Engineer", updated.getPosition());
     assertEquals("Meeds", updated.getCompany());
+  }
+
+  @Test
+  void updateMyProfileRefusesNonEditableFieldForNonAdministrator() throws Exception {
+    ProfilePropertySetting created = createNonEditablePositionSetting();
+    ConversationState.setCurrent(new ConversationState(new org.exoplatform.services.security.Identity("james")));
+    try {
+      assertThrows(IllegalAccessException.class,
+                   () -> userMcpTool.updateMyProfile(null, "CEO", null, null, null, null, null, null, null));
+
+      // A field left untouched does not trip over another field that is not editable
+      UserModel updated = userMcpTool.updateMyProfile(null, null, "Meeds", null, null, null, null, null, null);
+      assertEquals("Meeds", updated.getCompany());
+
+      created.setEditable(true);
+      profilePropertyService.updatePropertySetting(created);
+      updated = userMcpTool.updateMyProfile(null, "CEO", null, null, null, null, null, null, null);
+      assertEquals("CEO", updated.getPosition());
+    } finally {
+      profilePropertyService.deleteProfilePropertySetting(created.getId());
+    }
+  }
+
+  @Test
+  void updateMyProfileAllowsNonEditableFieldForAdministrator() throws Exception {
+    ProfilePropertySetting created = createNonEditablePositionSetting();
+    try {
+      UserModel updated = userMcpTool.updateMyProfile(null, "CTO", null, null, null, null, null, null, null);
+
+      assertEquals("CTO", updated.getPosition());
+    } finally {
+      profilePropertyService.deleteProfilePropertySetting(created.getId());
+    }
+  }
+
+  /**
+   * Registers the position profile property as not editable.
+   */
+  private ProfilePropertySetting createNonEditablePositionSetting() throws Exception {
+    return createNonEditableSetting(Profile.POSITION);
+  }
+
+  /**
+   * Registers the given profile property as not editable.
+   */
+  private ProfilePropertySetting createNonEditableSetting(String propertyName) throws Exception {
+    ProfilePropertySetting setting = new ProfilePropertySetting();
+    setting.setPropertyName(propertyName);
+    setting.setPropertyType("text");
+    setting.setActive(true);
+    setting.setVisible(true);
+    setting.setEditable(false);
+    return profilePropertyService.createPropertySetting(setting);
   }
 
   // --- work experience -----------------------------------------------------
@@ -198,6 +307,57 @@ class UserMcpToolTest extends IntegrationTestBase {
 
     List<ExperienceModel> afterRemove = userMcpTool.removeWorkExperience(added.experienceId());
     assertTrue(afterRemove.stream().noneMatch(e -> added.experienceId().equals(e.experienceId())));
+  }
+
+  @Test
+  void workExperienceWritersRefuseNonEditableExperiencesForNonAdministrator() throws Exception {
+    ConversationState.setCurrent(new ConversationState(new org.exoplatform.services.security.Identity("james")));
+    List<ExperienceModel> existing = userMcpTool.addWorkExperience("Meeds", "Engineer", null, null, null, null, null);
+    String experienceId = existing.get(existing.size() - 1).experienceId();
+    ProfilePropertySetting created = createNonEditableSetting(Profile.EXPERIENCES);
+    try {
+      assertThrows(IllegalAccessException.class,
+                   () -> userMcpTool.addWorkExperience("Acme", null, null, null, null, null, null));
+      assertThrows(IllegalAccessException.class,
+                   () -> userMcpTool.updateWorkExperience(experienceId, "Acme", null, null, null, null, null, null));
+      assertThrows(IllegalAccessException.class,
+                   () -> userMcpTool.removeWorkExperience(experienceId));
+      assertEquals(existing.size(), userMcpTool.getMyUserInformation().getExperiences().size());
+      assertEquals("Meeds", userMcpTool.getMyUserInformation().getExperiences().get(0).company());
+
+      created.setEditable(true);
+      profilePropertyService.updatePropertySetting(created);
+      List<ExperienceModel> afterRemove = userMcpTool.removeWorkExperience(experienceId);
+      assertEquals(existing.size() - 1, afterRemove.size());
+    } finally {
+      profilePropertyService.deleteProfilePropertySetting(created.getId());
+      userMcpTool.getMyUserInformation().getExperiences().forEach(e -> removeQuietly(e.experienceId()));
+    }
+  }
+
+  /**
+   * Removes a work experience of the current user, ignoring an unknown id.
+   */
+  private void removeQuietly(String experienceId) {
+    try {
+      userMcpTool.removeWorkExperience(experienceId);
+    } catch (ObjectNotFoundException e) {
+      // already removed
+    }
+  }
+
+  @Test
+  void workExperienceWritersAllowNonEditableExperiencesForAdministrator() throws Exception {
+    ProfilePropertySetting created = createNonEditableSetting(Profile.EXPERIENCES);
+    try {
+      List<ExperienceModel> afterAdd = userMcpTool.addWorkExperience("Meeds", "Engineer", null, null, null, null, null);
+      String experienceId = afterAdd.get(afterAdd.size() - 1).experienceId();
+      userMcpTool.updateWorkExperience(experienceId, "Meeds SA", null, null, null, null, null, null);
+      List<ExperienceModel> afterRemove = userMcpTool.removeWorkExperience(experienceId);
+      assertEquals(afterAdd.size() - 1, afterRemove.size());
+    } finally {
+      profilePropertyService.deleteProfilePropertySetting(created.getId());
+    }
   }
 
   @Test
@@ -366,6 +526,43 @@ class UserMcpToolTest extends IntegrationTestBase {
 
     assertNotNull(user);
     assertNotNull(user.getUsername());
+  }
+
+  @Test
+  void setMyAvatarAndBannerRefuseNonEditableImageForNonAdministrator() throws Exception {
+    ProfilePropertySetting avatar = createNonEditableSetting(Profile.AVATAR);
+    ProfilePropertySetting banner = createNonEditableSetting(Profile.BANNER);
+    ConversationState.setCurrent(new ConversationState(new org.exoplatform.services.security.Identity("james")));
+    try {
+      assertThrows(IllegalAccessException.class, () -> userMcpTool.setMyAvatar(null, PNG_1PX, null, null));
+      assertThrows(IllegalAccessException.class, () -> userMcpTool.setMyBanner(null, PNG_1PX, null, null));
+
+      // Only the avatar becomes editable: the banner stays refused
+      avatar.setEditable(true);
+      profilePropertyService.updatePropertySetting(avatar);
+      assertNotNull(userMcpTool.setMyAvatar(null, PNG_1PX, null, null));
+      assertThrows(IllegalAccessException.class, () -> userMcpTool.setMyBanner(null, PNG_1PX, null, null));
+
+      banner.setEditable(true);
+      profilePropertyService.updatePropertySetting(banner);
+      assertNotNull(userMcpTool.setMyBanner(null, PNG_1PX, null, null));
+    } finally {
+      profilePropertyService.deleteProfilePropertySetting(avatar.getId());
+      profilePropertyService.deleteProfilePropertySetting(banner.getId());
+    }
+  }
+
+  @Test
+  void setMyAvatarAndBannerAllowNonEditableImageForAdministrator() throws Exception {
+    ProfilePropertySetting avatar = createNonEditableSetting(Profile.AVATAR);
+    ProfilePropertySetting banner = createNonEditableSetting(Profile.BANNER);
+    try {
+      assertNotNull(userMcpTool.setMyAvatar(null, PNG_1PX, null, null));
+      assertNotNull(userMcpTool.setMyBanner(null, PNG_1PX, null, null));
+    } finally {
+      profilePropertyService.deleteProfilePropertySetting(avatar.getId());
+      profilePropertyService.deleteProfilePropertySetting(banner.getId());
+    }
   }
 
   @Test
