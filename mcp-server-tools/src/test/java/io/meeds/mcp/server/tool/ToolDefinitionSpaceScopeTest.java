@@ -79,6 +79,19 @@ class ToolDefinitionSpaceScopeTest {
   private static final Set<String> OBJECT_WRITES        = Set.of("create_activity_comment");
 
   /**
+   * The writes that administer the space itself: settings, members, roles,
+   * join requests, deletion. Adding content (an activity, a comment) isn't.
+   */
+  private static final Set<String> SPACE_ADMIN_WRITES   = Set.of("update_space_settings",
+                                                                 "invite_users_to_space",
+                                                                 "remove_users_from_space",
+                                                                 "set_user_role_in_space",
+                                                                 "remove_user_role_in_space",
+                                                                 "accept_space_join_request",
+                                                                 "decline_space_join_request",
+                                                                 "delete_space");
+
+  /**
    * Writes whose effect leaves the space they are called in: they must stay
    * undeclared, so a call limited to a space never runs them. Those of other
    * add-ons are listed too, so a copy of this test there starts from it.
@@ -147,6 +160,23 @@ class ToolDefinitionSpaceScopeTest {
     });
     DIRECTORY.forEach(name -> assertThat(declared.get(name).getSpaceScope().isUnscopedKind()).as(name).isTrue());
     assertThat(declared.get("search_activities").getSpaceScope().getFalseOnlyArgs()).containsExactly("is_favorite");
+  }
+
+  /**
+   * Exactly the space administration writes carry {@code space_admin}: no
+   * read, no content write, and none of them missing it. Mutants: the flag
+   * dropped from {@code delete_space}; set on {@code create_activity}.
+   */
+  @Test
+  void spaceAdminFlagIsOnTheSpaceAdministrationWritesOnly() {
+    Map<String, SimpleToolDefinition> declared = declaredTools();
+
+    assertThat(declared.values()
+                       .stream()
+                       .filter(tool -> tool.getSpaceScope().isSpaceAdmin())
+                       .map(SimpleToolDefinition::getName)).containsExactlyInAnyOrderElementsOf(SPACE_ADMIN_WRITES);
+    assertThat(SPACE_WRITES).containsAll(SPACE_ADMIN_WRITES);
+    SPACE_ADMIN_WRITES.forEach(name -> assertThat(McpToolSpaceScopeService.isReadTool(declared.get(name))).as(name).isFalse());
   }
 
   /**
