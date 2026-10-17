@@ -118,7 +118,13 @@ public class McpToolApprovalService {
   @Autowired
   private McpToolGrantService                  grantService;
 
-  @Value("${meeds.mcp.tool.userApproval.timeout:120000}")
+  /**
+   * How long a card waits for the user's answer, in milliseconds: 5 minutes,
+   * long enough to read and approve each card of a request with many changes
+   * (EXO-91527). ai's {@code AiAgentDelegationService} reads the same property
+   * with the same default.
+   */
+  @Value("${meeds.mcp.tool.userApproval.timeout:300000}")
   private long                                 timeout;
 
   @Value("${meeds.mcp.tool.userApproval.timeoutCheckInterval:5000}")
