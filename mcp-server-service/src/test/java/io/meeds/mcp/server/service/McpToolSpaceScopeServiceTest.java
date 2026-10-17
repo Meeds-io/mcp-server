@@ -24,14 +24,19 @@ import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
+import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.List;
 
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.io.TempDir;
 import org.springframework.beans.factory.ObjectProvider;
 
 import io.meeds.mcp.server.constant.Origin;
@@ -40,6 +45,7 @@ import io.meeds.mcp.server.model.SpaceScopeDeclaration;
 import io.meeds.mcp.server.model.SpaceScopeRefusedException;
 import io.meeds.mcp.server.model.SimpleToolDefinition;
 import io.meeds.mcp.server.plugin.SpaceScopeResolver;
+import io.meeds.mcp.server.util.McpToolUtils;
 
 import io.modelcontextprotocol.spec.McpSchema.ToolAnnotations;
 
@@ -56,6 +62,10 @@ class McpToolSpaceScopeServiceTest {
   private static final ActingIdentity     UNSCOPED   = ActingIdentity.person("john", Origin.CHAT);
 
   private static final ActingIdentity     PROPOSAL   = ActingIdentity.agent("agent-mail", "EMAIL_ASSISTANT", Origin.PROPOSAL, SPACE_ID);
+
+  private static final String             NODE_ID    = "0123456789abcdef0123456789abcdef";
+
+  private static final String             OTHER_NODE_ID = "fedcba9876543210fedcba9876543210";
 
   private static final String             SPACE_WRITE_INPUT = "{\"space_id\":12,\"html_content\":\"hi\"}";
 
@@ -161,7 +171,7 @@ class McpToolSpaceScopeServiceTest {
     SimpleToolDefinition undeclared = definition("delete_space", false, null);
     SimpleToolDefinition placeless = definition("send_email",
                                                 false,
-                                                new SpaceScopeDeclaration(null, null, null, null, true, List.of("to"), null, false));
+                                                new SpaceScopeDeclaration(null, null, null, null, true, List.of("to"), null, false, null));
 
     assertRefused(() -> service.enforce("delete_space", undeclared, "{\"space_id\":12}", PROPOSAL), "isn't available");
     assertRefused(() -> service.enforce("send_email", placeless, "{\"to\":\"x\"}", PROPOSAL), "isn't available");
@@ -199,7 +209,7 @@ class McpToolSpaceScopeServiceTest {
     when(resolver.spaceOf("9")).thenReturn(null);
     SimpleToolDefinition comment = definition("create_activity_comment",
                                               false,
-                                              new SpaceScopeDeclaration(null, null, "activity_id", "activity", false, List.of("comment"), null, false));
+                                              new SpaceScopeDeclaration(null, null, "activity_id", "activity", false, List.of("comment"), null, false, null));
     String input = "{\"activity_id\":7,\"comment\":\"hi\"}";
 
     assertThat(service.enforce("create_activity_comment", comment, input, PROPOSAL)).isSameAs(input);
@@ -216,7 +226,7 @@ class McpToolSpaceScopeServiceTest {
   void malformedDeclarationIsRefused() {
     SpaceScopeDeclaration both = spaceDeclaration("use_scope");
     both.setUnscoped(true);
-    SpaceScopeDeclaration objectWithoutResolver = new SpaceScopeDeclaration(null, null, "activity_id", null, false, null, null, false);
+    SpaceScopeDeclaration objectWithoutResolver = new SpaceScopeDeclaration(null, null, "activity_id", null, false, null, null, false, null);
 
     assertRefused(() -> service.enforce("t", definition("t", true, both), "{\"space_id\":12}", SCOPED), "isn't available");
     assertRefused(() -> service.enforce("t", definition("t", true, objectWithoutResolver), "{\"activity_id\":1}", SCOPED),
@@ -308,7 +318,8 @@ class McpToolSpaceScopeServiceTest {
                                                                       false,
                                                                       List.of("query"),
                                                                       List.of("is_favorite"),
-                                                                      false));
+                                                                      false,
+                                                                      null));
 
     assertThat(service.enforce("search_activities", search, "{\"space_id\":12,\"is_favorite\":false}", SCOPED)).contains("false");
     assertThat(service.enforce("search_activities", search, "{\"space_id\":12,\"is_favorite\":null}", SCOPED)).contains("null");
@@ -326,7 +337,7 @@ class McpToolSpaceScopeServiceTest {
   void unscopedDeclarationChecksNamesOnly() {
     SimpleToolDefinition directory = definition("search_users",
                                                 true,
-                                                new SpaceScopeDeclaration(null, null, null, null, true, List.of("query", "limit"), null, false));
+                                                new SpaceScopeDeclaration(null, null, null, null, true, List.of("query", "limit"), null, false, null));
     String input = "{\"query\":\"mary\",\"limit\":5}";
 
     assertThat(service.enforce("search_users", directory, input, SCOPED)).isSameAs(input);
@@ -387,6 +398,45 @@ class McpToolSpaceScopeServiceTest {
   }
 
   /**
+   * A JSON integer that is zero or negative is no id, as its string form
+   * isn't: an object argument holding one is refused without asking the
+   * resolver, even one that would answer the call's space for anything, and
+   * a space argument holding one is refused; a positive integer and a
+   * canonical decimal string still run, and a hex32 id is read as before.
+   * Mutant: the sign check on the integer removed, which hands 0, -7 and
+   * the smallest long to the resolver.
+   */
+  @Test
+  void zeroOrNegativeIntegerIdIsRefusedBeforeAnyResolver() {
+    SpaceScopeResolver activity = resolver("activity");
+    lenient().when(activity.spaceOf(anyString())).thenReturn(SPACE_ID);
+    SpaceScopeResolver document = resolver("document");
+    lenient().when(document.spaceOf(anyString())).thenReturn(SPACE_ID);
+    SimpleToolDefinition numeric = definition("get_document_by_id", true, hexDeclaration("numeric"));
+
+    for (String value : List.of("0", "-7", String.valueOf(Long.MIN_VALUE))) {
+      assertRefused(() -> service.enforce("get_activity", objectRead(), "{\"activity_id\":" + value + "}", SCOPED), "can only reach an item");
+      assertRefused(() -> service.enforce("get_document_by_id", numeric, "{\"node_id\":" + value + "}", SCOPED), "can only reach an item");
+      assertRefused(() -> service.enforce("get_activities", spaceRead("use_scope"), "{\"space_id\":" + value + "}", SCOPED), "space_id 12");
+      assertRefused(() -> service.enforce("create_activity", spaceWrite(), "{\"space_id\":" + value + ",\"html_content\":\"hi\"}", PROPOSAL),
+                    "space_id 12");
+    }
+    verify(activity, never()).spaceOf(anyString());
+    verify(document, never()).spaceOf(anyString());
+
+    String positive = "{\"activity_id\":7}";
+    String canonical = "{\"activity_id\":\"7\"}";
+    assertThat(service.enforce("get_activity", objectRead(), positive, SCOPED)).isSameAs(positive);
+    assertThat(service.enforce("get_activity", objectRead(), canonical, SCOPED)).isEqualTo(canonical);
+    assertThat(service.enforce("get_activities", spaceRead("use_scope"), "{\"space_id\":12}", SCOPED)).isEqualTo("{\"space_id\":12}");
+    assertThat(service.enforce("get_activities", spaceRead("use_scope"), "{\"space_id\":\"12\"}", SCOPED)).isEqualTo("{\"space_id\":\"12\"}");
+    String hex = "{\"node_id\":\"" + NODE_ID + "\"}";
+    assertThat(service.enforce("get_document_by_id", hexRead(), hex, SCOPED)).isSameAs(hex);
+    verify(activity, times(2)).spaceOf("7");
+    verify(document).spaceOf(NODE_ID);
+  }
+
+  /**
    * A by-id tool whose resolver no add-on provides, or two provide under one
    * name, is refused without asking any of them. Mutant: the first resolver
    * of the name taken.
@@ -427,7 +477,7 @@ class McpToolSpaceScopeServiceTest {
    * @return a space read declaration on {@code space_id} with offset and limit
    */
   private static SpaceScopeDeclaration spaceDeclaration(String whenAbsent) {
-    return new SpaceScopeDeclaration("space_id", whenAbsent, null, null, false, List.of("offset", "limit"), null, false);
+    return new SpaceScopeDeclaration("space_id", whenAbsent, null, null, false, List.of("offset", "limit"), null, false, null);
   }
 
   /**
@@ -435,7 +485,7 @@ class McpToolSpaceScopeServiceTest {
    *         {@code when_absent}, accepting {@code html_content}
    */
   private static SpaceScopeDeclaration spaceWriteDeclaration() {
-    return new SpaceScopeDeclaration("space_id", null, null, null, false, List.of("html_content"), null, false);
+    return new SpaceScopeDeclaration("space_id", null, null, null, false, List.of("html_content"), null, false, null);
   }
 
   /**
@@ -454,12 +504,150 @@ class McpToolSpaceScopeServiceTest {
   }
 
   /**
+   * @param idFormat the {@code id_format} value
+   * @return an object declaration on {@code node_id} resolved by
+   *         {@code document}
+   */
+  private static SpaceScopeDeclaration hexDeclaration(String idFormat) {
+    return new SpaceScopeDeclaration(null, null, "node_id", "document", false, null, null, false, idFormat);
+  }
+
+  /**
+   * @return a read-only by-id tool whose id is a hexadecimal node id
+   */
+  private static SimpleToolDefinition hexRead() {
+    return definition("get_document_by_id", true, hexDeclaration("hex32"));
+  }
+
+  /**
    * @return a read-only by-id tool resolved by {@code activity}
    */
   private static SimpleToolDefinition objectRead() {
     return definition("get_activity",
                       true,
-                      new SpaceScopeDeclaration(null, null, "activity_id", "activity", false, List.of("offset", "limit"), null, false));
+                      new SpaceScopeDeclaration(null, null, "activity_id", "activity", false, List.of("offset", "limit"), null, false, null));
+  }
+
+  /**
+   * The {@code id_format} is read from the tool definitions file by the
+   * production parser, defaults to a decimal id,
+   * and is well formed only on an object declaration, with a known value.
+   * Mutants: the property name changed; the kind check removed (a space
+   * declaration carrying one is accepted); the value check removed (an unknown
+   * format is accepted).
+   */
+  @Test
+  void idFormatIsParsedAndValidatedOnObjectDeclarationsOnly(@TempDir Path tmp) throws Exception {
+    Path file = tmp.resolve("ai-tool-definitions.json");
+    Files.writeString(file, """
+        { "tools": [
+          { "name": "hex_tool", "input_schema": {},
+            "space_scope": { "object_arg": "node_id", "resolver": "document", "id_format": "hex32" } },
+          { "name": "default_tool", "input_schema": {},
+            "space_scope": { "object_arg": "node_id", "resolver": "document" } } ] }
+        """, StandardCharsets.UTF_8);
+    List<SimpleToolDefinition> tools = McpToolUtils.parseToolDefinitions(file.toUri().toURL());
+    SpaceScopeDeclaration parsed = tools.get(0).getSpaceScope();
+    SpaceScopeDeclaration byDefault = tools.get(1).getSpaceScope();
+
+    assertThat(parsed.getIdFormat()).isEqualTo("hex32");
+    assertThat(parsed.isHexId()).isTrue();
+    assertThat(parsed.isWellFormedFor(false)).isTrue();
+    assertThat(parsed.isWellFormedFor(true)).isTrue();
+    assertThat(byDefault.getIdFormat()).isNull();
+    assertThat(byDefault.isHexId()).isFalse();
+    assertThat(byDefault.isWellFormedFor(false)).isTrue();
+    assertThat(hexDeclaration("numeric").isWellFormedFor(false)).isTrue();
+    assertThat(hexDeclaration("numeric").isHexId()).isFalse();
+    assertThat(hexDeclaration("HEX32").isWellFormedFor(false)).isFalse();
+    assertThat(hexDeclaration("hex").isWellFormedFor(false)).isFalse();
+    assertThat(hexDeclaration("").isWellFormedFor(false)).isFalse();
+
+    SpaceScopeDeclaration onSpace = spaceDeclaration("use_scope");
+    onSpace.setIdFormat("hex32");
+    SpaceScopeDeclaration onUnscoped = new SpaceScopeDeclaration(null, null, null, null, true, null, null, false, "numeric");
+    assertThat(onSpace.isWellFormedFor(false)).isFalse();
+    assertThat(onUnscoped.isWellFormedFor(false)).isFalse();
+    assertRefused(() -> service.enforce("t", definition("t", true, onSpace), "{\"space_id\":12}", SCOPED), "isn't available");
+    assertRefused(() -> service.enforce("t", definition("t", true, hexDeclaration("hex3")), "{\"node_id\":\"" + NODE_ID + "\"}", SCOPED),
+                  "isn't available");
+  }
+
+  /**
+   * A hex32 object runs when the resolver puts its node id in the call's
+   * space, and the resolver gets the id exactly as the model wrote it, which
+   * is the value the tool receives, the input coming back as the same string.
+   * Mutants: the id handed to the resolver rewritten; the space comparison
+   * removed.
+   */
+  @Test
+  void hexObjectInTheSpaceRunsAndTheResolverGetsTheIdAsSent() {
+    SpaceScopeResolver resolver = resolver("document");
+    when(resolver.spaceOf(NODE_ID)).thenReturn(SPACE_ID);
+    when(resolver.spaceOf(OTHER_NODE_ID)).thenReturn(13L);
+    String input = "{\"node_id\":\"" + NODE_ID + "\"}";
+
+    assertThat(service.enforce("get_document_by_id", hexRead(), input, SCOPED)).isSameAs(input);
+    String elsewhere = refusal(() -> service.enforce("get_document_by_id", hexRead(), "{\"node_id\":\"" + OTHER_NODE_ID + "\"}", SCOPED));
+    assertThat(elsewhere).contains("space with id 12").contains(OTHER_NODE_ID);
+  }
+
+  /**
+   * A hex32 object argument that isn't exactly 32 lowercase hexadecimal digits
+   * in a JSON string is refused without asking the resolver: a number, a
+   * decimal id, another length, upper case, a space or a line break around it,
+   * a non-hex digit, null, an object, an array. Upper case isn't folded: the
+   * value checked must be the value the tool gets, so the model writes it
+   * as the node id is. Mutants: the pattern loosened to case-insensitive; the
+   * string check removed (a number is accepted through its text); the
+   * format ignored, which applies the decimal rule and refuses the valid id.
+   */
+  @Test
+  void hexObjectArgumentThatIsNotALowercaseHex32StringIsRefusedWithoutAskingTheResolver() {
+    SpaceScopeResolver resolver = resolver("document");
+    lenient().when(resolver.spaceOf(anyString())).thenReturn(SPACE_ID);
+
+    for (String input : List.of("{}",
+                                "{\"node_id\":null}",
+                                "{\"node_id\":7}",
+                                "{\"node_id\":\"7\"}",
+                                "{\"node_id\":12345678901234567890123456789012}",
+                                "{\"node_id\":\"" + NODE_ID.toUpperCase() + "\"}",
+                                "{\"node_id\":\"" + NODE_ID.substring(0, 31) + "\"}",
+                                "{\"node_id\":\"" + NODE_ID + "0\"}",
+                                "{\"node_id\":\" " + NODE_ID + "\"}",
+                                "{\"node_id\":\"" + NODE_ID + " \"}",
+                                "{\"node_id\":\"" + NODE_ID + "\\n\"}",
+                                "{\"node_id\":\"" + NODE_ID.substring(0, 31) + "g\"}",
+                                "{\"node_id\":[\"" + NODE_ID + "\"]}",
+                                "{\"node_id\":{\"id\":\"" + NODE_ID + "\"}}")) {
+      assertRefused(() -> service.enforce("get_document_by_id", hexRead(), input, SCOPED), "can only reach an item");
+    }
+    verify(resolver, never()).spaceOf(anyString());
+  }
+
+  /**
+   * A hex32 id missing, failing or in another space gets the same refusal as
+   * an id that isn't one, and a decimal declaration still refuses a hex id.
+   * Mutants: the resolver's failure let through; the numeric rule loosened to
+   * accept hexadecimal text.
+   */
+  @Test
+  void hexObjectMissingOrFailingIsRefusedAndNumericStaysNumeric() {
+    SpaceScopeResolver resolver = resolver("document");
+    when(resolver.spaceOf(NODE_ID)).thenReturn(null);
+    when(resolver.spaceOf(OTHER_NODE_ID)).thenThrow(new IllegalStateException("repository down"));
+    lenient().when(resolver.spaceOf("7")).thenReturn(SPACE_ID);
+
+    assertRefused(() -> service.enforce("get_document_by_id", hexRead(), "{\"node_id\":\"" + NODE_ID + "\"}", SCOPED), "space with id 12");
+    String failing = refusal(() -> service.enforce("get_document_by_id", hexRead(), "{\"node_id\":\"" + OTHER_NODE_ID + "\"}", SCOPED));
+    assertThat(failing).doesNotContain("repository down");
+
+    SimpleToolDefinition numeric = definition("get_document_by_id", true, hexDeclaration("numeric"));
+    String seven = "{\"node_id\":7}";
+    assertThat(service.enforce("get_document_by_id", numeric, seven, SCOPED)).isSameAs(seven);
+    assertRefused(() -> service.enforce("get_document_by_id", numeric, "{\"node_id\":\"" + NODE_ID + "\"}", SCOPED), "can only reach an item");
+    assertRefused(() -> service.enforce("get_document_by_id", numeric, "{\"node_id\":\"0f\"}", SCOPED), "can only reach an item");
   }
 
   /**

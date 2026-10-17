@@ -246,15 +246,15 @@ class McpToolServerServiceTest {
                                                               @TempDir
                                                               Path tmp) {
     ReflectionTestUtils.setField(mcpServerToolService, FORCE_REIMPORT_PARAM, false);
-    SpaceScopeDeclaration shippedScope = new SpaceScopeDeclaration("space_id", "use_scope", null, null, false, List.of("limit"), null, false);
+    SpaceScopeDeclaration shippedScope = new SpaceScopeDeclaration("space_id", "use_scope", null, null, false, List.of("limit"), null, false, null);
     SimpleToolDefinition shippedAlpha = tool(ALPHA_TOOL, "ParsedDesc", TYPE_OBJECT, false, false);
     shippedAlpha.setSpaceScope(shippedScope);
     SimpleToolDefinition shippedBeta = tool(BETA_TOOL, "ParsedBeta", TYPE_OBJECT, false, false);
 
     SimpleToolDefinition savedAlpha = tool(ALPHA_TOOL, "SavedDesc", TYPE_OBJECT, false, false);
-    savedAlpha.setSpaceScope(new SpaceScopeDeclaration(null, null, null, null, true, List.of("space_id", "limit"), null, false));
+    savedAlpha.setSpaceScope(new SpaceScopeDeclaration(null, null, null, null, true, List.of("space_id", "limit"), null, false, null));
     SimpleToolDefinition savedBeta = tool(BETA_TOOL, "SavedBeta", TYPE_OBJECT, false, false);
-    savedBeta.setSpaceScope(new SpaceScopeDeclaration(null, null, null, null, true, null, null, false));
+    savedBeta.setSpaceScope(new SpaceScopeDeclaration(null, null, null, null, true, null, null, false, null));
     String savedBase64 = McpToolUtils.toJsonStringBase64(new ToolDefinitionMethods(List.of(savedAlpha, savedBeta)));
     when(settingService.get(any(), any(), any())).thenReturn((SettingValue) SettingValue.create(savedBase64));
 

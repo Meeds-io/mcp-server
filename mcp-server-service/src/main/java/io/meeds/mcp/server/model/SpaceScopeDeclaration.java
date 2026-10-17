@@ -56,6 +56,13 @@ import lombok.NoArgsConstructor;
  * object argument and {@code false_only_args}, each of the latter false or
  * absent.
  * <p>
+ * An object declaration may say how its id is written, {@code id_format}:
+ * {@value #ID_FORMAT_NUMERIC}, the default, for decimal digits, or
+ * {@value #ID_FORMAT_HEX32} for a JSON string of exactly 32 lowercase
+ * hexadecimal digits, handed to the resolver as sent. An {@code id_format} on
+ * another kind, or any other value, makes the declaration malformed, and the
+ * tool is refused.
+ * <p>
  * {@code space_admin: true} marks a write that administers the space itself
  * (its settings, its members and their roles, its join requests, its
  * deletion) rather than adding content to it. The server enforces nothing
@@ -74,6 +81,12 @@ public class SpaceScopeDeclaration {
 
   /** The {@code when_absent} value that reads the call's space. */
   public static final String USE_SCOPE = "use_scope";
+
+  /** The {@code id_format} value of a decimal id, the default. */
+  public static final String ID_FORMAT_NUMERIC = "numeric";
+
+  /** The {@code id_format} value of an id of 32 lowercase hexadecimal digits. */
+  public static final String ID_FORMAT_HEX32 = "hex32";
 
   @JsonProperty("space_arg")
   private String             spaceArg;
@@ -98,6 +111,9 @@ public class SpaceScopeDeclaration {
 
   @JsonProperty("space_admin")
   private boolean            spaceAdmin;
+
+  @JsonProperty("id_format")
+  private String             idFormat;
 
   /**
    * @return true when the declaration names a space argument and nothing else
@@ -137,7 +153,28 @@ public class SpaceScopeDeclaration {
   @JsonIgnore
   public boolean isWellFormedFor(boolean write) {
     int kinds = (isSpaceKind() ? 1 : 0) + (isObjectKind() ? 1 : 0) + (isUnscopedKind() ? 1 : 0);
-    return kinds == 1 && (!write || (!isUnscopedKind() && StringUtils.isBlank(whenAbsent)));
+    return kinds == 1
+           && (!write || (!isUnscopedKind() && StringUtils.isBlank(whenAbsent)))
+           && isIdFormatWellFormed();
+  }
+
+  /**
+   * @return true when the object id is written as 32 lowercase hexadecimal
+   *         digits; false for the default, a decimal number
+   */
+  @JsonIgnore
+  public boolean isHexId() {
+    return ID_FORMAT_HEX32.equals(idFormat);
+  }
+
+  /**
+   * @return true when no {@code id_format} is given, or an object
+   *         declaration gives a known one; an {@code id_format} on any other
+   *         kind, or an unknown value, isn't well formed
+   */
+  private boolean isIdFormatWellFormed() {
+    return idFormat == null
+           || isObjectKind() && (ID_FORMAT_NUMERIC.equals(idFormat) || ID_FORMAT_HEX32.equals(idFormat));
   }
 
   /**

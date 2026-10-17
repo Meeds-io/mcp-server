@@ -90,6 +90,8 @@ public class McpToolSpaceScopeService {
 
   private static final Pattern                     DECIMAL_ID         = Pattern.compile("[1-9]\\d{0,18}");
 
+  private static final Pattern                     HEX32_ID           = Pattern.compile("[0-9a-f]{32}");
+
   private static final JsonMapper                  ARGUMENTS_MAPPER   = JsonMapper.builder()
                                                                                   .enable(StreamReadFeature.STRICT_DUPLICATE_DETECTION)
                                                                                   .build();
@@ -302,7 +304,7 @@ public class McpToolSpaceScopeService {
   private void checkObject(String toolName, SpaceScopeDeclaration declaration, ObjectNode arguments, Long spaceScope) {
     String objectArg = declaration.getObjectArg();
     JsonNode value = arguments.get(objectArg);
-    Long objectId = value == null ? null : toId(value);
+    String objectId = value == null ? null : toObjectId(value, declaration.isHexId());
     if (objectId == null) {
       throw refuse(OUT_OF_SPACE_OBJECT.formatted(spaceScope, toolName, objectArg, value == null ? "(none)" : value));
     }
@@ -320,9 +322,9 @@ public class McpToolSpaceScopeService {
    * @param objectId the object's id
    * @return the object's space, null when the resolver says none or fails
    */
-  private Long spaceOf(SpaceScopeResolver resolver, Long objectId) {
+  private Long spaceOf(SpaceScopeResolver resolver, String objectId) {
     try {
-      return resolver.spaceOf(String.valueOf(objectId));
+      return resolver.spaceOf(objectId);
     } catch (RuntimeException e) {
       log.warn("Space scope resolver '{}' failed on object {}: the call is refused", resolver.getName(), objectId, e);
       return null;
@@ -359,16 +361,18 @@ public class McpToolSpaceScopeService {
   }
 
   /**
-   * Reads an id the way the tool will: a JSON integer, or a string of decimal
-   * digits with no sign and no leading zero, so that the value checked is the
-   * value the tool receives.
+   * Reads an id the way the tool will: a positive JSON integer, or a string
+   * of decimal digits with no sign and no leading zero, so that the value
+   * checked is the value the tool receives. Zero and a negative integer are
+   * no id, as their string forms aren't, and never reach a resolver.
    *
    * @param value the argument value
    * @return the id, or null when the value isn't one
    */
   private Long toId(JsonNode value) {
     if (value.isIntegralNumber() && value.canConvertToLong()) {
-      return value.longValue();
+      long id = value.longValue();
+      return id > 0 ? id : null;
     } else if (value.isString() && DECIMAL_ID.matcher(value.stringValue()).matches()) {
       try {
         return Long.valueOf(value.stringValue());
@@ -377,6 +381,25 @@ public class McpToolSpaceScopeService {
       }
     }
     return null;
+  }
+
+  /**
+   * Reads the id of an object the way the tool will, in the format the
+   * declaration says: a decimal id as {@link #toId(JsonNode)}, in its
+   * canonical form; a hexadecimal one only as a JSON string of exactly 32
+   * lowercase hexadecimal digits, as it is, with no case folding or trimming,
+   * so that the value checked is the value the tool receives.
+   *
+   * @param value the argument value
+   * @param hex   true when the declaration says {@code hex32}
+   * @return the id to give the resolver, or null when the value isn't one
+   */
+  private String toObjectId(JsonNode value, boolean hex) {
+    if (hex) {
+      return value.isString() && HEX32_ID.matcher(value.stringValue()).matches() ? value.stringValue() : null;
+    }
+    Long id = toId(value);
+    return id == null ? null : String.valueOf(id);
   }
 
   /**
