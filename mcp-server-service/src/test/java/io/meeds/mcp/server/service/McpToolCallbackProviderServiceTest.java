@@ -913,7 +913,7 @@ class McpToolCallbackProviderServiceTest {
     assertTrue(e.getMessage().contains("space with id 12"), e.getMessage());
     verify(mcpToolGrantService, never()).findApplicableGrant(any(), any());
     verify(mcpToolGrantService, never()).recordUse(any(), any());
-    verify(mcpToolApprovalService).traceToolExecution(argThatIs(UserToolRequestType.TOOL_EXECUTION_DENIED));
+    verify(mcpToolApprovalService).traceToolExecution(argThatIs(UserToolRequestType.TOOL_EXECUTION_OUT_OF_SCOPE));
     verify(mcpToolApprovalService, never()).traceToolExecution(argThatIs(UserToolRequestType.TOOL_EXECUTION_START));
     verify(mcpToolApprovalService, never()).traceToolExecution(argThatIs(UserToolRequestType.TOOL_EXECUTION_GRANTED));
   }
