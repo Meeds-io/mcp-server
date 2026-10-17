@@ -29,6 +29,7 @@ import static io.meeds.mcp.server.util.McpToolUtils.TOOL_CONTEXT_ID;
 import static io.meeds.mcp.server.util.McpToolUtils.TOOL_CONTEXT_ID_PARAM;
 import static io.meeds.mcp.server.util.McpToolUtils.TOOL_CONTEXT_ON_BEHALF_OF_PARAM;
 import static io.meeds.mcp.server.util.McpToolUtils.TOOL_CONTEXT_ORIGIN_PARAM;
+import static io.meeds.mcp.server.util.McpToolUtils.TOOL_CONTEXT_SPACE_SCOPE_PARAM;
 import static io.meeds.mcp.server.util.McpToolUtils.TOOL_CONTEXT_RETRY_MESSAGE_ID_PARAM;
 import static io.meeds.mcp.server.util.McpToolUtils.TOOL_CONTEXT_USER_NAME_PARAM;
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -50,8 +51,10 @@ import java.time.Instant;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.stream.Stream;
 
 import org.junit.jupiter.api.AfterEach;
+import org.slf4j.LoggerFactory;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -59,6 +62,7 @@ import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.ai.tool.ToolCallback;
+import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.context.ApplicationContext;
 import org.springframework.mock.web.MockHttpServletRequest;
 import org.springframework.security.core.GrantedAuthority;
@@ -72,6 +76,11 @@ import org.springframework.web.context.request.RequestContextHolder;
 import org.springframework.web.context.request.ServletRequestAttributes;
 
 import org.exoplatform.portal.config.UserACL;
+
+import ch.qos.logback.classic.Level;
+import ch.qos.logback.classic.Logger;
+import ch.qos.logback.classic.spi.ILoggingEvent;
+import ch.qos.logback.core.read.ListAppender;
 import org.exoplatform.services.security.ConversationState;
 import org.exoplatform.services.security.Identity;
 
@@ -82,10 +91,15 @@ import io.meeds.mcp.server.model.ActingIdentity;
 import io.meeds.mcp.server.model.McpToolGrant;
 import io.meeds.mcp.server.model.McpToolGrantConstraint;
 import io.meeds.mcp.server.model.McpToolGrantRequest;
+import io.meeds.mcp.server.model.SpaceScopeDeclaration;
+import io.meeds.mcp.server.model.SpaceScopeRefusedException;
 import io.meeds.mcp.server.model.SimpleToolDefinition;
 import io.meeds.mcp.server.model.UserToolExecution;
 import io.meeds.mcp.server.model.UserToolRefusedException;
 import io.meeds.mcp.server.plugin.McpToolPlugin;
+import io.meeds.mcp.server.plugin.SpaceScopeResolver;
+
+import io.modelcontextprotocol.spec.McpSchema.ToolAnnotations;
 
 /**
  * Pins how {@code MethodToolCallbackWrapper} resolves the chat conversation
@@ -120,6 +134,9 @@ class McpToolCallbackProviderServiceTest {
   @Mock
   private McpToolGrantService           mcpToolGrantService;
 
+  @Mock
+  private ObjectProvider<SpaceScopeResolver> spaceScopeResolvers;
+
   private McpToolCallbackProviderService service;
 
   private ToolCallback                  toolCallback;
@@ -138,7 +155,9 @@ class McpToolCallbackProviderServiceTest {
                                                  mcpToolApprovalService,
                                                  userAcl,
                                                  List.of(new GreetingToolPlugin()),
-                                                 mcpToolGrantService);
+                                                 mcpToolGrantService,
+                                                 new McpToolSpaceScopeService(spaceScopeResolvers));
+    lenient().when(spaceScopeResolvers.orderedStream()).thenAnswer(invocation -> Stream.empty());
     toolCallback = service.getToolCallbacks()[0];
 
     // The internal call is a bearer token OWNED by the internal client: the
@@ -707,7 +726,9 @@ class McpToolCallbackProviderServiceTest {
   }
 
   /**
-   * Adds the headers of the agent account acting as itself.
+   * Adds the headers of the agent account acting as itself, running a
+   * proposal its owner approved: a run that reads for a mention is limited to
+   * a space, where no write runs.
    *
    * @param request the request
    */
@@ -719,7 +740,7 @@ class McpToolCallbackProviderServiceTest {
                        "EMAIL_ASSISTANT",
                        null,
                        "[\"EMAIL_ASSISTANT\"]",
-                       "MENTION",
+                       "PROPOSAL",
                        "agent-user:EMAIL_ASSISTANT");
   }
 
@@ -760,6 +781,129 @@ class McpToolCallbackProviderServiceTest {
         request.addHeader(name, value);
       }
     });
+  }
+
+  /**
+   * A call limited to a space, to a tool that declares no space scope, is
+   * refused before any card or grant lookup and before the tool runs, traced
+   * as denied and not logged as an incident, and the model reads which space
+   * it may reach. Mutants: the space scope check not called from the wrapper;
+   * the refusal logged at WARN or ERROR.
+   */
+  @Test
+  void call_spaceScopedCallToAnUndeclaredTool_refusedAsDenied() {// NOSONAR
+    MockHttpServletRequest request = bindRequest(TOOL_CONTEXT_ID, CONVERSATION_ID);
+    addIdentityHeaders(request, USERNAME, "USER", USERNAME, null, USERNAME, "[\"COMPLETION\"]", "MENTION", "COMPLETION");
+    request.addHeader(TOOL_CONTEXT_SPACE_SCOPE_PARAM, "12");
+    Logger logger = (Logger) LoggerFactory.getLogger(McpToolCallbackProviderService.class);
+    ListAppender<ILoggingEvent> logged = new ListAppender<>();
+    logged.start();
+    logger.addAppender(logged);
+
+    SpaceScopeRefusedException e;
+    try {
+      e = assertThrows(SpaceScopeRefusedException.class, () -> toolCallback.call(TOOL_INPUT));
+    } finally {
+      logger.detachAppender(logged);
+    }
+
+    assertTrue(logged.list.stream().noneMatch(event -> event.getLevel().isGreaterOrEqual(Level.WARN)), logged.list::toString);
+
+    assertTrue(e.getMessage().contains("space with id 12"), e.getMessage());
+    verify(mcpToolApprovalService).traceToolExecution(argThatIs(UserToolRequestType.TOOL_EXECUTION_DENIED));
+    verify(mcpToolApprovalService, never()).traceToolExecution(argThatIs(UserToolRequestType.TOOL_EXECUTION_START));
+    verify(mcpToolApprovalService, never()).requestApproval(any(), any(), any(), any(), any(), any(), anyBoolean(), any());
+    verify(mcpToolGrantService, never()).findApplicableGrant(any(), any());
+  }
+
+  /**
+   * A call limited to a space, to a read tool whose space argument is absent,
+   * runs with the call's space filled in, and the trace records the arguments
+   * it ran with. Mutant: the wrapper keeps the arguments as sent.
+   */
+  @Test
+  void call_spaceScopedCallWithoutItsSpace_runsWithTheSpaceFilledIn() {// NOSONAR
+    SimpleToolDefinition read = new SimpleToolDefinition(TOOL_METHOD,
+                                                         "Greet",
+                                                         "Greets someone",
+                                                         "{}",
+                                                         false,
+                                                         false,
+                                                         new ToolAnnotations("Greet", true, false, true, false, null));
+    read.setSpaceScope(new SpaceScopeDeclaration("name", "use_scope", null, null, false, null, null));
+    when(mcpServerToolService.getToolDefinitionByMethodName(TOOL_METHOD)).thenReturn(read);
+    when(mcpServerToolService.isRequireApproval(eq(TOOL_METHOD), any())).thenReturn(false);
+    MockHttpServletRequest request = bindRequest(TOOL_CONTEXT_ID, CONVERSATION_ID);
+    addIdentityHeaders(request, USERNAME, "USER", USERNAME, null, USERNAME, "[\"COMPLETION\"]", "MENTION", "COMPLETION");
+    request.addHeader(TOOL_CONTEXT_SPACE_SCOPE_PARAM, "12");
+
+    String output = toolCallback.call("{}");
+
+    assertTrue(output.contains("Hello 12"), output);
+    verify(mcpToolApprovalService).traceToolExecution(org.mockito.ArgumentMatchers.argThat(execution -> execution != null
+        && execution.getToolExecutionType() == UserToolRequestType.TOOL_EXECUTION_START
+        && "{\"name\":12}".equals(execution.getToolInput())));
+  }
+
+  /**
+   * An approved proposal limited to a space runs a write declared in that
+   * space only after the space scope check, and still through the standing
+   * approvals and the card; the same write in another space is refused
+   * before either. Mutants: the space scope check moved after the approval;
+   * every write refused under a space scope.
+   */
+  @Test
+  void call_spaceScopedProposalWrite_checkedThenStillAsked() {// NOSONAR
+    SimpleToolDefinition write = new SimpleToolDefinition(TOOL_METHOD,
+                                                          "Greet",
+                                                          "Greets someone",
+                                                          "{}",
+                                                          true,
+                                                          false,
+                                                          new ToolAnnotations("Greet", false, false, false, false, null));
+    write.setSpaceScope(new SpaceScopeDeclaration("name", null, null, null, false, null, null));
+    when(mcpServerToolService.getToolDefinitionByMethodName(TOOL_METHOD)).thenReturn(write);
+    when(mcpToolApprovalService.requestApproval(any(), any(), any(), any(), any(), any(), anyBoolean(), any())).thenReturn(true);
+    MockHttpServletRequest request = bindRequest(TOOL_CONTEXT_ID, CONVERSATION_ID);
+    addIdentityHeaders(request, USERNAME, "USER", USERNAME, null, USERNAME, "[]", "PROPOSAL", null);
+    request.addHeader(TOOL_CONTEXT_SPACE_SCOPE_PARAM, "12");
+
+    assertThrows(SpaceScopeRefusedException.class, () -> toolCallback.call("{\"name\":13}"));
+    verify(mcpToolGrantService, never()).findApplicableGrant(any(), any());
+    verify(mcpToolApprovalService, never()).requestApproval(any(), any(), any(), any(), any(), any(), anyBoolean(), any());
+
+    String output = toolCallback.call("{\"name\":12}");
+
+    assertTrue(output.contains("Hello 12"), output);
+    verify(mcpToolGrantService).findApplicableGrant(any(), any());
+    verify(mcpToolApprovalService).requestApproval(anyString(),
+                                                   eq(CONVERSATION_ID),
+                                                   eq(TOOL_METHOD),
+                                                   anyString(),
+                                                   eq(USERNAME),
+                                                   any(),
+                                                   anyBoolean(),
+                                                   any());
+  }
+
+  /**
+   * A call that isn't limited runs as before: an undeclared tool, its
+   * arguments as sent, traced as sent. Mutant: the space scope check applied
+   * to every call, which refuses it.
+   */
+  @Test
+  void call_callWithoutSpaceScope_runsAsBefore() {// NOSONAR
+    when(mcpServerToolService.isRequireApproval(eq(TOOL_METHOD), any())).thenReturn(false);
+    MockHttpServletRequest request = bindRequest(TOOL_CONTEXT_ID, CONVERSATION_ID);
+    addIdentityHeaders(request, USERNAME, "USER", USERNAME, null, USERNAME, "[\"COMPLETION\"]", "CHAT", "COMPLETION");
+
+    String output = toolCallback.call(TOOL_INPUT);
+
+    assertTrue(output.contains("Hello Bob"), output);
+    verify(mcpToolApprovalService).traceToolExecution(org.mockito.ArgumentMatchers.argThat(execution -> execution != null
+        && execution.getToolExecutionType() == UserToolRequestType.TOOL_EXECUTION_START
+        && TOOL_INPUT.equals(execution.getToolInput())));
+    verify(spaceScopeResolvers, never()).orderedStream();
   }
 
   @Test
