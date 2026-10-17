@@ -174,6 +174,31 @@ class ActivityMcpToolMentionScopeTest {
   }
 
   /**
+   * A comment is saved as the HTML its Markdown renders to, and Social reads
+   * the mentions it notifies from that HTML, so the check reads them there
+   * too: a mention in bold or in a code span, which the raw text hides from
+   * the parser ({@code @john**} is no user), is refused once rendered
+   * ({@code <strong>@john</strong>}), for a comment and an image comment; a
+   * member mentioned the same way goes on.
+   * Mutant: the comment's mentions read from the raw text instead of the
+   * rendered one.
+   */
+  @Test
+  void aCommentIsCheckedOnTheMentionsOfItsRenderedMarkdown() {
+    scopeSpaceId = SCOPE_SPACE_ID;
+
+    IllegalAccessException refused = assertThrows(IllegalAccessException.class,
+                                                  () -> tool.createActivityComment(MISSING_ACTIVITY, "Please check **@john**", null));
+    assertTrue(refused.getMessage().contains("'john'"), refused.getMessage());
+    assertThrows(IllegalAccessException.class, () -> tool.createActivityComment(MISSING_ACTIVITY, "Please check `@john`", null));
+    assertThrows(IllegalAccessException.class,
+                 () -> tool.createActivityCommentWithImage(MISSING_ACTIVITY, "Please check _@john_", null, "aW1hZ2U=", null, null, null));
+    assertThrows(ObjectNotFoundException.class, () -> tool.createActivityComment(MISSING_ACTIVITY, "Please check **@mary**", null));
+
+    verify(activityManager, never()).saveComment(any(), any());
+  }
+
+  /**
    * In a call limited to a space, a text that mentions members only, or no
    * one, goes on to the tool's own steps (here the missing post space or
    * activity), the space being loaded once per call for the text that
