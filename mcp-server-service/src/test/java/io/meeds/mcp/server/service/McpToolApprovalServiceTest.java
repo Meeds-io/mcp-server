@@ -53,6 +53,7 @@ import org.junit.jupiter.api.Timeout;
 import org.mockito.ArgumentCaptor;
 import org.mortbay.cometd.continuation.EXoContinuationBayeux;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 
@@ -903,6 +904,19 @@ class McpToolApprovalServiceTest {
       }
       Thread.sleep(50);
     }
+  }
+
+  /**
+   * An approval card waits 5 minutes before it expires by default
+   * (EXO-91527); this class overrides the property, so the default is read
+   * from the field's annotation. Mutant: the default set back to 120000.
+   *
+   * @throws Exception when the field is missing
+   */
+  @Test
+  void timeout_defaultsToFiveMinutes() throws Exception {
+    assertThat(McpToolApprovalService.class.getDeclaredField("timeout").getAnnotation(Value.class).value())
+      .isEqualTo("${meeds.mcp.tool.userApproval.timeout:300000}");
   }
 
 }
