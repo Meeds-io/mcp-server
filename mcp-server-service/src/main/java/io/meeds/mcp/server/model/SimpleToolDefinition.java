@@ -19,10 +19,15 @@
 package io.meeds.mcp.server.model;
 
 import java.io.IOException;
+import java.util.Collections;
+import java.util.LinkedHashMap;
+import java.util.Map;
+import java.util.Set;
 
 import org.springframework.ai.tool.definition.ToolDefinition;
 
-import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
+import com.fasterxml.jackson.annotation.JsonAnySetter;
+import com.fasterxml.jackson.annotation.JsonIgnore;
 import com.fasterxml.jackson.annotation.JsonInclude;
 import com.fasterxml.jackson.annotation.JsonInclude.Include;
 import com.fasterxml.jackson.annotation.JsonProperty;
@@ -33,18 +38,24 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.annotation.JsonDeserialize;
 
 import io.modelcontextprotocol.spec.McpSchema.ToolAnnotations;
+import lombok.AccessLevel;
 import lombok.Data;
+import lombok.EqualsAndHashCode;
+import lombok.Getter;
 import lombok.NoArgsConstructor;
+import lombok.Setter;
+import lombok.ToString;
 
 /**
  * One MCP tool definition, as shipped in an {@code ai-tool-definitions.json}
- * file and as persisted with the administrator's edits. Unknown properties are
- * ignored, so a field added by a newer add-on never drops the whole file on an
- * older server.
+ * file and as persisted with the administrator's edits. A key this model does
+ * not know does not fail the parsing: it is collected in
+ * {@link #unknownPropertyNames()}, so the reader decides what the entry is
+ * worth. A misspelled {@code require_approval} or {@code annotations} key
+ * would otherwise leave the field at its permissive default.
  */
 @Data
 @NoArgsConstructor
-@JsonIgnoreProperties(ignoreUnknown = true)
 public class SimpleToolDefinition implements ToolDefinition {
 
   @JsonProperty("name")
@@ -78,6 +89,17 @@ public class SimpleToolDefinition implements ToolDefinition {
   @JsonProperty("icon")
   @JsonInclude(Include.NON_EMPTY)
   private String          icon;
+
+  /**
+   * The keys of the entry that this model does not know, with their values.
+   * Never serialized, so the persisted copy never carries them.
+   */
+  @JsonIgnore
+  @Getter(AccessLevel.NONE)
+  @Setter(AccessLevel.NONE)
+  @EqualsAndHashCode.Exclude
+  @ToString.Exclude
+  private Map<String, Object> unknownProperties;
 
   /**
    * Builds a definition with no icon.
@@ -139,6 +161,28 @@ public class SimpleToolDefinition implements ToolDefinition {
   @Override
   public String inputSchema() {
     return inputSchema;
+  }
+
+  /**
+   * Collects a key of the JSON entry that no field of this model maps.
+   *
+   * @param key   the unknown key
+   * @param value its value
+   */
+  @JsonAnySetter
+  public void addUnknownProperty(String key, Object value) {
+    if (unknownProperties == null) {
+      unknownProperties = new LinkedHashMap<>();
+    }
+    unknownProperties.put(key, value);
+  }
+
+  /**
+   * @return the keys of the JSON entry that this model does not know, in their
+   *         order in the entry, empty when there are none
+   */
+  public Set<String> unknownPropertyNames() {
+    return unknownProperties == null ? Collections.emptySet() : Collections.unmodifiableSet(unknownProperties.keySet());
   }
 
   public static class JsonObjectToStringDeserializer extends JsonDeserializer<String> {

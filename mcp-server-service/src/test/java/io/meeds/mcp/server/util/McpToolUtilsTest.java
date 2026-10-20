@@ -28,9 +28,11 @@ import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.Instant;
+import java.util.Base64;
 import java.util.Date;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
@@ -274,24 +276,74 @@ class McpToolUtilsTest {
   }
 
   /**
-   * A property this server does not know, at the file or the tool level,
-   * no longer drops every tool of the file.
+   * A key this server does not know at the root of the file does not drop its
+   * tools.
    *
    * @param tmp a temporary folder
    */
   @Test
-  void parseToolDefinitions_unknownProperties_keepTheTools(@TempDir Path tmp) throws Exception {// NOSONAR
+  void parseToolDefinitions_unknownFileLevelKey_keepsTheTools(@TempDir Path tmp) throws Exception {// NOSONAR
     Path file = tmp.resolve("ai-tool-definitions.json");
     Files.writeString(file, """
         { "future_file_field": 1,
-          "tools": [ { "name": "plain_tool", "future_tool_field": { "x": true }, "input_schema": {} } ] }
+          "tools": [ { "name": "plain_tool", "input_schema": {} },
+                     { "name": "other_tool", "require_approval": true, "input_schema": {} } ] }
         """, StandardCharsets.UTF_8);
 
     List<SimpleToolDefinition> tools = McpToolUtils.parseToolDefinitions(file.toUri().toURL());
 
-    assertEquals(1, tools.size());
-    assertEquals("plain_tool", tools.get(0).getName());
-    assertNull(tools.get(0).getIcon());
+    assertEquals(List.of("plain_tool", "other_tool"), tools.stream().map(SimpleToolDefinition::getName).toList());
+    assertTrue(tools.get(1).isRequireApproval());
+  }
+
+  /**
+   * A tool entry carrying a key this server does not know is left out, so a
+   * misspelled {@code require_approval} or {@code annotations} never loads the
+   * tool with the permissive default; the file's other tools still load.
+   *
+   * @param tmp a temporary folder
+   */
+  @Test
+  void parseToolDefinitions_unknownToolLevelKey_dropsThatToolAndKeepsItsSiblings(@TempDir Path tmp) throws Exception {// NOSONAR
+    Path file = tmp.resolve("ai-tool-definitions.json");
+    Files.writeString(file, """
+        { "icon": "fa-tasks",
+          "tools": [ { "name": "first_tool", "input_schema": {} },
+                     { "name": "misspelled_approval_tool", "require_aproval": true, "input_schema": {} },
+                     { "name": "misspelled_annotations_tool", "anotations": { "readOnlyHint": false }, "input_schema": {} },
+                     { "name": "last_tool", "require_approval": true, "input_schema": {} } ] }
+        """, StandardCharsets.UTF_8);
+
+    List<SimpleToolDefinition> tools = McpToolUtils.parseToolDefinitions(file.toUri().toURL());
+
+    assertEquals(List.of("first_tool", "last_tool"), tools.stream().map(SimpleToolDefinition::getName).toList());
+    assertTrue(tools.get(1).isRequireApproval());
+    assertEquals("fa-tasks", tools.get(0).getIcon());
+  }
+
+  /**
+   * A saved tool carrying a key this server does not know keeps its saved
+   * values, and the key is not persisted again.
+   */
+  @Test
+  void fromJsonStringBase64_unknownKeyOnASavedTool_keepsTheToolAndDoesNotPersistTheKey() {// NOSONAR
+    String schema = Base64.getEncoder().encodeToString("{}".getBytes(StandardCharsets.UTF_8));
+    String saved = """
+        { "tools": [ { "name": "saved_tool", "require_approval": true, "disabled": true,
+                       "future_tool_field": "x", "input_schema": "%s" } ] }
+        """.formatted(schema);
+
+    ToolDefinitionMethods decoded = McpToolUtils.fromJsonStringBase64(saved);
+
+    assertEquals(1, decoded.tools().size());
+    SimpleToolDefinition tool = decoded.tools().get(0);
+    assertEquals("saved_tool", tool.getName());
+    assertTrue(tool.isRequireApproval());
+    assertTrue(tool.isDisabled());
+    assertEquals(Set.of("future_tool_field"), tool.unknownPropertyNames());
+    String persisted = McpToolUtils.toJsonStringBase64(decoded);
+    assertFalse(persisted.contains("future_tool_field"), persisted);
+    assertFalse(persisted.contains("unknownProperties"), persisted);
   }
 
   /**
