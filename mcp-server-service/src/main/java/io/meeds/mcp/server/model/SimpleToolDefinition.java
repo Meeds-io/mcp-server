@@ -129,7 +129,7 @@ public class SimpleToolDefinition implements ToolDefinition {
   }
 
   /**
-   * Copies a definition, its icon included.
+   * Copies a definition, its icon and its unknown keys included.
    *
    * @param simpleToolDefinition the definition to copy
    */
@@ -142,6 +142,8 @@ public class SimpleToolDefinition implements ToolDefinition {
          simpleToolDefinition.disabled,
          simpleToolDefinition.annotations);
     this.icon = simpleToolDefinition.icon;
+    this.unknownProperties = simpleToolDefinition.unknownProperties == null ? null :
+                                                                             new LinkedHashMap<>(simpleToolDefinition.unknownProperties);
   }
 
   @Override

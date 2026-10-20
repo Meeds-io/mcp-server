@@ -361,6 +361,25 @@ class McpToolUtilsTest {
     assertEquals("fa-clipboard", decoded.tools().get(0).getIcon());
   }
 
+  /**
+   * A copy is the same definition: its icon and its unknown keys included,
+   * the copy's keys independent of the original's.
+   */
+  @Test
+  void copy_keepsTheIconAndTheUnknownKeys() {// NOSONAR
+    SimpleToolDefinition tool = new SimpleToolDefinition();
+    tool.setName(TOOL_NAME);
+    tool.setIcon("fa-clipboard");
+    tool.addUnknownProperty("require_aproval", true);
+
+    SimpleToolDefinition copy = new SimpleToolDefinition(tool);
+    tool.addUnknownProperty("other_key", 1);
+
+    assertEquals("fa-clipboard", copy.getIcon());
+    assertEquals(Set.of("require_aproval"), copy.unknownPropertyNames());
+    assertTrue(new SimpleToolDefinition(new SimpleToolDefinition()).unknownPropertyNames().isEmpty());
+  }
+
   @Test
   void fromJsonStringBase64_blank_returnsNull() {// NOSONAR
     assertNull(McpToolUtils.fromJsonStringBase64(null));
