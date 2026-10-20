@@ -22,6 +22,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.lenient;
+import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -387,6 +388,34 @@ class McpToolGrantServiceTest {
    * The evaluator proposes the limit a card may offer, and a failing
    * evaluator offers none.
    */
+  /**
+   * Every evaluator claiming a tool is consulted, whatever their order: one
+   * refusing vetoes a standing approval and a constrained grant, and no single
+   * one may propose a limit for the others.
+   */
+  @Test
+  void everyEvaluatorOfTheToolIsConsulted() {
+    McpToolGrantConstraintEvaluator vetoing = mock(McpToolGrantConstraintEvaluator.class);
+    when(vetoing.supports(TOOL)).thenReturn(true);
+    when(vetoing.allowsStandingApproval(TOOL, ARGUMENTS)).thenReturn(false);
+    when(vetoing.matches(TOOL, ARGUMENTS, DOMAIN)).thenReturn(false);
+    when(evaluator.matches(TOOL, ARGUMENTS, DOMAIN)).thenReturn(true);
+    lenient().when(evaluator.proposeConstraint(TOOL, ARGUMENTS)).thenReturn(DOMAIN);
+    when(evaluators.orderedStream()).thenAnswer(invocation -> Stream.of(evaluator, vetoing));
+    McpToolGrant constrained = userGrant().constraint(DOMAIN).build();
+    when(provider.findGrants(USER, TOOL)).thenReturn(List.of(constrained));
+
+    assertThat(service.allowsStandingApproval(TOOL, ARGUMENTS)).isFalse();
+    assertThat(service.proposeConstraint(TOOL, ARGUMENTS)).isNull();
+
+    when(vetoing.allowsStandingApproval(TOOL, ARGUMENTS)).thenReturn(true);
+    assertThat(service.allowsStandingApproval(TOOL, ARGUMENTS)).isTrue();
+    assertThat(service.findApplicableGrant(request(false), ARGUMENTS)).isNull();
+
+    when(vetoing.matches(TOOL, ARGUMENTS, DOMAIN)).thenReturn(true);
+    assertThat(service.findApplicableGrant(request(false), ARGUMENTS)).isSameAs(constrained);
+  }
+
   @Test
   void proposeConstraintAsksTheToolsEvaluator() {
     when(evaluator.proposeConstraint(TOOL, ARGUMENTS)).thenReturn(DOMAIN);
