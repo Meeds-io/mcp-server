@@ -212,7 +212,7 @@ public class McpToolApprovalService {
       sendApprovalRequest(id, conversationId, toolName, toolInput, username, approvalRequest);
       // the scheduled checker wakes every waiter periodically to test the timeout
       synchronized (approvalRequest) {
-        while (!approvalAnswer.isAnswered() && !approvalRequest.isTimedOut(timeout)) {
+        while (!approvalAnswer.isAnswered() && (approvalAnswer.isClaimed() || !approvalRequest.isTimedOut(timeout))) {
           approvalRequest.wait();
         }
       }
@@ -251,7 +251,9 @@ public class McpToolApprovalService {
    * copy changes nothing and never creates a second grant. An "Always allow"
    * answer approves the call and, when the card was grantable and the choice
    * valid, creates the standing approval from the pending call; otherwise it
-   * approves the call once, creates nothing, and is logged.
+   * approves the call once, creates nothing, and is logged. The grant is
+   * created outside the card's lock: its store may be slow, and the lock is the
+   * one the timeout checker takes to wake every pending card.
    *
    * @param id         the call identifier
    * @param wsClientId the CometD client that sent the answer
@@ -274,15 +276,29 @@ public class McpToolApprovalService {
       throw new IllegalAccessException("User '%s' isn't subscribed with a valid WebSocket token.".formatted(approvalAnswer.getUsername()));
     }
     synchronized (approvalRequest) {
-      if (approvalAnswer.isAnswered()) {
+      if (approvalAnswer.isAnswered() || approvalAnswer.isClaimed()) {
+        return;
+      } else if (!always) {
+        approvalAnswer.setAnswered(true);
+        approvalAnswer.setApproved(approved);
+        approvalRequest.notifyAll();
+        return;
+      } else if (approvalRequest.isTimedOut(timeout)) {
+        // the waiter may already have given up: no grant for a timed-out card
         return;
       }
-      approvalAnswer.setAnswered(true);
-      approvalAnswer.setApproved(approved || always);
-      if (always) {
-        approvalAnswer.setGrant(createGrant(id, approvalRequest, choice));
+      approvalAnswer.setClaimed(true);
+    }
+    McpToolGrant grant = null;
+    try {
+      grant = createGrant(id, approvalRequest, choice);
+    } finally {
+      synchronized (approvalRequest) {
+        approvalAnswer.setGrant(grant);
+        approvalAnswer.setApproved(true);
+        approvalAnswer.setAnswered(true);
+        approvalRequest.notifyAll();
       }
-      approvalRequest.notifyAll();
     }
   }
 
@@ -328,7 +344,20 @@ public class McpToolApprovalService {
   // The answer arrives on a CometD thread with no portal container bound: the
   // grant store reads settings and writes a row, which need one
   @ContainerTransactional
-  private McpToolGrant createGrant(String id, UserToolApprovalRequest approvalRequest, McpToolGrantChoice choice) {
+  McpToolGrant createGrant(String id, UserToolApprovalRequest approvalRequest, McpToolGrantChoice choice) {
+    return buildGrant(id, approvalRequest, choice);
+  }
+
+  /**
+   * The body of {@link #createGrant}, outside the woven container binding, so
+   * that it can be tested without booting a kernel.
+   *
+   * @param id              the call identifier
+   * @param approvalRequest the pending card
+   * @param choice          the checked choice, null when invalid
+   * @return the created grant, or null
+   */
+  McpToolGrant buildGrant(String id, UserToolApprovalRequest approvalRequest, McpToolGrantChoice choice) {
     if (!approvalRequest.isGrantable()) {
       log.info("'Always allow' answered on approval request '{}' whose card couldn't offer it: the call is approved once, no standing approval is created",
                id);
