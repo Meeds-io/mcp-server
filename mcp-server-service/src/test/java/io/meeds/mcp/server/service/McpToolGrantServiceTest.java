@@ -385,10 +385,6 @@ class McpToolGrantServiceTest {
   }
 
   /**
-   * The evaluator proposes the limit a card may offer, and a failing
-   * evaluator offers none.
-   */
-  /**
    * Every evaluator claiming a tool is consulted, whatever their order: one
    * refusing vetoes a standing approval and a constrained grant, and no single
    * one may propose a limit for the others.
@@ -416,6 +412,10 @@ class McpToolGrantServiceTest {
     assertThat(service.findApplicableGrant(request(false), ARGUMENTS)).isSameAs(constrained);
   }
 
+  /**
+   * The evaluator proposes the limit a card may offer, and a failing
+   * evaluator offers none.
+   */
   @Test
   void proposeConstraintAsksTheToolsEvaluator() {
     when(evaluator.proposeConstraint(TOOL, ARGUMENTS)).thenReturn(DOMAIN);
