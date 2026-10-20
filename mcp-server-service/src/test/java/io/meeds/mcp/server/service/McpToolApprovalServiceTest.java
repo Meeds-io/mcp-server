@@ -596,6 +596,43 @@ class McpToolApprovalServiceTest {
   }
 
   /**
+   * An "Always allow" answer that reaches a card after its timeout, before the
+   * checker has woken its waiter, creates no standing approval: the user was
+   * told the call timed out. The test holds the card's lock, so the waiter
+   * cannot leave while the answer is received, and the call still ends in a
+   * timeout once the lock is released.
+   */
+  @Test
+  @SneakyThrows
+  void alwaysAnswerOnATimedOutCardCreatesNoGrant() {
+    when(continuationBayeux.isSubscribed(USERNAME, WS_CLIENT_ID)).thenReturn(true);
+    Future<Boolean> call = CompletableFuture.supplyAsync(() -> service.requestApproval(REQUEST_ID,
+                                                                                       "conv",
+                                                                                       "send_email",
+                                                                                       "{}",
+                                                                                       USERNAME,
+                                                                                       grantRequest(),
+                                                                                       true,
+                                                                                       null));
+    awaitRequestRegistered(REQUEST_ID);
+    UserToolApprovalRequest request = getRequests().get(REQUEST_ID);
+    UserToolApprovalAnswer answer = getAnswers().get(REQUEST_ID);
+    synchronized (request) {
+      while (!request.isTimedOut((long) getField("timeout"))) {
+        Thread.sleep(10);
+      }
+      service.receiveAnswer(REQUEST_ID, WS_CLIENT_ID, true, true, new McpToolGrantChoice(McpToolGrantScope.TOOL, 7, false));
+
+      assertThat(answer.isClaimed()).isFalse();
+      assertThat(answer.isAnswered()).isFalse();
+    }
+
+    assertThatThrownBy(() -> call.get(2, TimeUnit.SECONDS)).hasCauseInstanceOf(UserToolTimeoutException.class);
+    verify(service, never()).createGrant(any(), any(), any());
+    verify(grantService, never()).createGrant(any(), any(), any());
+  }
+
+  /**
    * The grant of an "Always allow" answer is created on the CometD thread,
    * which has no portal container bound: the method that creates it binds
    * one (the AspectJ-woven @ContainerTransactional), or the store's setting
