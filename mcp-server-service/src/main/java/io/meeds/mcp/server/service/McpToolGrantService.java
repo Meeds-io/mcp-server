@@ -162,20 +162,31 @@ public class McpToolGrantService {
 
   /**
    * Tells whether the tool lets a standing approval cover this call at all,
-   * from its own evaluator; a tool without evaluator always does, a failing
-   * evaluator never does.
+   * from its own evaluators; a tool without evaluator always does, and every
+   * evaluator of the tool must agree: one refusing or failing is a veto.
    *
    * @param toolName  the MCP tool name
    * @param arguments the call arguments as the tool receives them
    * @return true when a standing approval may cover the call
    */
   public boolean allowsStandingApproval(String toolName, Map<String, Object> arguments) {
-    McpToolGrantConstraintEvaluator evaluator = getEvaluator(toolName);
-    if (evaluator == null) {
+    List<McpToolGrantConstraintEvaluator> evaluators = getEvaluators(toolName);
+    if (evaluators.isEmpty()) {
       return true;
     } else if (arguments == null) {
       return false;
     }
+    return evaluators.stream().allMatch(evaluator -> allows(evaluator, toolName, arguments));
+  }
+
+  /**
+   * @param evaluator an evaluator of the tool
+   * @param toolName  the MCP tool name
+   * @param arguments the call arguments as the tool receives them
+   * @return whether that evaluator lets a standing approval cover the call,
+   *         false when it fails
+   */
+  private boolean allows(McpToolGrantConstraintEvaluator evaluator, String toolName, Map<String, Object> arguments) {
     try {
       return evaluator.allowsStandingApproval(toolName, arguments);
     } catch (RuntimeException e) {
@@ -186,18 +197,20 @@ public class McpToolGrantService {
 
   /**
    * Derives the argument limit an approval card may offer, from the tool's own
-   * evaluator.
+   * evaluator. A tool claimed by several evaluators is offered none, since no
+   * single one can state a limit the others would accept.
    *
    * @param toolName  the MCP tool name
    * @param arguments the call arguments as the tool receives them
-   * @return the constraint, or null when the tool has no evaluator or the call
-   *         offers none
+   * @return the constraint, or null when the tool has no evaluator or several,
+   *         or the call offers none
    */
   public McpToolGrantConstraint proposeConstraint(String toolName, Map<String, Object> arguments) {
-    McpToolGrantConstraintEvaluator evaluator = getEvaluator(toolName);
-    if (evaluator == null || arguments == null) {
+    List<McpToolGrantConstraintEvaluator> evaluators = getEvaluators(toolName);
+    if (evaluators.size() != 1 || arguments == null) {
       return null;
     }
+    McpToolGrantConstraintEvaluator evaluator = evaluators.get(0);
     try {
       return evaluator.proposeConstraint(toolName, arguments);
     } catch (RuntimeException e) {
@@ -313,19 +326,34 @@ public class McpToolGrantService {
   }
 
   /**
-   * Asks the tool's evaluator whether the call satisfies a constraint, failing
-   * closed when there is no evaluator or it fails.
+   * Asks the tool's evaluators whether the call satisfies a constraint, failing
+   * closed when there is no evaluator, one refuses or one fails.
    *
    * @param constraint the grant's constraint
    * @param toolName   the MCP tool name
    * @param arguments  the call arguments as the tool receives them
-   * @return true only when the evaluator confirms the call stays within it
+   * @return true only when every evaluator confirms the call stays within it
    */
   private boolean matchesConstraint(McpToolGrantConstraint constraint, String toolName, Map<String, Object> arguments) {
-    McpToolGrantConstraintEvaluator evaluator = getEvaluator(toolName);
-    if (evaluator == null || arguments == null) {
+    List<McpToolGrantConstraintEvaluator> evaluators = getEvaluators(toolName);
+    if (evaluators.isEmpty() || arguments == null) {
       return false;
     }
+    return evaluators.stream().allMatch(evaluator -> matches(evaluator, constraint, toolName, arguments));
+  }
+
+  /**
+   * @param evaluator  an evaluator of the tool
+   * @param constraint the grant's constraint
+   * @param toolName   the MCP tool name
+   * @param arguments  the call arguments as the tool receives them
+   * @return whether that evaluator confirms the call stays within the
+   *         constraint, false when it fails
+   */
+  private boolean matches(McpToolGrantConstraintEvaluator evaluator,
+                          McpToolGrantConstraint constraint,
+                          String toolName,
+                          Map<String, Object> arguments) {
     try {
       return evaluator.matches(toolName, arguments, constraint);
     } catch (RuntimeException e) {
@@ -344,16 +372,15 @@ public class McpToolGrantService {
 
   /**
    * @param toolName the MCP tool name
-   * @return the first evaluator owning that tool's constraints, or null
+   * @return every evaluator owning that tool's constraints, empty when none
    */
-  private McpToolGrantConstraintEvaluator getEvaluator(String toolName) {
+  private List<McpToolGrantConstraintEvaluator> getEvaluators(String toolName) {
     if (constraintEvaluators == null || StringUtils.isBlank(toolName)) {
-      return null;
+      return List.of();
     }
     return constraintEvaluators.orderedStream()
                                .filter(evaluator -> supports(evaluator, toolName))
-                               .findFirst()
-                               .orElse(null);
+                               .toList();
   }
 
   /**
