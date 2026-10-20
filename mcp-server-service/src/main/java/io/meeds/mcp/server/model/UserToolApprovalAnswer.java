@@ -30,6 +30,13 @@ public class UserToolApprovalAnswer {
 
   private String       username;
 
+  /**
+   * Whether an answer has been taken and is being recorded: an "Always allow"
+   * answer creates its grant outside the card's lock, and the waiter keeps
+   * waiting meanwhile, so the grant is never created for a card that timed out.
+   */
+  private boolean      claimed;
+
   private boolean      answered;
 
   private boolean      approved;

@@ -25,6 +25,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.atLeastOnce;
+import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
@@ -33,6 +34,7 @@ import static org.mockito.Mockito.when;
 import java.lang.reflect.Field;
 import java.util.Map;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
 
@@ -46,9 +48,9 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.Timeout;
 import org.mockito.ArgumentCaptor;
 import org.mortbay.cometd.continuation.EXoContinuationBayeux;
-import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
+import org.springframework.test.context.bean.override.mockito.MockitoSpyBean;
 
 import org.exoplatform.services.listener.ListenerService;
 import org.exoplatform.ws.frameworks.cometd.ContinuationService;
@@ -107,23 +109,20 @@ class McpToolApprovalServiceTest {
   @MockitoBean
   private Mutable                        message;
 
-  @Autowired
+  @MockitoSpyBean
   private McpToolApprovalService         service;
 
   /**
-   * Boots the kernel's root container once, outside the per-test timeout:
-   * the grant creation is woven with @ContainerTransactional, whose aspect
-   * reads the current container, and the first read boots it (tens of
-   * seconds in a test JVM).
+   * The grant is created through the plain method: the woven
+   * {@code @ContainerTransactional} wrapper would boot a kernel, and is pinned
+   * by {@link #grantCreationBindsAContainer()} instead.
    */
-  @org.junit.jupiter.api.BeforeAll
-  @Timeout(value = 300, unit = TimeUnit.SECONDS)
-  static void bootTheRootContainerOnce() {
-    org.exoplatform.container.ExoContainerContext.getCurrentContainer();
-  }
-
   @BeforeEach
   void setUp() {
+    doAnswer(invocation -> service.buildGrant(invocation.getArgument(0),
+                                              invocation.getArgument(1),
+                                              invocation.getArgument(2))).when(service)
+                                                                         .createGrant(any(), any(), any());
     getRequests().clear();
     getAnswers().clear();
     service.init();
@@ -544,6 +543,56 @@ class McpToolApprovalServiceTest {
     assertThat(getRequests().get(REQUEST_ID).isGrantable()).isFalse();
     service.receiveAnswer(REQUEST_ID, WS_CLIENT_ID, true);
     assertThat(future.get(1, TimeUnit.SECONDS)).isTrue();
+  }
+
+  /**
+   * A slow grant store does not hold the card's lock: while one card's
+   * "Always allow" grant is still being written, another pending card still
+   * times out, since the timeout checker wakes each card under its lock.
+   */
+  @Test
+  @SneakyThrows
+  void aSlowGrantWriteDoesNotStopAnotherCardFromTimingOut() {
+    when(continuationBayeux.isSubscribed(USERNAME, WS_CLIENT_ID)).thenReturn(true);
+    CountDownLatch writing = new CountDownLatch(1);
+    CountDownLatch release = new CountDownLatch(1);
+    McpToolGrant grant = McpToolGrant.builder().id(12L).ownerType(McpToolGrantOwnerType.USER).build();
+    when(grantService.createGrant(any(), any(), any())).thenAnswer(invocation -> {
+      writing.countDown();
+      release.await();
+      return grant;
+    });
+    Future<Boolean> slow = CompletableFuture.supplyAsync(() -> service.requestApproval("slow",
+                                                                                       "conv",
+                                                                                       "send_email",
+                                                                                       "{}",
+                                                                                       USERNAME,
+                                                                                       grantRequest(),
+                                                                                       true,
+                                                                                       null));
+    awaitRequestRegistered("slow");
+    CompletableFuture<Void> answer = CompletableFuture.runAsync(() -> {
+      try {
+        service.receiveAnswer("slow", WS_CLIENT_ID, true, true, new McpToolGrantChoice(McpToolGrantScope.TOOL, 7, false));
+      } catch (IllegalAccessException e) {
+        throw new IllegalStateException(e);
+      }
+    });
+    assertThat(writing.await(1, TimeUnit.SECONDS)).isTrue();
+
+    Future<Boolean> other = CompletableFuture.supplyAsync(() -> service.requestApproval("other",
+                                                                                        "conv",
+                                                                                        "send_email",
+                                                                                        "{}",
+                                                                                        USERNAME,
+                                                                                        null,
+                                                                                        false,
+                                                                                        null));
+    assertThatThrownBy(() -> other.get(2, TimeUnit.SECONDS)).hasCauseInstanceOf(UserToolTimeoutException.class);
+
+    release.countDown();
+    answer.get(1, TimeUnit.SECONDS);
+    assertThat(slow.get(1, TimeUnit.SECONDS)).isTrue();
   }
 
   /**
