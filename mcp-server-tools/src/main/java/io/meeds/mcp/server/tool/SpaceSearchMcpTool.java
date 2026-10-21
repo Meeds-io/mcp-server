@@ -88,9 +88,10 @@ public class SpaceSearchMcpTool implements McpToolPlugin {
    * Searches the spaces the current user may see in the spaces directory, by
    * the words of their name or description, the best match first: among the
    * first {@value #MAX_LIMIT} the search engine returns, a space whose name
-   * holds every word comes before one that only mentions them. A hidden
-   * space is returned only to its members and to the users invited to it, as
-   * in the spaces directory.
+   * holds every word comes before one that only mentions them. The
+   * spaces are those of the spaces directory's search: with Elasticsearch, a
+   * hidden space reaches its members only (its indexed permissions); on the
+   * database fallback, its members and the users invited to it.
    *
    * @param query the words to look for, ignoring case and accents; required
    * @param limit the most hits to return, {@value McpToolPlugin#DEFAULT_LIMIT}
