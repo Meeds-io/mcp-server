@@ -27,9 +27,11 @@ import java.util.regex.Pattern;
 import org.apache.commons.lang3.StringUtils;
 import org.apache.commons.lang3.Strings;
 import org.apache.commons.lang3.math.NumberUtils;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 
+import org.exoplatform.commons.cluster.ClusterNodeName;
 import org.exoplatform.commons.utils.CommonsUtils;
 import org.exoplatform.upload.UploadResource;
 import org.exoplatform.upload.UploadService;
@@ -75,7 +77,8 @@ public class UploadMcpTool implements McpToolPlugin {
       receive the file (for an image: set_my_avatar, set_my_banner, set_space_avatar, set_space_banner, \
       create_activity_with_image, attach_image_to_activity, create_activity_comment_with_image or \
       attach_image_to_comment), which consumes it. The link works once, within a few minutes (expires_in_seconds \
-      is the platform default validity). HTTP 401: the \
+      is the platform default validity), and only on the server that issued it: send it with curl_command as \
+      given, whose cookie, on a cluster, routes it to that server. HTTP 401: the \
       link expired or was already used; 409: the upload_id is taken; 413: the file is larger than the declared size; \
       in each case call start_upload again. 400: the request is not one multipart file or the platform refused the \
       file; 411: the request had no Content-Length (send the file with -F as given). get_upload tells where an \
@@ -94,9 +97,19 @@ public class UploadMcpTool implements McpToolPlugin {
 
   private static final long    BYTES_PER_MB           = 1024L * 1024L;
 
+  /**
+   * A cluster node name the routing cookie may carry: what a Tomcat
+   * {@code jvmRoute} holds, and nothing that could break the command's
+   * quoting.
+   */
+  private static final Pattern NODE_NAME              = Pattern.compile("[A-Za-z0-9._-]{1,64}");
+
   private final UploadService  uploadService;
 
   private final long           maxSizeInMB;
+
+  @Autowired(required = false)
+  private ClusterNodeName      clusterNodeName;
 
   /**
    * Builds the tool over the platform upload registry.
@@ -132,6 +145,7 @@ public class UploadMcpTool implements McpToolPlugin {
    */
   public UploadLinkModel startUpload(String name, Long size) {
     String fileName = checkFileName(name);
+    String routingCookie = routingCookie();
     long maxBytes = maxSizeInMB * BYTES_PER_MB;
     if (size == null || size <= 0) {
       throw new IllegalArgumentException("size must be the file's exact size in bytes, greater than 0.");
@@ -145,7 +159,7 @@ public class UploadMcpTool implements McpToolPlugin {
     String uploadUrl = Strings.CS.removeEnd(CommonsUtils.getCurrentDomain(), "/") + UPLOAD_PATH + uploadId;
     return new UploadLinkModel(uploadId,
                                uploadUrl,
-                               curlCommand(token, fileName, uploadUrl),
+                               curlCommand(token, fileName, uploadUrl, routingCookie),
                                size,
                                UploadService.DEFAULT_UPLOAD_TOKEN_VALIDITY_SECONDS,
                                NEXT_STEP,
@@ -161,16 +175,46 @@ public class UploadMcpTool implements McpToolPlugin {
    * @param token the one-time upload token
    * @param fileName the checked file name, sent as the multipart file name
    * @param uploadUrl the upload URL
+   * @param routingCookie the cookie routing the request to this node, or null
+   *          outside a cluster
    * @return the curl command, with {@value #PATH_PLACEHOLDER} for the file's
    *         path
    */
-  private String curlCommand(String token, String fileName, String uploadUrl) {
+  private String curlCommand(String token, String fileName, String uploadUrl, String routingCookie) {
     List<String> arguments = new ArrayList<>();
     arguments.add("curl -sS");
     arguments.add("-H 'Authorization: Bearer " + token + "'");
+    if (routingCookie != null) {
+      arguments.add("-b '" + routingCookie + "'");
+    }
     arguments.add("-F 'file=@" + PATH_PLACEHOLDER + ";filename=\"" + fileName + "\"'");
     arguments.add("'" + uploadUrl + "'");
     return String.join(" ", arguments);
+  }
+
+  /**
+   * The cookie that routes the upload request to this node in a cluster: the
+   * token and the uploaded file live in this node's memory and disk, and
+   * Tomcat's {@code jvmRoute} is the cluster node name, so a load balancer
+   * that honours it sends a session id suffixed {@code .<node>} here. Tomcat
+   * ignores the unknown session id itself and opens a fresh session.
+   *
+   * @return {@code JSESSIONID=upload.<node>}, or null when this server has no
+   *         cluster node name
+   * @throws IllegalStateException when the node name holds characters a
+   *           {@code jvmRoute} does not, which could break the command
+   */
+  private String routingCookie() {
+    String nodeName = clusterNodeName == null ? null : StringUtils.trim(clusterNodeName.getNodeName());
+    if (StringUtils.isBlank(nodeName)) {
+      return null;
+    }
+    if (!NODE_NAME.matcher(nodeName).matches()) {
+      throw new IllegalStateException("This server's cluster node name (exo.cluster.node.name) cannot route an upload "
+          + "link: it may hold only letters, digits, '.', '_' and '-'. An administrator must fix it before files can be "
+          + "sent by link.");
+    }
+    return "JSESSIONID=upload." + nodeName;
   }
 
   /**
