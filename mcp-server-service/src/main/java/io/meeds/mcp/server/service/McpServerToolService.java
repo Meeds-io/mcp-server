@@ -223,25 +223,6 @@ public class McpServerToolService {
   }
 
   /**
-   * Reads every "always ask" flag from the database, past the setting cache,
-   * so that a failure is an exception rather than an absent value.
-   *
-   * @return the flags by tool name, empty when none is set
-   * @throws IllegalStateException when the store answers nothing at all
-   */
-  @SuppressWarnings("rawtypes")
-  private Map<String, SettingValue> readAlwaysAskFlags() {
-    Map<String, SettingValue> flags = settingService.getSettingsByContextAndScope(AI_AGENT_CONTEXT.getName(),
-                                                                                  AI_AGENT_CONTEXT.getId(),
-                                                                                  ALWAYS_ASK_SCOPE.getName(),
-                                                                                  ALWAYS_ASK_SCOPE.getId());
-    if (flags == null) {
-      throw new IllegalStateException("No answer from the setting store");
-    }
-    return flags;
-  }
-
-  /**
    * Marks or unmarks a tool "always ask", see {@link #isAlwaysAsk(String)}.
    *
    * @param toolName  the MCP tool name, which must exist
@@ -481,6 +462,25 @@ public class McpServerToolService {
   public void disableMcpServer() {
     featureService.saveActiveFeature(MCP_SERVER_FEATURE, false);
     mcpEnabled = null;
+  }
+
+  /**
+   * Reads every "always ask" flag from the database, past the setting cache,
+   * so that a failure is an exception rather than an absent value.
+   *
+   * @return the flags by tool name, empty when none is set
+   * @throws IllegalStateException when the store answers nothing at all
+   */
+  @SuppressWarnings("rawtypes")
+  private Map<String, SettingValue> readAlwaysAskFlags() {
+    Map<String, SettingValue> flags = settingService.getSettingsByContextAndScope(AI_AGENT_CONTEXT.getName(),
+                                                                                  AI_AGENT_CONTEXT.getId(),
+                                                                                  ALWAYS_ASK_SCOPE.getName(),
+                                                                                  ALWAYS_ASK_SCOPE.getId());
+    if (flags == null) {
+      throw new IllegalStateException("No answer from the setting store");
+    }
+    return flags;
   }
 
   /**
