@@ -88,10 +88,11 @@ public class SpaceSearchMcpTool implements McpToolPlugin {
    * Searches the spaces the current user may see in the spaces directory, by
    * the words of their name or description, the best match first: among the
    * first {@value #MAX_LIMIT} the search engine returns, a space whose name
-   * holds every word comes before one that only mentions them. The
-   * spaces are those of the spaces directory's search: with Elasticsearch, a
-   * hidden space reaches its members only (its indexed permissions); on the
-   * database fallback, its members and the users invited to it.
+   * has a word starting with each word of the query comes before one that
+   * only mentions them. The spaces are those of the spaces directory's search, where a hidden space
+   * reaches its members only: through its indexed permissions with
+   * Elasticsearch, and on the database fallback because
+   * {@code XSpaceFilter#setSpaceFilter} drops the invited status.
    *
    * @param query the words to look for, ignoring case and accents; required
    * @param limit the most hits to return, {@value McpToolPlugin#DEFAULT_LIMIT}
@@ -129,18 +130,26 @@ public class SpaceSearchMcpTool implements McpToolPlugin {
    * @param space a matching space
    * @param query the query
    * @param words the query words, without accents and in lower case
-   * @return 2 when the name is the query, 1 when it holds every word of
-   *         it, 0 otherwise; ignoring case and accents
+   * @return 2 when the name is the query, 1 when each word of the query
+   *         starts a word of the name, 0 otherwise; ignoring case and accents
    */
   private int nameMatch(Space space, String query, List<String> words) {
     String name = fold(space.getDisplayName());
     if (name.equals(fold(query))) {
       return 2;
-    } else if (!words.isEmpty() && words.stream().allMatch(name::contains)) {
+    } else if (!words.isEmpty() && words.stream().allMatch(word -> nameWords(name).anyMatch(n -> n.startsWith(word)))) {
       return 1;
     } else {
       return 0;
     }
+  }
+
+  /**
+   * @param foldedName a space name, already folded
+   * @return the words of the name
+   */
+  private Stream<String> nameWords(String foldedName) {
+    return Stream.of(WORD_SEPARATOR.split(foldedName)).filter(StringUtils::isNotBlank);
   }
 
   /**

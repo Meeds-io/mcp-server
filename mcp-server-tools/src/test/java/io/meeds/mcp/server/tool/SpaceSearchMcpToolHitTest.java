@@ -154,8 +154,8 @@ class SpaceSearchMcpToolHitTest {
   }
 
   /**
-   * A space whose name holds the query's words comes before one that only
-   * mentions them in its description, whatever the engine's order, and the
+   * A space with a name word starting with each of the query's words comes
+   * before one that only mentions them in its description, whatever the engine's order, and the
    * space named exactly by the query comes first; case and accents are
    * ignored, and the engine's order is kept within each rank.
    */
@@ -171,6 +171,10 @@ class SpaceSearchMcpToolHitTest {
                  tool.searchSpaces("schiever", null).stream().map(SpaceSearchHitModel::spaceId).toList());
     assertEquals(List.of(4L, 3L, 1L, 2L),
                  tool.searchSpaces("Client Schièver", null).stream().map(SpaceSearchHitModel::spaceId).toList());
+    // a word inside a name's word is no name match: "art" doesn't start "Marketing"
+    Space art = space(5, "Art club");
+    when(spacesAccess.load(0, SpaceSearchMcpTool.MAX_LIMIT)).thenReturn(new Space[] { marketing, art });
+    assertEquals(List.of(5L, 1L), tool.searchSpaces("art", null).stream().map(SpaceSearchHitModel::spaceId).toList());
   }
 
   /**
