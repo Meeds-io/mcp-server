@@ -24,8 +24,10 @@ import java.lang.reflect.Field;
 import java.net.URL;
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
+import java.util.ArrayList;
 import java.util.Base64;
 import java.util.Calendar;
+import java.util.Collection;
 import java.util.Collections;
 import java.util.Date;
 import java.util.List;
@@ -149,6 +151,18 @@ public class McpToolUtils {
    * @return the tool definitions it declares, empty when it cannot be read
    */
   public static List<SimpleToolDefinition> parseToolDefinitions(URL url) {
+    return parseToolDefinitions(url, new ArrayList<>());
+  }
+
+  /**
+   * Same as {@link #parseToolDefinitions(URL)}, and adds the name of each tool
+   * left out for a key this server does not know to the given collection.
+   *
+   * @param url              the resource to read
+   * @param leftOutToolNames receives the names of the tools left out
+   * @return the tool definitions it declares, empty when it cannot be read
+   */
+  public static List<SimpleToolDefinition> parseToolDefinitions(URL url, Collection<String> leftOutToolNames) {
     try (InputStream inputStream = url.openStream()) {
       String content = IOUtils.toString(inputStream, StandardCharsets.UTF_8);
       ToolDefinitionMethods definitionMethods = fromJsonString(content);
@@ -157,7 +171,7 @@ public class McpToolUtils {
       }
       List<SimpleToolDefinition> tools = definitionMethods.tools()
                                                           .stream()
-                                                          .filter(tool -> hasOnlyKnownProperties(url, tool))
+                                                          .filter(tool -> hasOnlyKnownProperties(url, tool, leftOutToolNames))
                                                           .toList();
       if (StringUtils.isNotBlank(definitionMethods.icon())) {
         tools.stream()
@@ -232,17 +246,19 @@ public class McpToolUtils {
   }
 
   /**
-   * @param url  the file the tool is declared in
-   * @param tool a tool entry of that file
+   * @param url              the file the tool is declared in
+   * @param tool             a tool entry of that file
+   * @param leftOutToolNames receives the tool's name when it is left out
    * @return true when the entry carries only keys this server knows, else
    *         false, after a WARN naming the file, the tool and the keys
    */
-  private static boolean hasOnlyKnownProperties(URL url, SimpleToolDefinition tool) {
+  private static boolean hasOnlyKnownProperties(URL url, SimpleToolDefinition tool, Collection<String> leftOutToolNames) {
     if (tool.unknownPropertyNames().isEmpty()) {
       return true;
     }
     log.warn("Tool '{}' of {} is not loaded: its definition carries keys this server does not know {}. "
-        + "The file's other tools are loaded", tool.getName(), url, tool.unknownPropertyNames());
+        + "The file's other tools are loaded, and its saved values are kept", tool.getName(), url, tool.unknownPropertyNames());
+    leftOutToolNames.add(tool.getName());
     return false;
   }
 
