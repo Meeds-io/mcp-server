@@ -89,7 +89,7 @@ public class McpServerToolService {
    * the AI tools admin are reset once. The per-tool "always ask" flags live
    * under their own scope and are kept.
    */
-  private static final String               TOOLS_KEY                     = "AI_AGENT_TOOL_DEFINITIONS_v18";
+  private static final String               TOOLS_KEY                     = "AI_AGENT_TOOL_DEFINITIONS_v19";
 
   private static final Scope                TOOLS_SCOPE                   = Scope.APPLICATION.id(TOOLS_KEY);
 
