@@ -180,22 +180,6 @@ public class McpToolGrantService {
   }
 
   /**
-   * @param evaluator an evaluator of the tool
-   * @param toolName  the MCP tool name
-   * @param arguments the call arguments as the tool receives them
-   * @return whether that evaluator lets a standing approval cover the call,
-   *         false when it fails
-   */
-  private boolean allows(McpToolGrantConstraintEvaluator evaluator, String toolName, Map<String, Object> arguments) {
-    try {
-      return evaluator.allowsStandingApproval(toolName, arguments);
-    } catch (RuntimeException e) {
-      log.warn("Tool '{}' couldn't tell whether a standing approval may cover the call, none does", toolName, e);
-      return false;
-    }
-  }
-
-  /**
    * Derives the argument limit an approval card may offer, from the tool's own
    * evaluator. A tool claimed by several evaluators is offered none, since no
    * single one can state a limit the others would accept.
@@ -290,6 +274,22 @@ public class McpToolGrantService {
                                      .expiresAt(now.plus(Duration.ofDays(choice.days())))
                                      .build();
     return provider.createGrant(grant, request);
+  }
+
+  /**
+   * @param evaluator an evaluator of the tool
+   * @param toolName  the MCP tool name
+   * @param arguments the call arguments as the tool receives them
+   * @return whether that evaluator lets a standing approval cover the call,
+   *         false when it fails
+   */
+  private boolean allows(McpToolGrantConstraintEvaluator evaluator, String toolName, Map<String, Object> arguments) {
+    try {
+      return evaluator.allowsStandingApproval(toolName, arguments);
+    } catch (RuntimeException e) {
+      log.warn("Tool '{}' couldn't tell whether a standing approval may cover the call, none does", toolName, e);
+      return false;
+    }
   }
 
   /**
