@@ -34,10 +34,11 @@ import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
 
 import com.fasterxml.jackson.annotation.JsonProperty;
-import com.fasterxml.jackson.databind.JsonNode;
-import com.fasterxml.jackson.databind.ObjectMapper;
 
 import io.modelcontextprotocol.spec.McpSchema.ToolAnnotations;
+
+import tools.jackson.databind.JsonNode;
+import tools.jackson.databind.ObjectMapper;
 
 /**
  * Reads this module's tool definitions file as raw JSON: the parser hands the
@@ -131,10 +132,10 @@ class ToolDefinitionAnnotationsTest {
     assertTrue(declaredKeys.contains("readOnlyHint"), "ToolAnnotations' properties not read: " + declaredKeys);
     for (JsonNode tool : tools) {
       JsonNode annotations = tool.path("annotations");
-      assertTrue(annotations.isObject(), tool.path("name").asText() + " declares no annotations");
-      annotations.fieldNames()
-                 .forEachRemaining(key -> assertTrue(declaredKeys.contains(key),
-                                                     tool.path("name").asText() + " declares an annotations key "
+      assertTrue(annotations.isObject(), tool.path("name").asString() + " declares no annotations");
+      annotations.propertyNames()
+                 .forEach(key -> assertTrue(declaredKeys.contains(key),
+                                                     tool.path("name").asString() + " declares an annotations key "
                                                          + "ToolAnnotations does not know: " + key));
     }
   }
@@ -148,9 +149,9 @@ class ToolDefinitionAnnotationsTest {
     Set<String> declaredWrites = new HashSet<>();
     for (JsonNode tool : tools) {
       JsonNode readOnlyHint = tool.path("annotations").path("readOnlyHint");
-      assertTrue(readOnlyHint.isBoolean(), tool.path("name").asText() + " declares no boolean readOnlyHint");
+      assertTrue(readOnlyHint.isBoolean(), tool.path("name").asString() + " declares no boolean readOnlyHint");
       if (!readOnlyHint.booleanValue()) {
-        declaredWrites.add(tool.path("name").asText());
+        declaredWrites.add(tool.path("name").asString());
       }
     }
     assertEquals(WRITE_TOOLS, declaredWrites);
