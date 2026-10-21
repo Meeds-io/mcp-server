@@ -104,7 +104,8 @@ public class SpaceSearchMcpTool implements McpToolPlugin {
    */
   @SneakyThrows
   public List<SpaceSearchHitModel> searchSpaces(String query, Integer limit) {
-    if (StringUtils.isBlank(query)) {
+    List<String> words = words(query);
+    if (words.isEmpty()) {
       throw new IllegalArgumentException(MSG_QUERY_REQUIRED);
     }
     String username = getCurrentUserName();
@@ -114,7 +115,6 @@ public class SpaceSearchMcpTool implements McpToolPlugin {
     if (spaces == null) {
       return Collections.emptyList();
     }
-    List<String> words = words(query);
     return Stream.of(spaces)
                  .filter(Objects::nonNull)
                  .sorted(Comparator.comparingInt((Space space) -> nameMatch(space, query, words)).reversed())

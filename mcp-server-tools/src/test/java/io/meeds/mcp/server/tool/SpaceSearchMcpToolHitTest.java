@@ -111,12 +111,16 @@ class SpaceSearchMcpToolHitTest {
   }
 
   /**
-   * A query with no word is refused before any space is read.
+   * A query with no word, blank or punctuation only, is refused before any
+   * space is read.
    */
   @Test
   void blankQueryIsRefused() {
     assertThrows(IllegalArgumentException.class, () -> tool.searchSpaces(" ", null));
     assertThrows(IllegalArgumentException.class, () -> tool.searchSpaces(null, 5));
+    // no letter nor digit: "~" would reach the database as no condition at all
+    assertThrows(IllegalArgumentException.class, () -> tool.searchSpaces("~", null));
+    assertThrows(IllegalArgumentException.class, () -> tool.searchSpaces("!!!", null));
     verify(spaceService, never()).getVisibleSpacesWithListAccess(anyString(), any());
   }
 
