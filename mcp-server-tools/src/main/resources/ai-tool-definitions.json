@@ -2635,7 +2635,7 @@
       "name": "create_activity_with_image",
       "icon": "fa-stream",
       "title": "Post an activity with an image",
-      "description": "Create an activity (post) in a space (or the personal stream if space_id is null) and attach an image to it. The image comes from either a public image URL or base64-encoded bytes (e.g. a screenshot). Use create_activity when no image is needed.",
+      "description": "Create an activity (post) in a space (or the personal stream if space_id is null) and attach an image to it. The image comes from exactly one source, in order of choice: an image already attached in the platform (attachment_object_type + attachment_object_id); a public URL that serves it (image_url); an image on your machine, sent with start_upload and its curl command, then passed as upload_id; a small image as image_base64 only when you have no shell. Use create_activity when no image is needed.",
       "input_schema": {
         "type": "object",
         "properties": {
@@ -2647,19 +2647,23 @@
           },
           "image_url": {
             "type": "string",
-            "description": "Direct http(s) URL of an image to attach. Provide either image_url or image_base64 (not both)."
+            "description": "Direct http(s) URL where the image is publicly served, fetched by the server (png, jpeg, gif or webp, up to 10 MB, no redirect followed). Use it only for a URL that really serves the image: never guess or invent one. One image source per call: attachment_object_id, image_url, upload_id or image_base64."
           },
           "image_base64": {
             "type": "string",
-            "description": "Base64-encoded image bytes (png, jpeg, gif or webp), optionally as a data: URI. Use for a locally-produced image such as a screenshot; prefer image_url when the image is reachable by URL. Provide either image_url or image_base64 (not both)."
+            "description": "Base64-encoded image bytes (png, jpeg, gif or webp), optionally as a data: URI. Last resort, for a small image when you have no shell to run start_upload's curl command or curl cannot reach the platform: every byte goes through the conversation. One image source per call."
           },
           "attachment_object_type": {
             "type": "string",
-            "description": "Internal: object type of an existing platform attachment to use as the image (set automatically by the client from the user's attached image — do not fill this yourself). Read as the current user, so its ACL is enforced."
+            "description": "Type of the platform object holding an image already attached in the platform (e.g. 'activity'), read as the current user, so its ACL is enforced. Set automatically by the in-platform assistant from the image the user attached; otherwise set it only to reuse an attachment of an object you can read, never an invented one. Goes with attachment_object_id."
           },
           "attachment_object_id": {
             "type": "string",
-            "description": "Internal: object id of an existing platform attachment to use as the image (set automatically by the client — do not fill this yourself). Provide exactly one image source: attachment_object_id, image_url or image_base64."
+            "description": "Id of the platform object holding that image (its first attached file is used). The first choice when the image is already in the platform. One image source per call: attachment_object_id, image_url, upload_id or image_base64."
+          },
+          "upload_id": {
+            "type": "string",
+            "description": "The upload_id start_upload returned, once its curl command answered {\"status\":\"uploaded\"}: the way to send an image that is on your machine (png, jpeg, gif or webp, up to 10 MB). Only your own uploads are accepted; this call consumes it. One image source per call."
           },
           "alt_text": {
             "type": "string",
@@ -2683,7 +2687,7 @@
       "name": "attach_image_to_activity",
       "icon": "fa-stream",
       "title": "Attach an image to an activity",
-      "description": "Attach an image to an existing activity (post) that the current user is allowed to edit. The image comes from either a public image URL or base64-encoded bytes (e.g. a screenshot).",
+      "description": "Attach an image to an existing activity (post) that the current user is allowed to edit. The image comes from exactly one source, in order of choice: an image already attached in the platform (attachment_object_type + attachment_object_id); a public URL that serves it (image_url); an image on your machine, sent with start_upload and its curl command, then passed as upload_id; a small image as image_base64 only when you have no shell.",
       "input_schema": {
         "type": "object",
         "properties": {
@@ -2692,19 +2696,23 @@
           },
           "image_url": {
             "type": "string",
-            "description": "Direct http(s) URL of an image to attach. Provide either image_url or image_base64 (not both)."
+            "description": "Direct http(s) URL where the image is publicly served, fetched by the server (png, jpeg, gif or webp, up to 10 MB, no redirect followed). Use it only for a URL that really serves the image: never guess or invent one. One image source per call: attachment_object_id, image_url, upload_id or image_base64."
           },
           "image_base64": {
             "type": "string",
-            "description": "Base64-encoded image bytes (png, jpeg, gif or webp), optionally as a data: URI. Use for a locally-produced image such as a screenshot; prefer image_url when the image is reachable by URL. Provide either image_url or image_base64 (not both)."
+            "description": "Base64-encoded image bytes (png, jpeg, gif or webp), optionally as a data: URI. Last resort, for a small image when you have no shell to run start_upload's curl command or curl cannot reach the platform: every byte goes through the conversation. One image source per call."
           },
           "attachment_object_type": {
             "type": "string",
-            "description": "Internal: object type of an existing platform attachment to use as the image (set automatically by the client from the user's attached image — do not fill this yourself). Read as the current user, so its ACL is enforced."
+            "description": "Type of the platform object holding an image already attached in the platform (e.g. 'activity'), read as the current user, so its ACL is enforced. Set automatically by the in-platform assistant from the image the user attached; otherwise set it only to reuse an attachment of an object you can read, never an invented one. Goes with attachment_object_id."
           },
           "attachment_object_id": {
             "type": "string",
-            "description": "Internal: object id of an existing platform attachment to use as the image (set automatically by the client — do not fill this yourself). Provide exactly one image source: attachment_object_id, image_url or image_base64."
+            "description": "Id of the platform object holding that image (its first attached file is used). The first choice when the image is already in the platform. One image source per call: attachment_object_id, image_url, upload_id or image_base64."
+          },
+          "upload_id": {
+            "type": "string",
+            "description": "The upload_id start_upload returned, once its curl command answered {\"status\":\"uploaded\"}: the way to send an image that is on your machine (png, jpeg, gif or webp, up to 10 MB). Only your own uploads are accepted; this call consumes it. One image source per call."
           },
           "alt_text": {
             "type": "string",
@@ -2728,7 +2736,7 @@
       "name": "create_activity_comment_with_image",
       "icon": "fa-stream",
       "title": "Comment on an activity with an image",
-      "description": "Add a comment to an activity and attach an image to that comment. The image comes from a public image URL, base64-encoded bytes, or the current conversation's attached image. Use create_activity_comment when no image is needed.",
+      "description": "Add a comment to an activity and attach an image to that comment. The image comes from exactly one source, in order of choice: an image already attached in the platform (attachment_object_type + attachment_object_id); a public URL that serves it (image_url); an image on your machine, sent with start_upload and its curl command, then passed as upload_id; a small image as image_base64 only when you have no shell. Use create_activity_comment when no image is needed.",
       "input_schema": {
         "type": "object",
         "properties": {
@@ -2740,19 +2748,23 @@
           },
           "image_url": {
             "type": "string",
-            "description": "Direct http(s) URL of an image to attach. Provide exactly one of image_url, image_base64 or attachment_object_id."
+            "description": "Direct http(s) URL where the image is publicly served, fetched by the server (png, jpeg, gif or webp, up to 10 MB, no redirect followed). Use it only for a URL that really serves the image: never guess or invent one. One image source per call: attachment_object_id, image_url, upload_id or image_base64."
           },
           "image_base64": {
             "type": "string",
-            "description": "Base64-encoded image bytes (png, jpeg, gif or webp), optionally as a data: URI. Use for a locally-produced image such as a screenshot."
+            "description": "Base64-encoded image bytes (png, jpeg, gif or webp), optionally as a data: URI. Last resort, for a small image when you have no shell to run start_upload's curl command or curl cannot reach the platform: every byte goes through the conversation. One image source per call."
           },
           "attachment_object_type": {
             "type": "string",
-            "description": "Internal: object type of an existing platform attachment to use as the image (set automatically by the client from the user's attached image — do not fill this yourself)."
+            "description": "Type of the platform object holding an image already attached in the platform (e.g. 'activity'), read as the current user, so its ACL is enforced. Set automatically by the in-platform assistant from the image the user attached; otherwise set it only to reuse an attachment of an object you can read, never an invented one. Goes with attachment_object_id."
           },
           "attachment_object_id": {
             "type": "string",
-            "description": "Internal: object id of an existing platform attachment to use as the image (set automatically by the client — do not fill this yourself)."
+            "description": "Id of the platform object holding that image (its first attached file is used). The first choice when the image is already in the platform. One image source per call: attachment_object_id, image_url, upload_id or image_base64."
+          },
+          "upload_id": {
+            "type": "string",
+            "description": "The upload_id start_upload returned, once its curl command answered {\"status\":\"uploaded\"}: the way to send an image that is on your machine (png, jpeg, gif or webp, up to 10 MB). Only your own uploads are accepted; this call consumes it. One image source per call."
           },
           "alt_text": {
             "type": "string",
@@ -2777,7 +2789,7 @@
       "name": "attach_image_to_comment",
       "icon": "fa-stream",
       "title": "Attach an image to a comment",
-      "description": "Attach an image to an existing activity comment that the current user is allowed to edit. The image comes from a public image URL, base64-encoded bytes, or the current conversation's attached image.",
+      "description": "Attach an image to an existing activity comment that the current user is allowed to edit. The image comes from exactly one source, in order of choice: an image already attached in the platform (attachment_object_type + attachment_object_id); a public URL that serves it (image_url); an image on your machine, sent with start_upload and its curl command, then passed as upload_id; a small image as image_base64 only when you have no shell.",
       "input_schema": {
         "type": "object",
         "properties": {
@@ -2786,19 +2798,23 @@
           },
           "image_url": {
             "type": "string",
-            "description": "Direct http(s) URL of an image to attach. Provide exactly one of image_url, image_base64 or attachment_object_id."
+            "description": "Direct http(s) URL where the image is publicly served, fetched by the server (png, jpeg, gif or webp, up to 10 MB, no redirect followed). Use it only for a URL that really serves the image: never guess or invent one. One image source per call: attachment_object_id, image_url, upload_id or image_base64."
           },
           "image_base64": {
             "type": "string",
-            "description": "Base64-encoded image bytes (png, jpeg, gif or webp), optionally as a data: URI. Use for a locally-produced image such as a screenshot."
+            "description": "Base64-encoded image bytes (png, jpeg, gif or webp), optionally as a data: URI. Last resort, for a small image when you have no shell to run start_upload's curl command or curl cannot reach the platform: every byte goes through the conversation. One image source per call."
           },
           "attachment_object_type": {
             "type": "string",
-            "description": "Internal: object type of an existing platform attachment to use as the image (set automatically by the client from the user's attached image — do not fill this yourself)."
+            "description": "Type of the platform object holding an image already attached in the platform (e.g. 'activity'), read as the current user, so its ACL is enforced. Set automatically by the in-platform assistant from the image the user attached; otherwise set it only to reuse an attachment of an object you can read, never an invented one. Goes with attachment_object_id."
           },
           "attachment_object_id": {
             "type": "string",
-            "description": "Internal: object id of an existing platform attachment to use as the image (set automatically by the client — do not fill this yourself)."
+            "description": "Id of the platform object holding that image (its first attached file is used). The first choice when the image is already in the platform. One image source per call: attachment_object_id, image_url, upload_id or image_base64."
+          },
+          "upload_id": {
+            "type": "string",
+            "description": "The upload_id start_upload returned, once its curl command answered {\"status\":\"uploaded\"}: the way to send an image that is on your machine (png, jpeg, gif or webp, up to 10 MB). Only your own uploads are accepted; this call consumes it. One image source per call."
           },
           "alt_text": {
             "type": "string",
@@ -2822,25 +2838,29 @@
       "name": "set_my_avatar",
       "icon": "fa-user",
       "title": "Set my profile avatar",
-      "description": "Set the current user's profile picture (avatar) from an image. The image comes from a public image URL or base64-encoded bytes (e.g. a generated image). Applies to the current user only.",
+      "description": "Set the current user's profile picture (avatar) from an image. The image comes from exactly one source, in order of choice: an image already attached in the platform (attachment_object_type + attachment_object_id); a public URL that serves it (image_url); an image on your machine, sent with start_upload and its curl command, then passed as upload_id; a small image as image_base64 only when you have no shell. Applies to the current user only.",
       "input_schema": {
         "type": "object",
         "properties": {
           "image_url": {
             "type": "string",
-            "description": "Direct http(s) URL of an image. Provide either image_url or image_base64 (not both)."
+            "description": "Direct http(s) URL where the image is publicly served, fetched by the server (png, jpeg, gif or webp, up to 10 MB, no redirect followed). Use it only for a URL that really serves the image: never guess or invent one. One image source per call: attachment_object_id, image_url, upload_id or image_base64."
           },
           "image_base64": {
             "type": "string",
-            "description": "Base64-encoded image bytes (png, jpeg, gif or webp), optionally as a data: URI. Use for a locally-produced image such as a screenshot; prefer image_url when the image is reachable by URL. Provide either image_url or image_base64 (not both)."
+            "description": "Base64-encoded image bytes (png, jpeg, gif or webp), optionally as a data: URI. Last resort, for a small image when you have no shell to run start_upload's curl command or curl cannot reach the platform: every byte goes through the conversation. One image source per call."
           },
           "attachment_object_type": {
             "type": "string",
-            "description": "Internal: object type of an existing platform attachment to use as the image (set automatically by the client from the user's attached image — do not fill this yourself). Read as the current user, so its ACL is enforced."
+            "description": "Type of the platform object holding an image already attached in the platform (e.g. 'activity'), read as the current user, so its ACL is enforced. Set automatically by the in-platform assistant from the image the user attached; otherwise set it only to reuse an attachment of an object you can read, never an invented one. Goes with attachment_object_id."
           },
           "attachment_object_id": {
             "type": "string",
-            "description": "Internal: object id of an existing platform attachment to use as the image (set automatically by the client — do not fill this yourself). Provide exactly one image source: attachment_object_id, image_url or image_base64."
+            "description": "Id of the platform object holding that image (its first attached file is used). The first choice when the image is already in the platform. One image source per call: attachment_object_id, image_url, upload_id or image_base64."
+          },
+          "upload_id": {
+            "type": "string",
+            "description": "The upload_id start_upload returned, once its curl command answered {\"status\":\"uploaded\"}: the way to send an image that is on your machine (png, jpeg, gif or webp, up to 10 MB). Only your own uploads are accepted; this call consumes it. One image source per call."
           }
         },
         "required": []
@@ -2857,25 +2877,29 @@
       "name": "set_my_banner",
       "icon": "fa-user",
       "title": "Set my profile banner",
-      "description": "Set the current user's profile banner (cover image) from an image. The image comes from a public image URL or base64-encoded bytes. Applies to the current user only.",
+      "description": "Set the current user's profile banner (cover image) from an image. The image comes from exactly one source, in order of choice: an image already attached in the platform (attachment_object_type + attachment_object_id); a public URL that serves it (image_url); an image on your machine, sent with start_upload and its curl command, then passed as upload_id; a small image as image_base64 only when you have no shell. Applies to the current user only.",
       "input_schema": {
         "type": "object",
         "properties": {
           "image_url": {
             "type": "string",
-            "description": "Direct http(s) URL of an image. Provide either image_url or image_base64 (not both)."
+            "description": "Direct http(s) URL where the image is publicly served, fetched by the server (png, jpeg, gif or webp, up to 10 MB, no redirect followed). Use it only for a URL that really serves the image: never guess or invent one. One image source per call: attachment_object_id, image_url, upload_id or image_base64."
           },
           "image_base64": {
             "type": "string",
-            "description": "Base64-encoded image bytes (png, jpeg, gif or webp), optionally as a data: URI. Use for a locally-produced image such as a screenshot; prefer image_url when the image is reachable by URL. Provide either image_url or image_base64 (not both)."
+            "description": "Base64-encoded image bytes (png, jpeg, gif or webp), optionally as a data: URI. Last resort, for a small image when you have no shell to run start_upload's curl command or curl cannot reach the platform: every byte goes through the conversation. One image source per call."
           },
           "attachment_object_type": {
             "type": "string",
-            "description": "Internal: object type of an existing platform attachment to use as the image (set automatically by the client from the user's attached image — do not fill this yourself). Read as the current user, so its ACL is enforced."
+            "description": "Type of the platform object holding an image already attached in the platform (e.g. 'activity'), read as the current user, so its ACL is enforced. Set automatically by the in-platform assistant from the image the user attached; otherwise set it only to reuse an attachment of an object you can read, never an invented one. Goes with attachment_object_id."
           },
           "attachment_object_id": {
             "type": "string",
-            "description": "Internal: object id of an existing platform attachment to use as the image (set automatically by the client — do not fill this yourself). Provide exactly one image source: attachment_object_id, image_url or image_base64."
+            "description": "Id of the platform object holding that image (its first attached file is used). The first choice when the image is already in the platform. One image source per call: attachment_object_id, image_url, upload_id or image_base64."
+          },
+          "upload_id": {
+            "type": "string",
+            "description": "The upload_id start_upload returned, once its curl command answered {\"status\":\"uploaded\"}: the way to send an image that is on your machine (png, jpeg, gif or webp, up to 10 MB). Only your own uploads are accepted; this call consumes it. One image source per call."
           }
         },
         "required": []
@@ -2892,7 +2916,7 @@
       "name": "set_space_avatar",
       "icon": "fa-users",
       "title": "Set a space's avatar",
-      "description": "Set the avatar (picture) of a space the current user manages, from an image (public URL or base64 bytes). Only a manager of the space may change it.",
+      "description": "Set the avatar (picture) of a space the current user manages. The image comes from exactly one source, in order of choice: an image already attached in the platform (attachment_object_type + attachment_object_id); a public URL that serves it (image_url); an image on your machine, sent with start_upload and its curl command, then passed as upload_id; a small image as image_base64 only when you have no shell. Only a manager of the space may change it.",
       "input_schema": {
         "type": "object",
         "properties": {
@@ -2901,19 +2925,23 @@
           },
           "image_url": {
             "type": "string",
-            "description": "Direct http(s) URL of an image. Provide either image_url or image_base64 (not both)."
+            "description": "Direct http(s) URL where the image is publicly served, fetched by the server (png, jpeg, gif or webp, up to 10 MB, no redirect followed). Use it only for a URL that really serves the image: never guess or invent one. One image source per call: attachment_object_id, image_url, upload_id or image_base64."
           },
           "image_base64": {
             "type": "string",
-            "description": "Base64-encoded image bytes (png, jpeg, gif or webp), optionally as a data: URI. Use for a locally-produced image such as a screenshot; prefer image_url when the image is reachable by URL. Provide either image_url or image_base64 (not both)."
+            "description": "Base64-encoded image bytes (png, jpeg, gif or webp), optionally as a data: URI. Last resort, for a small image when you have no shell to run start_upload's curl command or curl cannot reach the platform: every byte goes through the conversation. One image source per call."
           },
           "attachment_object_type": {
             "type": "string",
-            "description": "Internal: object type of an existing platform attachment to use as the image (set automatically by the client from the user's attached image — do not fill this yourself). Read as the current user, so its ACL is enforced."
+            "description": "Type of the platform object holding an image already attached in the platform (e.g. 'activity'), read as the current user, so its ACL is enforced. Set automatically by the in-platform assistant from the image the user attached; otherwise set it only to reuse an attachment of an object you can read, never an invented one. Goes with attachment_object_id."
           },
           "attachment_object_id": {
             "type": "string",
-            "description": "Internal: object id of an existing platform attachment to use as the image (set automatically by the client — do not fill this yourself). Provide exactly one image source: attachment_object_id, image_url or image_base64."
+            "description": "Id of the platform object holding that image (its first attached file is used). The first choice when the image is already in the platform. One image source per call: attachment_object_id, image_url, upload_id or image_base64."
+          },
+          "upload_id": {
+            "type": "string",
+            "description": "The upload_id start_upload returned, once its curl command answered {\"status\":\"uploaded\"}: the way to send an image that is on your machine (png, jpeg, gif or webp, up to 10 MB). Only your own uploads are accepted; this call consumes it. One image source per call."
           }
         },
         "required": [
@@ -2933,7 +2961,7 @@
       "name": "set_space_banner",
       "icon": "fa-users",
       "title": "Set a space's banner",
-      "description": "Set the banner (cover image) of a space the current user manages, from an image (public URL or base64 bytes). Only a manager of the space may change it.",
+      "description": "Set the banner (cover image) of a space the current user manages. The image comes from exactly one source, in order of choice: an image already attached in the platform (attachment_object_type + attachment_object_id); a public URL that serves it (image_url); an image on your machine, sent with start_upload and its curl command, then passed as upload_id; a small image as image_base64 only when you have no shell. Only a manager of the space may change it.",
       "input_schema": {
         "type": "object",
         "properties": {
@@ -2942,19 +2970,23 @@
           },
           "image_url": {
             "type": "string",
-            "description": "Direct http(s) URL of an image. Provide either image_url or image_base64 (not both)."
+            "description": "Direct http(s) URL where the image is publicly served, fetched by the server (png, jpeg, gif or webp, up to 10 MB, no redirect followed). Use it only for a URL that really serves the image: never guess or invent one. One image source per call: attachment_object_id, image_url, upload_id or image_base64."
           },
           "image_base64": {
             "type": "string",
-            "description": "Base64-encoded image bytes (png, jpeg, gif or webp), optionally as a data: URI. Use for a locally-produced image such as a screenshot; prefer image_url when the image is reachable by URL. Provide either image_url or image_base64 (not both)."
+            "description": "Base64-encoded image bytes (png, jpeg, gif or webp), optionally as a data: URI. Last resort, for a small image when you have no shell to run start_upload's curl command or curl cannot reach the platform: every byte goes through the conversation. One image source per call."
           },
           "attachment_object_type": {
             "type": "string",
-            "description": "Internal: object type of an existing platform attachment to use as the image (set automatically by the client from the user's attached image — do not fill this yourself). Read as the current user, so its ACL is enforced."
+            "description": "Type of the platform object holding an image already attached in the platform (e.g. 'activity'), read as the current user, so its ACL is enforced. Set automatically by the in-platform assistant from the image the user attached; otherwise set it only to reuse an attachment of an object you can read, never an invented one. Goes with attachment_object_id."
           },
           "attachment_object_id": {
             "type": "string",
-            "description": "Internal: object id of an existing platform attachment to use as the image (set automatically by the client — do not fill this yourself). Provide exactly one image source: attachment_object_id, image_url or image_base64."
+            "description": "Id of the platform object holding that image (its first attached file is used). The first choice when the image is already in the platform. One image source per call: attachment_object_id, image_url, upload_id or image_base64."
+          },
+          "upload_id": {
+            "type": "string",
+            "description": "The upload_id start_upload returned, once its curl command answered {\"status\":\"uploaded\"}: the way to send an image that is on your machine (png, jpeg, gif or webp, up to 10 MB). Only your own uploads are accepted; this call consumes it. One image source per call."
           }
         },
         "required": [
@@ -2969,6 +3001,60 @@
       },
       "space_scope": { "space_arg": "space_id", "allowed_args": ["image_url", "image_base64"], "space_admin": true },
       "require_approval": true
+    },
+    {
+      "name": "start_upload",
+      "icon": "fa-file-alt",
+      "title": "Open an upload link",
+      "description": "Open a one-time upload link to send a file that is on your machine to the platform without passing its bytes through the conversation. Returns upload_id and a ready curl_command: run it in a shell on the machine that holds the file, with <path-to-file> replaced by the file's path, then pass upload_id to the tool that should receive the file (for an image: set_my_avatar, set_my_banner, set_space_avatar, set_space_banner, create_activity_with_image, attach_image_to_activity, create_activity_comment_with_image, attach_image_to_comment). The link works once, within a few minutes (expires_in_seconds); an uploaded file no tool consumes is dropped after about half an hour. Not needed when the platform can already read the file (an attachment or a public URL). If curl cannot reach the platform or you have no shell, only a small image can still go as image_base64.",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string",
+            "description": "File name, extension included (e.g. 'chart.png'): no path, no quote, no backslash."
+          },
+          "size": {
+            "type": "integer",
+            "description": "Exact size of the file in bytes: a larger file is refused. At most the platform's upload limit (200 MB by default); start_upload names it when it refuses a size."
+          }
+        },
+        "required": [
+          "name",
+          "size"
+        ]
+      },
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": false,
+        "idempotentHint": false,
+        "openWorldHint": false
+      },
+      "require_approval": true
+    },
+    {
+      "name": "get_upload",
+      "icon": "fa-file-alt",
+      "title": "Check an upload",
+      "description": "Tell where an upload opened with start_upload stands: its status (uploading or uploaded; failed only for an upload made from the platform's own pages, since a link upload that fails is dropped), size, file name and mime type. Only your own uploads are visible. The status unknown means this server holds no such upload for you: the link or the file expired, a tool already consumed it, or the curl request reached another server node.",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "upload_id": {
+            "type": "string",
+            "description": "The upload_id start_upload returned."
+          }
+        },
+        "required": [
+          "upload_id"
+        ]
+      },
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": false
+      }
     },
     {
       "name": "get_activity_attachments",

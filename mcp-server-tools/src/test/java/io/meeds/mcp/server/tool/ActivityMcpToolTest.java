@@ -26,8 +26,11 @@ import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.time.OffsetDateTime;
 import java.time.temporal.ChronoUnit;
+import java.util.Base64;
 import java.util.List;
 import java.util.UUID;
 
@@ -37,6 +40,8 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.exoplatform.commons.exception.ObjectNotFoundException;
 import org.exoplatform.social.core.activity.model.ExoSocialActivity;
 import org.exoplatform.social.core.manager.ActivityManager;
+import org.exoplatform.upload.UploadResource;
+import org.exoplatform.upload.UploadService;
 
 import io.meeds.mcp.server.tool.constant.Registration;
 import io.meeds.mcp.server.tool.constant.Visibility;
@@ -108,7 +113,7 @@ class ActivityMcpToolTest extends IntegrationTestBase {
   @Test
   void createActivityWithImageRequiresAnImage() {
     assertThrows(IllegalArgumentException.class,
-                 () -> activityMcpTool.createActivityWithImage(null, "No image here", null, null, null, null, null));
+                 () -> activityMcpTool.createActivityWithImage(null, "No image here", null, null, null, null, null, null));
   }
 
   @Test
@@ -117,6 +122,7 @@ class ActivityMcpToolTest extends IntegrationTestBase {
                                                                      "Look at this screenshot",
                                                                      null,
                                                                      PNG_1PX,
+                                                                     null,
                                                                      null,
                                                                      null,
                                                                      "a tiny dot");
@@ -128,24 +134,61 @@ class ActivityMcpToolTest extends IntegrationTestBase {
   void attachImageToExistingActivity() throws Exception {
     ActivityModel activity = activityMcpTool.createActivity(null, "Activity that will get an image", null);
 
-    ActivityModel updated = activityMcpTool.attachImageToActivity(activity.id(), null, PNG_1PX, null, null, "dot");
+    ActivityModel updated = activityMcpTool.attachImageToActivity(activity.id(), null, PNG_1PX, null, null, null, "dot");
 
     assertNotNull(updated);
     assertEquals(activity.id(), updated.id());
+  }
+
+  /**
+   * A post takes its image from an upload the user sent by link, which the
+   * call consumes, and the upload id alone counts as the image. Mutants: the
+   * upload id left out of the "an image is required" check; the upload not
+   * removed.
+   *
+   * @throws Exception when the image can't be staged
+   */
+  @Test
+  void createActivityWithImageFromAnUploadIdConsumesTheUpload() throws Exception {
+    UploadService uploadService = getContainer().getComponentInstanceOfType(UploadService.class);
+    Path file = Files.createTempFile("mcp-upload-test-", ".png");
+    file.toFile().deleteOnExit();
+    Files.write(file, Base64.getDecoder().decode(PNG_1PX));
+    String uploadId = UUID.randomUUID().toString();
+    UploadResource resource = new UploadResource(uploadId, "dot.png");
+    resource.setMimeType("image/png");
+    resource.setStoreLocation(file.toString());
+    resource.setStatus(UploadResource.UPLOADED_STATUS);
+    resource.setOwner(USERNAME);
+    uploadService.createUploadResource(resource);
+    try {
+      ActivityModel activity = activityMcpTool.createActivityWithImage(null,
+                                                                       "Sent by link",
+                                                                       null,
+                                                                       null,
+                                                                       null,
+                                                                       null,
+                                                                       uploadId,
+                                                                       "a dot");
+      assertNotNull(activity);
+      assertNull(uploadService.getUploadResource(uploadId, USERNAME));
+    } finally {
+      uploadService.removeUploadResource(uploadId, USERNAME);
+    }
   }
 
   @Test
   void attachImageWithBothSourcesFails() throws Exception {
     ActivityModel activity = activityMcpTool.createActivity(null, "Activity for a conflicting attach", null);
     assertThrows(IllegalArgumentException.class,
-                 () -> activityMcpTool.attachImageToActivity(activity.id(), "https://8.8.8.8/x.png", PNG_1PX, null, null, null));
+                 () -> activityMcpTool.attachImageToActivity(activity.id(), "https://8.8.8.8/x.png", PNG_1PX, null, null, null, null));
   }
 
   @Test
   void attachImageWithAttachmentIdButNoTypeFails() throws Exception {
     ActivityModel activity = activityMcpTool.createActivity(null, "Activity for an incomplete ref", null);
     assertThrows(IllegalArgumentException.class,
-                 () -> activityMcpTool.attachImageToActivity(activity.id(), null, null, null, "12345", null));
+                 () -> activityMcpTool.attachImageToActivity(activity.id(), null, null, null, "12345", null, null));
   }
 
   @Test
@@ -163,6 +206,7 @@ class ActivityMcpToolTest extends IntegrationTestBase {
                                                              null,
                                                              "activity",
                                                              String.valueOf(source.id()),
+                                                             null,
                                                              "ref"));
   }
 
@@ -510,7 +554,7 @@ class ActivityMcpToolTest extends IntegrationTestBase {
   void createActivityCommentWithImageRequiresAnImage() throws Exception {
     ActivityModel activity = activityMcpTool.createActivity(null, "Activity to comment on", null);
     assertThrows(IllegalArgumentException.class,
-                 () -> activityMcpTool.createActivityCommentWithImage(activity.id(), "no image", null, null, null, null, null));
+                 () -> activityMcpTool.createActivityCommentWithImage(activity.id(), "no image", null, null, null, null, null, null));
   }
 
   @Test
@@ -523,6 +567,7 @@ class ActivityMcpToolTest extends IntegrationTestBase {
                                                                                   PNG_1PX,
                                                                                   null,
                                                                                   null,
+                                                                                  null,
                                                                                   "a dot");
     assertNotNull(comment);
     assertTrue(comment.id() > 0);
@@ -533,7 +578,7 @@ class ActivityMcpToolTest extends IntegrationTestBase {
     ActivityModel activity = activityMcpTool.createActivity(null, "Activity with a comment to decorate", null);
     ActivityCommentModel comment = activityMcpTool.createActivityComment(activity.id(), "plain comment", null);
 
-    ActivityCommentModel updated = activityMcpTool.attachImageToComment(comment.id(), null, PNG_1PX, null, null, "dot");
+    ActivityCommentModel updated = activityMcpTool.attachImageToComment(comment.id(), null, PNG_1PX, null, null, null, "dot");
 
     assertNotNull(updated);
     assertEquals(comment.id(), updated.id());
@@ -543,7 +588,7 @@ class ActivityMcpToolTest extends IntegrationTestBase {
   void attachImageToCommentFailsForNonComment() throws Exception {
     ActivityModel activity = activityMcpTool.createActivity(null, "This is an activity, not a comment", null);
     assertThrows(ObjectNotFoundException.class,
-                 () -> activityMcpTool.attachImageToComment(activity.id(), null, PNG_1PX, null, null, null));
+                 () -> activityMcpTool.attachImageToComment(activity.id(), null, PNG_1PX, null, null, null, null));
   }
 
   // Note on coverage: this integration harness rolls back attachment metadata on

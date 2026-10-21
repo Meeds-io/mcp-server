@@ -23,7 +23,11 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.Mockito.when;
 
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.util.Base64;
 import java.util.List;
+import java.util.UUID;
 
 import org.junit.jupiter.api.Assumptions;
 import org.junit.jupiter.api.Test;
@@ -39,6 +43,8 @@ import org.exoplatform.social.core.manager.RelationshipManager;
 import org.exoplatform.social.core.profileproperty.ProfilePropertyService;
 import org.exoplatform.social.core.profileproperty.model.ProfilePropertySetting;
 import org.exoplatform.social.core.relationship.model.Relationship;
+import org.exoplatform.upload.UploadResource;
+import org.exoplatform.upload.UploadService;
 
 import io.meeds.mcp.server.tool.model.ExperienceModel;
 import io.meeds.mcp.server.tool.model.OnlineStatusModel;
@@ -514,7 +520,7 @@ class UserMcpToolTest extends IntegrationTestBase {
 
   @Test
   void setMyAvatarFromBase64() throws Exception {
-    UserModel user = userMcpTool.setMyAvatar(null, PNG_1PX, null, null);
+    UserModel user = userMcpTool.setMyAvatar(null, PNG_1PX, null, null, null);
 
     assertNotNull(user);
     assertNotNull(user.getUsername());
@@ -522,7 +528,7 @@ class UserMcpToolTest extends IntegrationTestBase {
 
   @Test
   void setMyBannerFromBase64() throws Exception {
-    UserModel user = userMcpTool.setMyBanner(null, PNG_1PX, null, null);
+    UserModel user = userMcpTool.setMyBanner(null, PNG_1PX, null, null, null);
 
     assertNotNull(user);
     assertNotNull(user.getUsername());
@@ -534,18 +540,18 @@ class UserMcpToolTest extends IntegrationTestBase {
     ProfilePropertySetting banner = createNonEditableSetting(Profile.BANNER);
     ConversationState.setCurrent(new ConversationState(new org.exoplatform.services.security.Identity("james")));
     try {
-      assertThrows(IllegalAccessException.class, () -> userMcpTool.setMyAvatar(null, PNG_1PX, null, null));
-      assertThrows(IllegalAccessException.class, () -> userMcpTool.setMyBanner(null, PNG_1PX, null, null));
+      assertThrows(IllegalAccessException.class, () -> userMcpTool.setMyAvatar(null, PNG_1PX, null, null, null));
+      assertThrows(IllegalAccessException.class, () -> userMcpTool.setMyBanner(null, PNG_1PX, null, null, null));
 
       // Only the avatar becomes editable: the banner stays refused
       avatar.setEditable(true);
       profilePropertyService.updatePropertySetting(avatar);
-      assertNotNull(userMcpTool.setMyAvatar(null, PNG_1PX, null, null));
-      assertThrows(IllegalAccessException.class, () -> userMcpTool.setMyBanner(null, PNG_1PX, null, null));
+      assertNotNull(userMcpTool.setMyAvatar(null, PNG_1PX, null, null, null));
+      assertThrows(IllegalAccessException.class, () -> userMcpTool.setMyBanner(null, PNG_1PX, null, null, null));
 
       banner.setEditable(true);
       profilePropertyService.updatePropertySetting(banner);
-      assertNotNull(userMcpTool.setMyBanner(null, PNG_1PX, null, null));
+      assertNotNull(userMcpTool.setMyBanner(null, PNG_1PX, null, null, null));
     } finally {
       profilePropertyService.deleteProfilePropertySetting(avatar.getId());
       profilePropertyService.deleteProfilePropertySetting(banner.getId());
@@ -557,8 +563,8 @@ class UserMcpToolTest extends IntegrationTestBase {
     ProfilePropertySetting avatar = createNonEditableSetting(Profile.AVATAR);
     ProfilePropertySetting banner = createNonEditableSetting(Profile.BANNER);
     try {
-      assertNotNull(userMcpTool.setMyAvatar(null, PNG_1PX, null, null));
-      assertNotNull(userMcpTool.setMyBanner(null, PNG_1PX, null, null));
+      assertNotNull(userMcpTool.setMyAvatar(null, PNG_1PX, null, null, null));
+      assertNotNull(userMcpTool.setMyBanner(null, PNG_1PX, null, null, null));
     } finally {
       profilePropertyService.deleteProfilePropertySetting(avatar.getId());
       profilePropertyService.deleteProfilePropertySetting(banner.getId());
@@ -567,13 +573,66 @@ class UserMcpToolTest extends IntegrationTestBase {
 
   @Test
   void setMyAvatarRequiresASource() {
-    assertThrows(IllegalArgumentException.class, () -> userMcpTool.setMyAvatar(null, null, null, null));
+    assertThrows(IllegalArgumentException.class, () -> userMcpTool.setMyAvatar(null, null, null, null, null));
   }
 
   @Test
   void setMyAvatarRejectsBothSources() {
     assertThrows(IllegalArgumentException.class,
-                 () -> userMcpTool.setMyAvatar("https://8.8.8.8/x.png", PNG_1PX, null, null));
+                 () -> userMcpTool.setMyAvatar("https://8.8.8.8/x.png", PNG_1PX, null, null, null));
+  }
+
+
+  /**
+   * The avatar is set from an image the user sent by upload link, through the
+   * container's upload registry (social's test {@code MockUploadService},
+   * whose owner-checked methods are the platform's own, so the test reads
+   * through them): the call consumes the user's own upload,
+   * and refuses another user's upload id and leaves it in place. Mutant: the
+   * unchecked {@code getUploadResource(id)} used, so another user's upload is
+   * consumed.
+   *
+   * @throws Exception when the image can't be staged
+   */
+  @Test
+  void setMyAvatarFromAnUploadIdConsumesOnlyTheUsersOwnUpload() throws Exception {
+    UploadService uploadService = getContainer().getComponentInstanceOfType(UploadService.class);
+    String own = stageUpload(uploadService, USERNAME);
+    String others = stageUpload(uploadService, "mary");
+    try {
+      assertNotNull(userMcpTool.setMyAvatar(null, null, null, null, own));
+      assertNull(uploadService.getUploadResource(own, USERNAME));
+
+      assertThrows(ObjectNotFoundException.class, () -> userMcpTool.setMyAvatar(null, null, null, null, others));
+      assertNotNull(uploadService.getUploadResource(others, "mary"));
+    } finally {
+      uploadService.removeUploadResource(own, USERNAME);
+      uploadService.removeUploadResource(others, "mary");
+    }
+  }
+
+  /**
+   * Registers an uploaded 1x1 png owned by the given user, as a token upload
+   * leaves it.
+   *
+   * @param uploadService the upload registry
+   * @param owner the user who uploaded it
+   * @return its upload id
+   * @throws Exception when the file can't be written
+   */
+  private static String stageUpload(UploadService uploadService, String owner) throws Exception {
+    Path file = Files.createTempFile("mcp-upload-test-", ".png");
+    file.toFile().deleteOnExit();
+    Files.write(file, Base64.getDecoder().decode(PNG_1PX));
+    String uploadId = UUID.randomUUID().toString();
+    UploadResource resource = new UploadResource(uploadId, "dot.png");
+    resource.setMimeType("image/png");
+    resource.setStoreLocation(file.toString());
+    resource.setEstimatedSize(Files.size(file));
+    resource.setStatus(UploadResource.UPLOADED_STATUS);
+    resource.setOwner(owner);
+    uploadService.createUploadResource(resource);
+    return uploadId;
   }
 
 }
