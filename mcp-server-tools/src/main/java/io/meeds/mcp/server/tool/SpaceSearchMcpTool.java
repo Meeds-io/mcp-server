@@ -100,9 +100,9 @@ public class SpaceSearchMcpTool implements McpToolPlugin {
    * @param limit the most hits to return, {@value McpToolPlugin#DEFAULT_LIMIT}
    *          when absent, at most {@value #MAX_LIMIT}
    * @return the matching spaces, the best match first
-   * @throws IllegalArgumentException when the query holds no word, or none
-   *           left once the unified search syntax cuts what follows a
-   *           {@code ~} in each word
+   * @throws IllegalArgumentException when the query holds no word, or when
+   *           the search condition {@link SpaceFilter} derives from it (its
+   *           unified search syntax around {@code ~}) holds none
    */
   @SneakyThrows
   public List<SpaceSearchHitModel> searchSpaces(String query, Integer limit) {
