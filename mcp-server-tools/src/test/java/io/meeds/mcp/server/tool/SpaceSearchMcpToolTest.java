@@ -31,6 +31,7 @@ import org.springframework.beans.factory.annotation.Autowired;
 
 import org.exoplatform.services.security.ConversationState;
 import org.exoplatform.services.security.Identity;
+import org.exoplatform.social.core.space.spi.SpaceService;
 
 import io.meeds.mcp.server.tool.constant.Registration;
 import io.meeds.mcp.server.tool.constant.SpaceRole;
@@ -58,6 +59,9 @@ class SpaceSearchMcpToolTest extends IntegrationTestBase {
 
   @Autowired
   private SpaceTemplateMcpTool spaceTemplateMcpTool;
+
+  @Autowired
+  private SpaceService         spaceService;
 
   /**
    * A member finds a listed space by a word of its name, whatever its case,
@@ -94,6 +98,24 @@ class SpaceSearchMcpToolTest extends IntegrationTestBase {
     assertFalse(hit.member());
     assertTrue(hit.myRoles().isEmpty());
     assertEquals(null, hit.lastActivityDate());
+  }
+
+  /**
+   * A user only invited to a hidden space doesn't get it either: the
+   * database fallback drops the invited status ({@code XSpaceFilter}), as the
+   * Elasticsearch permissions hold the members only.
+   */
+  @Test
+  void searchSpacesHidesAHiddenSpaceFromAnInvitedUser() throws Exception {
+    String word = uniqueWord();
+    SpaceModel hidden = createSpace("Client " + word, Visibility.UNLISTED);
+    spaceMcpTool.inviteUsersToSpace(hidden.getSpaceId(), List.of(OTHER_USER));
+    assertTrue(spaceService.isInvitedUser(spaceService.getSpaceById(hidden.getSpaceId()), OTHER_USER));
+
+    ConversationState.setCurrent(new ConversationState(new Identity(OTHER_USER)));
+    List<SpaceSearchHitModel> hits = spaceSearchMcpTool.searchSpaces(word, null);
+
+    assertFalse(hits.stream().anyMatch(h -> h.spaceId() == hidden.getSpaceId()), "a hidden space reached an invited user");
   }
 
   /**
