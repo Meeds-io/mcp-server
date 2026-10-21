@@ -25,8 +25,11 @@ import static io.meeds.mcp.server.tool.util.SpaceToolUtils.toVisibility;
 import static io.meeds.mcp.server.util.McpToolUtils.formatDate;
 
 import java.util.Collections;
+import java.util.Comparator;
 import java.util.List;
+import java.util.Locale;
 import java.util.Objects;
+import java.util.regex.Pattern;
 import java.util.stream.Stream;
 
 import org.apache.commons.collections4.CollectionUtils;
@@ -69,6 +72,9 @@ public class SpaceSearchMcpTool implements McpToolPlugin {
   /** The message of a search without a word to look for */
   public static final String MSG_QUERY_REQUIRED     = "A query is required: give a word of the space name or description";
 
+  /** What separates two words of a query */
+  private static final Pattern WORD_SEPARATOR     = Pattern.compile("[^\\p{L}\\p{N}]+");
+
   @Autowired
   private SpaceService       spaceService;
 
@@ -80,7 +86,9 @@ public class SpaceSearchMcpTool implements McpToolPlugin {
 
   /**
    * Searches the spaces the current user may see in the spaces directory, by
-   * the words of their name or description, the best match first. A hidden
+   * the words of their name or description, the best match first: among the
+   * first {@value #MAX_LIMIT} the search engine returns, a space whose name
+   * holds every word comes before one that only mentions them. A hidden
    * space is returned only to its members and to the users invited to it, as
    * in the spaces directory.
    *
@@ -98,14 +106,56 @@ public class SpaceSearchMcpTool implements McpToolPlugin {
     String username = getCurrentUserName();
     int size = Math.clamp(getInteger(limit, DEFAULT_LIMIT), 1, MAX_LIMIT);
     Space[] spaces = spaceService.getVisibleSpacesWithListAccess(username, new SpaceFilter(query.trim()))
-                                 .load(0, size);
+                                 .load(0, MAX_LIMIT);
     if (spaces == null) {
       return Collections.emptyList();
     }
+    List<String> words = words(query);
     return Stream.of(spaces)
                  .filter(Objects::nonNull)
+                 .sorted(Comparator.comparingInt((Space space) -> nameMatch(space, query, words)).reversed())
+                 .limit(size)
                  .map(space -> toHit(space, username))
                  .toList();
+  }
+
+  /**
+   * Ranks how well a space name matches the query, so that the space the user
+   * names comes before the spaces that only mention the words in their
+   * description: the search engine scores a word in a short description
+   * above the same word in the name.
+   *
+   * @param space a matching space
+   * @param query the query
+   * @param words the query words, without accents and in lower case
+   * @return 2 when the name is the query, 1 when it holds every word of
+   *         it, 0 otherwise; ignoring case and accents
+   */
+  private int nameMatch(Space space, String query, List<String> words) {
+    String name = fold(space.getDisplayName());
+    if (name.equals(fold(query))) {
+      return 2;
+    } else if (!words.isEmpty() && words.stream().allMatch(name::contains)) {
+      return 1;
+    } else {
+      return 0;
+    }
+  }
+
+  /**
+   * @param query the query
+   * @return its words, without accents and in lower case
+   */
+  private List<String> words(String query) {
+    return Stream.of(WORD_SEPARATOR.split(fold(query))).filter(StringUtils::isNotBlank).toList();
+  }
+
+  /**
+   * @param text a text, possibly null
+   * @return the text trimmed, in lower case and without accents
+   */
+  private String fold(String text) {
+    return StringUtils.stripAccents(StringUtils.defaultString(text)).trim().toLowerCase(Locale.ROOT);
   }
 
   /**
