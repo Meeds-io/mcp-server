@@ -179,14 +179,7 @@ class SpaceSearchMcpToolHitTest {
     when(spaceService.isMember(space, USERNAME)).thenReturn(true);
     when(spaceService.isManager(space, USERNAME)).thenReturn(true);
     when(spaceService.canViewSpace(space, USERNAME)).thenReturn(true);
-    Identity spaceIdentity = new Identity("space", "client_schiever");
-    when(identityManager.getOrCreateSpaceIdentity("client_schiever")).thenReturn(spaceIdentity);
-    ExoSocialActivity latest = mock(ExoSocialActivity.class);
-    when(latest.getUpdated()).thenReturn(new Date(1_760_000_000_000L));
-    @SuppressWarnings("unchecked")
-    RealtimeListAccess<ExoSocialActivity> stream = mock(RealtimeListAccess.class);
-    when(stream.loadAsList(0, 1)).thenReturn(List.of(latest));
-    when(activityManager.getActivitiesOfSpaceWithListAccess(spaceIdentity)).thenReturn(stream);
+    stubLatestActivity();
 
     SpaceSearchHitModel hit = tool.searchSpaces("schiever", null).getFirst();
 
@@ -206,6 +199,7 @@ class SpaceSearchMcpToolHitTest {
     Space space = space(1, "Client SCHIEVER");
     when(spacesAccess.load(0, 10)).thenReturn(new Space[] { space });
     when(spaceService.canViewSpace(space, USERNAME)).thenReturn(false);
+    stubLatestActivity();
 
     SpaceSearchHitModel hit = tool.searchSpaces("schiever", null).getFirst();
 
@@ -249,6 +243,21 @@ class SpaceSearchMcpToolHitTest {
     assertTrue(json.contains("\"space_id\":1"), json);
     assertFalse(json.contains("last_activity_date"), json);
     assertEquals(SpaceSearchMcpTool.DESCRIPTION_MAX_LENGTH, hit.description().length());
+  }
+
+  /**
+   * Gives the {@code client_schiever} space a stream whose latest activity was
+   * updated on 2025-10-09 at 08:53:20 UTC.
+   */
+  private void stubLatestActivity() {
+    Identity spaceIdentity = new Identity("space", "client_schiever");
+    when(identityManager.getOrCreateSpaceIdentity("client_schiever")).thenReturn(spaceIdentity);
+    ExoSocialActivity latest = mock(ExoSocialActivity.class);
+    when(latest.getUpdated()).thenReturn(new Date(1_760_000_000_000L));
+    @SuppressWarnings("unchecked")
+    RealtimeListAccess<ExoSocialActivity> stream = mock(RealtimeListAccess.class);
+    when(stream.loadAsList(0, 1)).thenReturn(List.of(latest));
+    when(activityManager.getActivitiesOfSpaceWithListAccess(spaceIdentity)).thenReturn(stream);
   }
 
   /**
