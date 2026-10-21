@@ -171,10 +171,10 @@ class SpaceSearchMcpToolHitTest {
                  tool.searchSpaces("schiever", null).stream().map(SpaceSearchHitModel::spaceId).toList());
     assertEquals(List.of(4L, 3L, 1L, 2L),
                  tool.searchSpaces("Client Schièver", null).stream().map(SpaceSearchHitModel::spaceId).toList());
-    // a word inside a name's word is no name match: "art" doesn't start "Marketing"
-    Space art = space(5, "Art club");
-    when(spacesAccess.load(0, SpaceSearchMcpTool.MAX_LIMIT)).thenReturn(new Space[] { marketing, art });
-    assertEquals(List.of(5L, 1L), tool.searchSpaces("art", null).stream().map(SpaceSearchHitModel::spaceId).toList());
+    // a word inside a name's word is no name match: "ting" is in "Marketing" but doesn't start it
+    Space ting = space(5, "Ting club");
+    when(spacesAccess.load(0, SpaceSearchMcpTool.MAX_LIMIT)).thenReturn(new Space[] { marketing, ting });
+    assertEquals(List.of(5L, 1L), tool.searchSpaces("ting", null).stream().map(SpaceSearchHitModel::spaceId).toList());
   }
 
   /**
