@@ -299,7 +299,8 @@ class McpToolUtilsTest {
   /**
    * A tool entry carrying a key this server does not know is left out, so a
    * misspelled {@code require_approval} or {@code annotations} never loads the
-   * tool with the permissive default; the file's other tools still load.
+   * tool with the permissive default, a key given a {@code null} value
+   * included; the file's other tools still load.
    *
    * @param tmp a temporary folder
    */
@@ -311,6 +312,7 @@ class McpToolUtilsTest {
           "tools": [ { "name": "first_tool", "input_schema": {} },
                      { "name": "misspelled_approval_tool", "require_aproval": true, "input_schema": {} },
                      { "name": "misspelled_annotations_tool", "anotations": { "readOnlyHint": false }, "input_schema": {} },
+                     { "name": "null_valued_key_tool", "require_aproval": null, "input_schema": {} },
                      { "name": "last_tool", "require_approval": true, "input_schema": {} } ] }
         """, StandardCharsets.UTF_8);
 
