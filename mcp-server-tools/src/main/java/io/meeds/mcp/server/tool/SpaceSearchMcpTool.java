@@ -105,13 +105,14 @@ public class SpaceSearchMcpTool implements McpToolPlugin {
   @SneakyThrows
   public List<SpaceSearchHitModel> searchSpaces(String query, Integer limit) {
     List<String> words = words(query);
-    if (words.isEmpty()) {
+    // the condition searched is the query as SpaceFilter processes it: it must hold a word too
+    SpaceFilter filter = new SpaceFilter(StringUtils.trimToEmpty(query));
+    if (words.isEmpty() || words(filter.getSpaceNameSearchCondition()).isEmpty()) {
       throw new IllegalArgumentException(MSG_QUERY_REQUIRED);
     }
     String username = getCurrentUserName();
     int size = Math.clamp(getInteger(limit, DEFAULT_LIMIT), 1, MAX_LIMIT);
-    Space[] spaces = spaceService.getVisibleSpacesWithListAccess(username, new SpaceFilter(query.trim()))
-                                 .load(0, MAX_LIMIT);
+    Space[] spaces = spaceService.getVisibleSpacesWithListAccess(username, filter).load(0, MAX_LIMIT);
     if (spaces == null) {
       return Collections.emptyList();
     }

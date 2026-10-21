@@ -121,6 +121,9 @@ class SpaceSearchMcpToolHitTest {
     // no letter nor digit: "~" would reach the database as no condition at all
     assertThrows(IllegalArgumentException.class, () -> tool.searchSpaces("~", null));
     assertThrows(IllegalArgumentException.class, () -> tool.searchSpaces("!!!", null));
+    // its words cut by the unified search syntax, "~abc" would be no condition either
+    assertThrows(IllegalArgumentException.class, () -> tool.searchSpaces("~abc", null));
+    assertThrows(IllegalArgumentException.class, () -> tool.searchSpaces("~abc ~def", null));
     verify(spaceService, never()).getVisibleSpacesWithListAccess(anyString(), any());
   }
 
