@@ -70,7 +70,7 @@ public class SpaceSearchMcpTool implements McpToolPlugin {
   public static final int    DESCRIPTION_MAX_LENGTH = 300;
 
   /** The message of a search without a word to look for */
-  public static final String MSG_QUERY_REQUIRED     = "A query is required: give a word of the space name or description";
+  public static final String MSG_QUERY_REQUIRED     = "A query is required: give a word of the space name or description, without a '~' before it";
 
   /** What separates two words of a query */
   private static final Pattern WORD_SEPARATOR     = Pattern.compile("[^\\p{L}\\p{N}]+");
@@ -100,7 +100,9 @@ public class SpaceSearchMcpTool implements McpToolPlugin {
    * @param limit the most hits to return, {@value McpToolPlugin#DEFAULT_LIMIT}
    *          when absent, at most {@value #MAX_LIMIT}
    * @return the matching spaces, the best match first
-   * @throws IllegalArgumentException when the query holds no word
+   * @throws IllegalArgumentException when the query holds no word, or none
+   *           left once the unified search syntax cuts what follows a
+   *           {@code ~} in each word
    */
   @SneakyThrows
   public List<SpaceSearchHitModel> searchSpaces(String query, Integer limit) {
