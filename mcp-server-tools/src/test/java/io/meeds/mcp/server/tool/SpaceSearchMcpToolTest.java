@@ -44,8 +44,8 @@ import io.meeds.mcp.server.tool.test.IntegrationTestBase;
 /**
  * Runs {@code search_spaces} against the real space storage of the test
  * container, where the search falls back to the database, to pin which spaces
- * a user gets: those of the spaces directory, a hidden space only for its
- * members.
+ * a user gets: those of the spaces directory, where a hidden space is
+ * hidden from a user who neither belongs to it nor manages its template.
  */
 class SpaceSearchMcpToolTest extends IntegrationTestBase {
 
@@ -102,8 +102,8 @@ class SpaceSearchMcpToolTest extends IntegrationTestBase {
 
   /**
    * A user only invited to a hidden space doesn't get it either: the
-   * database fallback drops the invited status ({@code XSpaceFilter}), as the
-   * Elasticsearch permissions hold the members only.
+   * database fallback drops the invited status ({@code XSpaceFilter}), and
+   * the Elasticsearch permissions of a hidden space name no invited user.
    */
   @Test
   void searchSpacesHidesAHiddenSpaceFromAnInvitedUser() throws Exception {

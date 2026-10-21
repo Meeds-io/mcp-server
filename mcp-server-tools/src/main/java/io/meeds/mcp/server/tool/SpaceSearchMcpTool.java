@@ -89,10 +89,12 @@ public class SpaceSearchMcpTool implements McpToolPlugin {
    * the words of their name or description, the best match first: among the
    * first {@value #MAX_LIMIT} the search engine returns, a space whose name
    * has a word starting with each word of the query comes before one that
-   * only mentions them. The spaces are those of the spaces directory's search, where a hidden space
-   * reaches its members only: through its indexed permissions with
-   * Elasticsearch, and on the database fallback because
-   * {@code XSpaceFilter#setSpaceFilter} drops the invited status.
+   * only mentions them. The spaces are those of the spaces directory's
+   * search, where a hidden space reaches its members and the users who
+   * manage its space template (template administrators included), with
+   * Elasticsearch and on the database fallback alike; a user only invited to
+   * it doesn't get it ({@code XSpaceFilter#setSpaceFilter} drops the invited
+   * status on the fallback).
    *
    * @param query the words to look for, ignoring case and accents; required
    * @param limit the most hits to return, {@value McpToolPlugin#DEFAULT_LIMIT}
