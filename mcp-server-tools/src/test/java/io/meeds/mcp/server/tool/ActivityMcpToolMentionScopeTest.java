@@ -149,7 +149,7 @@ class ActivityMcpToolMentionScopeTest {
                                                   () -> tool.createActivity(POST_SPACE_ID, OUTSIDER_MENTION, null));
     assertTrue(refused.getMessage().contains("'john'"), refused.getMessage());
     assertThrows(IllegalAccessException.class,
-                 () -> tool.createActivityWithImage(POST_SPACE_ID, OUTSIDER_MENTION, null, "aW1hZ2U=", null, null, null));
+                 () -> tool.createActivityWithImage(POST_SPACE_ID, OUTSIDER_MENTION, null, "aW1hZ2U=", null, null, null, null));
     assertThrows(IllegalAccessException.class, () -> tool.updateActivity(ACTIVITY_ID, OUTSIDER_MENTION, null));
 
     verify(activityManager, never()).saveActivityNoReturn(any(), any());
@@ -167,7 +167,7 @@ class ActivityMcpToolMentionScopeTest {
 
     assertThrows(IllegalAccessException.class, () -> tool.createActivityComment(MISSING_ACTIVITY, OUTSIDER_MENTION, null));
     assertThrows(IllegalAccessException.class,
-                 () -> tool.createActivityCommentWithImage(MISSING_ACTIVITY, OUTSIDER_MENTION, null, "aW1hZ2U=", null, null, null));
+                 () -> tool.createActivityCommentWithImage(MISSING_ACTIVITY, OUTSIDER_MENTION, null, "aW1hZ2U=", null, null, null, null));
 
     verify(activityManager, never()).getActivity(String.valueOf(MISSING_ACTIVITY));
     verify(activityManager, never()).saveComment(any(), any());
@@ -192,7 +192,7 @@ class ActivityMcpToolMentionScopeTest {
     assertTrue(refused.getMessage().contains("'john'"), refused.getMessage());
     assertThrows(IllegalAccessException.class, () -> tool.createActivityComment(MISSING_ACTIVITY, "Please check `@john`", null));
     assertThrows(IllegalAccessException.class,
-                 () -> tool.createActivityCommentWithImage(MISSING_ACTIVITY, "Please check _@john_", null, "aW1hZ2U=", null, null, null));
+                 () -> tool.createActivityCommentWithImage(MISSING_ACTIVITY, "Please check _@john_", null, "aW1hZ2U=", null, null, null, null));
     assertThrows(ObjectNotFoundException.class, () -> tool.createActivityComment(MISSING_ACTIVITY, "Please check **@mary**", null));
 
     verify(activityManager, never()).saveComment(any(), any());
