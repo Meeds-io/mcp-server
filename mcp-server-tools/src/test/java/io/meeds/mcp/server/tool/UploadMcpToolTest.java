@@ -50,7 +50,9 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 import org.mockito.ArgumentCaptor;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.test.util.ReflectionTestUtils;
 
+import org.exoplatform.commons.cluster.ClusterNodeName;
 import org.exoplatform.services.security.ConversationState;
 import org.exoplatform.services.security.Identity;
 import org.exoplatform.upload.UploadResource;
@@ -221,7 +223,8 @@ class UploadMcpToolTest {
    * standing for the platform, sends what the upload endpoint expects: a POST
    * to the link's path and query, the token as a bearer header, a
    * {@code Content-Length}, and one multipart file part carrying the file's
-   * bytes under the given name, quoting included. Skipped where no
+   * bytes under the given name, quoting included; no cookie outside a
+   * cluster, and the routing cookie on a cluster node. Skipped where no
    * {@code sh} or {@code curl} is installed. The platform's own handling of
    * that request is portal's to pin.
    *
@@ -241,6 +244,7 @@ class UploadMcpToolTest {
       received.put("authorization", String.valueOf(exchange.getRequestHeaders().getFirst("Authorization")));
       received.put("contentType", String.valueOf(exchange.getRequestHeaders().getFirst("Content-Type")));
       received.put("contentLength", String.valueOf(exchange.getRequestHeaders().getFirst("Content-Length")));
+      received.put("cookie", String.valueOf(exchange.getRequestHeaders().getFirst("Cookie")));
       body.write(exchange.getRequestBody().readAllBytes());
       byte[] answer = "{\"status\":\"uploaded\",\"size\":5}".getBytes(StandardCharsets.UTF_8);
       exchange.sendResponseHeaders(200, answer.length);
@@ -254,31 +258,100 @@ class UploadMcpToolTest {
       when(uploadService.createUploadToken(eq(USERNAME), anyString(), eq(5L))).thenReturn(TOKEN);
       Path file = folder.resolve("deck.bin");
       Files.write(file, "HELLO".getBytes(StandardCharsets.UTF_8));
-      UploadLinkModel link = tool.startUpload("chart (v2) & co.png", 5L);
+      for (String nodeName : new String[] { null, "node-1.a_b" }) {
+        received.clear();
+        body.reset();
+        ReflectionTestUtils.setField(tool, "clusterNodeName", nodeName == null ? null : clusterNode(nodeName));
+        UploadLinkModel link = tool.startUpload("chart (v2) & co.png", 5L);
+        String output = runCurl(link, file);
 
-      ProcessBuilder shell = new ProcessBuilder("/bin/sh", "-c", link.curlCommand().replace("<path-to-file>", file.toString()));
-      for (String proxy : new String[] { "http_proxy", "HTTP_PROXY", "https_proxy", "HTTPS_PROXY", "all_proxy", "ALL_PROXY" }) {
-        shell.environment().remove(proxy);
+        assertEquals("POST", received.get("method"));
+        assertEquals("/portal/upload?action=upload&uploadId=" + link.uploadId(), received.get("uri"));
+        assertEquals("Bearer " + TOKEN, received.get("authorization"));
+        assertTrue(received.get("contentType").startsWith("multipart/form-data"), received.get("contentType"));
+        assertEquals(String.valueOf(body.size()), received.get("contentLength"));
+        assertEquals(nodeName == null ? "null" : "JSESSIONID=upload." + nodeName, received.get("cookie"));
+        String sent = body.toString(StandardCharsets.UTF_8);
+        assertTrue(sent.contains("name=\"file\"; filename=\"chart (v2) & co.png\""), sent);
+        assertTrue(sent.contains("HELLO"), sent);
+        assertTrue(output.contains("\"status\":\"uploaded\""), output);
       }
-      shell.environment().put("NO_PROXY", "*");
-      shell.environment().put("no_proxy", "*");
-      Process curl = shell.redirectErrorStream(true).start();
-      String output = new String(curl.getInputStream().readAllBytes(), StandardCharsets.UTF_8);
-      assertTrue(curl.waitFor(30, TimeUnit.SECONDS), "curl did not finish");
-      assertEquals(0, curl.exitValue(), output);
-
-      assertEquals("POST", received.get("method"));
-      assertEquals("/portal/upload?action=upload&uploadId=" + link.uploadId(), received.get("uri"));
-      assertEquals("Bearer " + TOKEN, received.get("authorization"));
-      assertTrue(received.get("contentType").startsWith("multipart/form-data"), received.get("contentType"));
-      assertEquals(String.valueOf(body.size()), received.get("contentLength"));
-      String sent = body.toString(StandardCharsets.UTF_8);
-      assertTrue(sent.contains("name=\"file\"; filename=\"chart (v2) & co.png\""), sent);
-      assertTrue(sent.contains("HELLO"), sent);
-      assertTrue(output.contains("\"status\":\"uploaded\""), output);
     } finally {
       server.stop(0);
     }
+  }
+
+  /**
+   * Runs a link's curl command in a real shell, the placeholder replaced by
+   * the file's path, with no proxy in the way of the local server.
+   *
+   * @param link the link
+   * @param file the file to send
+   * @return what curl printed
+   * @throws Exception when the process fails or curl exits in error
+   */
+  private static String runCurl(UploadLinkModel link, Path file) throws Exception {
+    ProcessBuilder shell = new ProcessBuilder("/bin/sh", "-c", link.curlCommand().replace("<path-to-file>", file.toString()));
+    for (String proxy : new String[] { "http_proxy", "HTTP_PROXY", "https_proxy", "HTTPS_PROXY", "all_proxy", "ALL_PROXY" }) {
+      shell.environment().remove(proxy);
+    }
+    shell.environment().put("NO_PROXY", "*");
+    shell.environment().put("no_proxy", "*");
+    Process curl = shell.redirectErrorStream(true).start();
+    String output = new String(curl.getInputStream().readAllBytes(), StandardCharsets.UTF_8);
+    assertTrue(curl.waitFor(30, TimeUnit.SECONDS), "curl did not finish");
+    assertEquals(0, curl.exitValue(), output);
+    return output;
+  }
+
+  /**
+   * Outside a cluster the command is exactly today's; on a cluster node it
+   * adds the quoted routing cookie of that node, after the token header.
+   * Mutants: the cookie added outside a cluster; its quoting dropped.
+   */
+  @Test
+  void aClusterNodeAddsItsRoutingCookieAndOnlyThere() {
+    UploadMcpTool tool = new UploadMcpTool(uploadService, "200");
+    when(uploadService.createUploadToken(eq(USERNAME), anyString(), anyLong())).thenReturn(TOKEN);
+
+    for (String blank : new String[] { null, "", "  " }) {
+      ReflectionTestUtils.setField(tool, "clusterNodeName", blank == null ? null : clusterNode(blank));
+      UploadLinkModel link = tool.startUpload("a.png", 10L);
+      assertEquals("curl -sS -H 'Authorization: Bearer " + TOKEN + "' -F 'file=@<path-to-file>;filename=\"a.png\"' '"
+          + link.uploadUrl() + "'", link.curlCommand(), String.valueOf(blank));
+    }
+    ReflectionTestUtils.setField(tool, "clusterNodeName", clusterNode("node-2"));
+    UploadLinkModel link = tool.startUpload("a.png", 10L);
+    assertEquals("curl -sS -H 'Authorization: Bearer " + TOKEN + "' -b 'JSESSIONID=upload.node-2' "
+        + "-F 'file=@<path-to-file>;filename=\"a.png\"' '" + link.uploadUrl() + "'", link.curlCommand());
+    assertTrue(link.nextStep().contains("only on the server that issued it"), link.nextStep());
+  }
+
+  /**
+   * A node name that could break the command's quoting, or that a
+   * {@code jvmRoute} would not hold, is refused before any token is issued,
+   * and the refusal does not echo it. Mutant: the node name check removed.
+   */
+  @Test
+  void aHostileClusterNodeNameIsRefusedBeforeAnyToken() {
+    UploadMcpTool tool = new UploadMcpTool(uploadService, "200");
+
+    for (String hostile : new String[] { "n1'; rm -rf ~; '", "n1 n2", "n\"1", "n1$(id)", "n1/x", "x".repeat(65) }) {
+      ReflectionTestUtils.setField(tool, "clusterNodeName", clusterNode(hostile));
+      IllegalStateException refusal = assertThrows(IllegalStateException.class, () -> tool.startUpload("a.png", 10L), hostile);
+      assertTrue(!refusal.getMessage().contains(hostile), refusal.getMessage());
+    }
+    verify(uploadService, never()).createUploadToken(anyString(), anyString(), anyLong());
+  }
+
+  /**
+   * @param nodeName the node name it answers
+   * @return a cluster node name service answering it
+   */
+  private static ClusterNodeName clusterNode(String nodeName) {
+    ClusterNodeName clusterNodeName = mock(ClusterNodeName.class);
+    when(clusterNodeName.getNodeName()).thenReturn(nodeName);
+    return clusterNodeName;
   }
 
   /**
