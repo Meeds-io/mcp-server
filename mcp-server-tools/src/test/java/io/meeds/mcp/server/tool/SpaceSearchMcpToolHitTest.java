@@ -181,6 +181,8 @@ class SpaceSearchMcpToolHitTest {
     // ranked on the condition searched: "schiever~0.8" searches "schiever"
     assertEquals(List.of(2L, 3L, 4L, 1L),
                  tool.searchSpaces("schiever~0.8", null).stream().map(SpaceSearchHitModel::spaceId).toList());
+    assertEquals(List.of(4L, 3L, 1L, 2L),
+                 tool.searchSpaces("Client~0.8 SCHIEVER~0.8", null).stream().map(SpaceSearchHitModel::spaceId).toList());
     // a word inside a name's word is no name match: "ting" is in "Marketing" but doesn't start it
     Space ting = space(5, "Ting club");
     when(spacesAccess.load(0, SpaceSearchMcpTool.MAX_LIMIT)).thenReturn(new Space[] { marketing, ting });
