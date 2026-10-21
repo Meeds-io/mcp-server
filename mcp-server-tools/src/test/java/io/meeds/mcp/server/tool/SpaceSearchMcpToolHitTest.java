@@ -38,6 +38,7 @@ import static org.mockito.Mockito.withSettings;
 import java.util.Date;
 import java.util.List;
 import java.util.TimeZone;
+import java.util.stream.IntStream;
 
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
@@ -121,19 +122,21 @@ class SpaceSearchMcpToolHitTest {
 
   /**
    * The search runs on the spaces directory's visibility rule for the current
-   * user, with the query's words, and asks the default number of hits.
+   * user, with the query's words, reads the engine's first
+   * {@value SpaceSearchMcpTool#MAX_LIMIT} hits to rank them, and returns the
+   * default number of them.
    */
   @Test
   void searchUsesTheDirectoryVisibilityAndTheDefaultLimit() throws Exception {
-    when(spacesAccess.load(anyInt(), anyInt())).thenReturn(new Space[0]);
+    when(spacesAccess.load(anyInt(), anyInt())).thenReturn(spaces(60));
 
-    tool.searchSpaces("  schiever ", null);
+    assertEquals(10, tool.searchSpaces("  schiever ", null).size());
 
     ArgumentCaptor<SpaceFilter> filter = ArgumentCaptor.forClass(SpaceFilter.class);
     verify(spaceService).getVisibleSpacesWithListAccess(eq(USERNAME), filter.capture());
     assertEquals(new SpaceFilter("schiever").getSpaceNameSearchCondition(), filter.getValue().getSpaceNameSearchCondition());
     assertTrue(filter.getValue().isSortingEmpty(), "a sorting would replace the relevance order");
-    verify(spacesAccess).load(0, 10);
+    verify(spacesAccess).load(0, SpaceSearchMcpTool.MAX_LIMIT);
   }
 
   /**
@@ -142,25 +145,43 @@ class SpaceSearchMcpToolHitTest {
    */
   @Test
   void limitIsBounded() throws Exception {
-    when(spacesAccess.load(anyInt(), anyInt())).thenReturn(new Space[0]);
+    when(spacesAccess.load(anyInt(), anyInt())).thenReturn(spaces(60));
 
-    tool.searchSpaces("client", 500);
-    tool.searchSpaces("client", -3);
-    tool.searchSpaces("client", 0);
-
-    verify(spacesAccess).load(0, SpaceSearchMcpTool.MAX_LIMIT);
-    verify(spacesAccess).load(0, 1);
-    verify(spacesAccess).load(0, 10);
+    assertEquals(SpaceSearchMcpTool.MAX_LIMIT, tool.searchSpaces("client", 500).size());
+    assertEquals(1, tool.searchSpaces("client", -3).size());
+    assertEquals(10, tool.searchSpaces("client", 0).size());
+    assertEquals(3, tool.searchSpaces("client", 3).size());
   }
 
   /**
-   * The hits keep the order the search returned, the best match first.
+   * A space whose name holds the query's words comes before one that only
+   * mentions them in its description, whatever the engine's order, and the
+   * space named exactly by the query comes first; case and accents are
+   * ignored, and the engine's order is kept within each rank.
+   */
+  @Test
+  void aNameMatchComesBeforeADescriptionMatch() throws Exception {
+    Space marketing = space(1, "Marketing");
+    Space tender = space(2, "Schiever tender 2026");
+    Space internal = space(3, "Client Schiever internal");
+    Space client = space(4, "Client SCHIEVER");
+    when(spacesAccess.load(0, SpaceSearchMcpTool.MAX_LIMIT)).thenReturn(new Space[] { marketing, tender, internal, client });
+
+    assertEquals(List.of(2L, 3L, 4L, 1L),
+                 tool.searchSpaces("schiever", null).stream().map(SpaceSearchHitModel::spaceId).toList());
+    assertEquals(List.of(4L, 3L, 1L, 2L),
+                 tool.searchSpaces("Client Schièver", null).stream().map(SpaceSearchHitModel::spaceId).toList());
+  }
+
+  /**
+   * Hits of the same rank keep the order the search returned, the best match
+   * first.
    */
   @Test
   void hitsKeepTheSearchOrder() throws Exception {
     Space first = space(1, "Client SCHIEVER");
     Space second = space(2, "Schiever tender");
-    when(spacesAccess.load(0, 10)).thenReturn(new Space[] { first, second });
+    when(spacesAccess.load(0, SpaceSearchMcpTool.MAX_LIMIT)).thenReturn(new Space[] { first, second });
 
     List<SpaceSearchHitModel> hits = tool.searchSpaces("schiever", null);
 
@@ -175,7 +196,7 @@ class SpaceSearchMcpToolHitTest {
   @Test
   void memberHitCarriesRolesAndLatestActivityDate() throws Exception {
     Space space = space(1, "Client SCHIEVER");
-    when(spacesAccess.load(0, 10)).thenReturn(new Space[] { space });
+    when(spacesAccess.load(0, SpaceSearchMcpTool.MAX_LIMIT)).thenReturn(new Space[] { space });
     when(spaceService.isMember(space, USERNAME)).thenReturn(true);
     when(spaceService.isManager(space, USERNAME)).thenReturn(true);
     when(spaceService.canViewSpace(space, USERNAME)).thenReturn(true);
@@ -197,7 +218,7 @@ class SpaceSearchMcpToolHitTest {
   @Test
   void nonMemberHitHasNoActivityDate() throws Exception {
     Space space = space(1, "Client SCHIEVER");
-    when(spacesAccess.load(0, 10)).thenReturn(new Space[] { space });
+    when(spacesAccess.load(0, SpaceSearchMcpTool.MAX_LIMIT)).thenReturn(new Space[] { space });
     when(spaceService.canViewSpace(space, USERNAME)).thenReturn(false);
     stubLatestActivity();
 
@@ -216,7 +237,7 @@ class SpaceSearchMcpToolHitTest {
   @Test
   void unreadableStreamLeavesTheDateOut() throws Exception {
     Space space = space(1, "Client SCHIEVER");
-    when(spacesAccess.load(0, 10)).thenReturn(new Space[] { space });
+    when(spacesAccess.load(0, SpaceSearchMcpTool.MAX_LIMIT)).thenReturn(new Space[] { space });
     when(spaceService.canViewSpace(space, USERNAME)).thenReturn(true);
     when(identityManager.getOrCreateSpaceIdentity("client_schiever")).thenThrow(new IllegalStateException("boom"));
 
@@ -234,7 +255,7 @@ class SpaceSearchMcpToolHitTest {
   void hitJsonStatesNonMembershipAndShortensTheDescription() throws Exception {
     Space space = space(1, "Client SCHIEVER");
     space.setDescription("x".repeat(1000));
-    when(spacesAccess.load(0, 10)).thenReturn(new Space[] { space });
+    when(spacesAccess.load(0, SpaceSearchMcpTool.MAX_LIMIT)).thenReturn(new Space[] { space });
 
     SpaceSearchHitModel hit = tool.searchSpaces("schiever", null).getFirst();
     String json = JsonMapper.builder().build().writeValueAsString(hit);
@@ -258,6 +279,14 @@ class SpaceSearchMcpToolHitTest {
     RealtimeListAccess<ExoSocialActivity> stream = mock(RealtimeListAccess.class);
     when(stream.loadAsList(0, 1)).thenReturn(List.of(latest));
     when(activityManager.getActivitiesOfSpaceWithListAccess(spaceIdentity)).thenReturn(stream);
+  }
+
+  /**
+   * @param count how many spaces to build
+   * @return that many listed spaces, with ids from 1
+   */
+  private Space[] spaces(int count) {
+    return IntStream.rangeClosed(1, count).mapToObj(id -> space(id, "Client " + id)).toArray(Space[]::new);
   }
 
   /**
