@@ -41,12 +41,18 @@ import java.util.TimeZone;
 import java.util.stream.IntStream;
 
 import org.junit.jupiter.api.AfterEach;
+import org.slf4j.LoggerFactory;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.mockito.Answers;
 import org.mockito.ArgumentCaptor;
 import org.mockito.MockedStatic;
 import org.springframework.test.util.ReflectionTestUtils;
+
+import ch.qos.logback.classic.Level;
+import ch.qos.logback.classic.Logger;
+import ch.qos.logback.classic.spi.ILoggingEvent;
+import ch.qos.logback.core.read.ListAppender;
 
 import org.exoplatform.commons.utils.ListAccess;
 import org.exoplatform.services.security.ConversationState;
@@ -247,8 +253,7 @@ class SpaceSearchMcpToolHitTest {
   }
 
   /**
-   * A space with an empty stream, or whose stream can't be read, gets no date
-   * and still comes back.
+   * A space whose stream can't be read gets no date and still comes back.
    */
   @Test
   void unreadableStreamLeavesTheDateOut() throws Exception {
@@ -261,6 +266,39 @@ class SpaceSearchMcpToolHitTest {
 
     assertEquals(1, hits.size());
     assertNull(hits.getFirst().lastActivityDate());
+  }
+
+  /**
+   * A readable space whose stream is empty gets no date and still comes back.
+   */
+  @Test
+  void emptyStreamLeavesTheDateOut() throws Exception {
+    Space space = space(1, "Client SCHIEVER");
+    when(spacesAccess.load(0, SpaceSearchMcpTool.MAX_LIMIT)).thenReturn(new Space[] { space });
+    when(spaceService.canViewSpace(space, USERNAME)).thenReturn(true);
+    Identity spaceIdentity = new Identity("space", "client_schiever");
+    when(identityManager.getOrCreateSpaceIdentity("client_schiever")).thenReturn(spaceIdentity);
+    @SuppressWarnings("unchecked")
+    RealtimeListAccess<ExoSocialActivity> stream = mock(RealtimeListAccess.class);
+    when(stream.loadAsList(0, 1)).thenReturn(List.of());
+    when(activityManager.getActivitiesOfSpaceWithListAccess(spaceIdentity)).thenReturn(stream);
+    Logger logger = (Logger) LoggerFactory.getLogger(SpaceSearchMcpTool.class);
+    ListAppender<ILoggingEvent> appender = new ListAppender<>();
+    appender.start();
+    logger.addAppender(appender);
+    Level level = logger.getLevel();
+    logger.setLevel(Level.DEBUG);
+    List<SpaceSearchHitModel> hits;
+    try {
+      hits = tool.searchSpaces("schiever", null);
+    } finally {
+      logger.setLevel(level);
+      logger.detachAppender(appender);
+    }
+
+    assertEquals(1, hits.size());
+    assertNull(hits.getFirst().lastActivityDate());
+    assertTrue(appender.list.isEmpty(), () -> "An empty stream is no read failure: " + appender.list);
   }
 
   /**
