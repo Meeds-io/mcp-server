@@ -161,7 +161,7 @@
       "name": "get_all_spaces",
       "icon": "fa-users",
       "title": "Search in all spaces",
-      "description": "Search in all accessible spaces for the user from Spaces Directory.",
+      "description": "List the spaces the user can see in the Spaces Directory, a page at a time. To find a space the user names, use search_spaces instead.",
       "input_schema": {
         "type": "object",
         "properties": {
@@ -187,10 +187,38 @@
       }
     },
     {
+      "name": "search_spaces",
+      "icon": "fa-users",
+      "title": "Find a space by name",
+      "description": "Find the spaces whose name or description holds the given words, ignoring case and accents, the best match first, among the spaces the user can see in the Spaces Directory. Use it to resolve a space the user names (e.g. 'the Schiever client space', 'post in Marketing') before acting on it. Each hit gives the space id, its name, whether the user is a member and their roles, and the date of its latest activity when the user can read its stream.",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "query": {
+            "type": "string",
+            "description": "Words of the space name or description, e.g. 'schiever'"
+          },
+          "limit": {
+            "type": "integer",
+            "description": "Maximum number of spaces to return, 10 by default, at most 50"
+          }
+        },
+        "required": [
+          "query"
+        ]
+      },
+      "annotations": {
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": false
+      }
+    },
+    {
       "name": "get_my_spaces",
       "icon": "fa-users",
       "title": "Search in my spaces",
-      "description": "Retrieve the list of spaces where the current user is a member.",
+      "description": "Retrieve the list of spaces where the current user is a member, a page at a time. To find a space the user names, use search_spaces instead.",
       "input_schema": {
         "type": "object",
         "properties": {
