@@ -23,6 +23,7 @@ import java.io.FileOutputStream;
 import java.io.IOException;
 import java.net.URI;
 import java.nio.file.Files;
+import java.nio.file.Path;
 import java.nio.file.attribute.FileAttribute;
 import java.nio.file.attribute.PosixFilePermission;
 import java.nio.file.attribute.PosixFilePermissions;
@@ -34,11 +35,13 @@ import java.util.List;
 import java.util.Objects;
 import java.util.Set;
 import java.util.UUID;
+import java.util.stream.Stream;
 
 import org.apache.commons.collections4.CollectionUtils;
 import org.apache.commons.lang3.StringUtils;
 
 import org.exoplatform.commons.exception.ObjectNotFoundException;
+import org.exoplatform.commons.file.model.FileInfo;
 import org.exoplatform.commons.file.model.FileItem;
 import org.exoplatform.commons.file.services.FileService;
 import org.exoplatform.services.log.ExoLogger;
@@ -90,6 +93,15 @@ public final class UploadToolUtils {
 
   /** Longest fetch of one URL in all: a server trickling bytes cannot hold a tool call longer. */
   private static final int    TOTAL_TIMEOUT_SECONDS    = 60;
+
+  /** The refusal of a call naming no image source, or more than one. */
+  public static final String  ONE_IMAGE_SOURCE_MESSAGE = "Provide exactly one image source: attachment_object_id, image_url, "
+      + "upload_id (a file sent with start_upload) or image_base64.";
+
+  /** The refusal of an upload id this server holds for no upload of the user's. */
+  public static final String  UNKNOWN_UPLOAD_MESSAGE   = "No upload with this upload_id is held on this server for you: it may "
+      + "have expired, already been used by a tool, or been sent to another server node. Call start_upload again, run its "
+      + "curl command, then pass the new upload_id.";
 
   private static final String USER_AGENT               = "Meeds-MCP-Server-Upload/1.0";
 
@@ -185,11 +197,40 @@ public final class UploadToolUtils {
   }
 
   /**
-   * The three mutually-exclusive ways to provide an image to {@link #resolveImage}: a public
-   * http(s) URL, base64-encoded bytes, or a reference to an existing platform attachment
-   * (<code>attachmentObjectType</code> + <code>attachmentObjectId</code>).
+   * The mutually exclusive ways to provide an image to {@link #resolveImage}: a
+   * public http(s) URL, base64-encoded bytes, a reference to an existing
+   * platform attachment (<code>attachmentObjectType</code> +
+   * <code>attachmentObjectId</code>), or the id of a file the user sent through
+   * an upload link (<code>uploadId</code>, see
+   * {@link UploadService#createUploadToken(String, String, long)}).
+   *
+   * @param imageUrl the public http(s) URL, or null
+   * @param imageBase64 the base64 bytes, or null
+   * @param attachmentObjectType the type of the object holding the attachment,
+   *          or null
+   * @param attachmentObjectId the id of the object holding the attachment, or
+   *          null
+   * @param uploadId the upload id of a file the user uploaded, or null
    */
-  public record ImageSource(String imageUrl, String imageBase64, String attachmentObjectType, String attachmentObjectId) {
+  public record ImageSource(String imageUrl,
+                            String imageBase64,
+                            String attachmentObjectType,
+                            String attachmentObjectId,
+                            String uploadId) {
+
+    /**
+     * A source without an upload id, the shape the add-ons' image tools build.
+     *
+     * @param imageUrl the public http(s) URL, or null
+     * @param imageBase64 the base64 bytes, or null
+     * @param attachmentObjectType the type of the object holding the
+     *          attachment, or null
+     * @param attachmentObjectId the id of the object holding the attachment, or
+     *          null
+     */
+    public ImageSource(String imageUrl, String imageBase64, String attachmentObjectType, String attachmentObjectId) {
+      this(imageUrl, imageBase64, attachmentObjectType, attachmentObjectId, null);
+    }
   }
 
   /**
@@ -227,7 +268,9 @@ public final class UploadToolUtils {
    * <p>The attachment reference is read <b>as the given user</b> via
    * {@link AttachmentService#getAttachmentFileIds(String, String, Identity)}, so
    * platform ACLs are enforced (an unreadable object throws
-   * {@link IllegalAccessException} — no IDOR).
+   * {@link IllegalAccessException} — no IDOR). This overload neither bounds the
+   * attachment's size nor checks that it is an image, which the add-ons reading
+   * any attached file through it rely on; an upload id is refused.
    *
    * @param attachmentService the attachments, read as the user
    * @param fileService the files
@@ -239,7 +282,14 @@ public final class UploadToolUtils {
    * @return the resolved image bytes, mime type and file name
    * @throws IllegalAccessException when the user may not read the attachment
    * @throws ObjectNotFoundException when the attachment has no file
+   * @deprecated use
+   *             {@link #resolveImage(AttachmentService, FileService, UploadService, Identity, ImageSource, long)},
+   *             which also takes an upload id and bounds and checks an
+   *             attachment like the other sources; since 7.3.0, not for
+   *             removal while an add-on reads a non-image attachment through
+   *             this one
    */
+  @Deprecated(since = "7.3.0", forRemoval = false)
   public static FetchedContent resolveImage(AttachmentService attachmentService,
                                           FileService fileService,
                                           Identity aclIdentity,
@@ -247,35 +297,19 @@ public final class UploadToolUtils {
                                           long maxBytes) throws IllegalAccessException, ObjectNotFoundException {
     String imageUrl = source.imageUrl();
     String imageBase64 = source.imageBase64();
-    String attachmentObjectType = source.attachmentObjectType();
-    String attachmentObjectId = source.attachmentObjectId();
-    if (StringUtils.isNotBlank(attachmentObjectId)) {
+    if (StringUtils.isNotBlank(source.uploadId())) {
+      throw new IllegalArgumentException("upload_id is not supported by this tool.");
+    }
+    if (StringUtils.isNotBlank(source.attachmentObjectId())) {
       if (StringUtils.isNotBlank(imageUrl) || StringUtils.isNotBlank(imageBase64)) {
         throw new IllegalArgumentException("Provide only one image source: attachment_object_id, image_url or image_base64.");
       }
-      if (StringUtils.isBlank(attachmentObjectType)) {
-        throw new IllegalArgumentException("attachment_object_type is required together with attachment_object_id.");
-      }
-      List<String> fileIds = attachmentService.getAttachmentFileIds(attachmentObjectType, attachmentObjectId, aclIdentity);
-      if (CollectionUtils.isEmpty(fileIds)) {
-        throw new ObjectNotFoundException("No file attachment found for %s/%s.".formatted(attachmentObjectType,
-                                                                                         attachmentObjectId));
-      }
-      byte[] bytes;
-      String mimeType;
-      String fileName;
-      try {
-        FileItem file = fileService.getFile(Long.parseLong(fileIds.get(0)));
-        bytes = file == null ? null : file.getAsByte();
-        mimeType = file != null && file.getFileInfo() != null ? file.getFileInfo().getMimetype() : null;
-        fileName = file != null && file.getFileInfo() != null ? file.getFileInfo().getName() : "image";
-      } catch (Exception e) {
-        throw new IllegalStateException("Could not read the referenced attachment file: " + e.getMessage());
-      }
-      if (bytes == null || bytes.length == 0) {
-        throw new ObjectNotFoundException("The referenced attachment file is empty or could not be read.");
-      }
-      return new FetchedContent(bytes, mimeType, StringUtils.isBlank(fileName) ? "image" : fileName);
+      return readAttachment(attachmentService,
+                            fileService,
+                            aclIdentity,
+                            source.attachmentObjectType(),
+                            source.attachmentObjectId(),
+                            Long.MAX_VALUE);
     }
     boolean hasUrl = StringUtils.isNotBlank(imageUrl);
     boolean hasBase64 = StringUtils.isNotBlank(imageBase64);
@@ -283,6 +317,188 @@ public final class UploadToolUtils {
       throw new IllegalArgumentException("Provide exactly one of image_url or image_base64.");
     }
     return hasUrl ? fetchImage(imageUrl, maxBytes) : decodeBase64Image(imageBase64, maxBytes);
+  }
+
+  /**
+   * Resolves an image from exactly one of four mutually exclusive sources into
+   * its raw bytes: an http(s) URL, a base64 string, an ACL-checked reference to
+   * a file already attached to a platform object
+   * (<code>attachment_object_type</code> + <code>attachment_object_id</code>),
+   * or the upload id of a file the user sent through an upload link
+   * (<code>upload_id</code>). Every source is bounded by <code>maxBytes</code>
+   * and must hold a png, jpeg, gif or webp image, told from its bytes, never
+   * from a declared type. Consumers that need an <code>uploadId</code> pass the
+   * result to {@link #materialize}; consumers that need raw bytes
+   * (avatars/banners) use it directly.
+   * <p>
+   * The attachment is read <b>as the given user</b>, so platform ACLs are
+   * enforced. The upload is read through the owner-checked
+   * {@link UploadService#getUploadResource(String, String)}, so only the user
+   * who uploaded it can consume it, and it is removed with
+   * {@link UploadService#removeUploadResource(String, String)} once read,
+   * whether the read succeeds or not; an upload still in progress is refused
+   * and left in place.
+   *
+   * @param attachmentService the attachments, read as the user
+   * @param fileService the files
+   * @param uploadService the upload registry an upload id is read from
+   * @param aclIdentity the user the attachment and the upload are read as
+   * @param source the one source of the image
+   * @param maxBytes the most bytes accepted from any source; a URL is read up
+   *          to at most {@link #MAX_FETCH_BYTES} (15 MB), whatever this asks
+   * @return the resolved image bytes, mime type and file name
+   * @throws IllegalAccessException when the user may not read the attachment
+   * @throws ObjectNotFoundException when the attachment has no file, or the
+   *           upload id is unknown to this server for this user
+   */
+  public static FetchedContent resolveImage(AttachmentService attachmentService,
+                                          FileService fileService,
+                                          UploadService uploadService,
+                                          Identity aclIdentity,
+                                          ImageSource source,
+                                          long maxBytes) throws IllegalAccessException, ObjectNotFoundException {
+    long sources = Stream.of(source.imageUrl(), source.imageBase64(), source.attachmentObjectId(), source.uploadId())
+                         .filter(StringUtils::isNotBlank)
+                         .count();
+    if (sources != 1) {
+      throw new IllegalArgumentException(ONE_IMAGE_SOURCE_MESSAGE);
+    }
+    if (StringUtils.isNotBlank(source.uploadId())) {
+      if (uploadService == null) {
+        throw new IllegalArgumentException("upload_id is not supported by this tool.");
+      }
+      return readUploadedImage(uploadService, aclIdentity.getUserId(), source.uploadId().trim(), maxBytes);
+    }
+    if (StringUtils.isNotBlank(source.attachmentObjectId())) {
+      FetchedContent attachment = readAttachment(attachmentService,
+                                                 fileService,
+                                                 aclIdentity,
+                                                 source.attachmentObjectType(),
+                                                 source.attachmentObjectId(),
+                                                 maxBytes);
+      String mimeType = sniffImageMime(attachment.bytes());
+      if (mimeType == null) {
+        throw new IllegalArgumentException("The referenced attachment is not a supported image (png, jpeg, gif or webp).");
+      }
+      return new FetchedContent(attachment.bytes(), mimeType, attachment.fileName());
+    }
+    return StringUtils.isNotBlank(source.imageUrl()) ? fetchImage(source.imageUrl(), maxBytes)
+                                                      : decodeBase64Image(source.imageBase64(), maxBytes);
+  }
+
+  /**
+   * Reads the first file attached to a platform object, as the given user.
+   *
+   * @param attachmentService the attachments, read as the user
+   * @param fileService the files
+   * @param aclIdentity the user the attachment is read as
+   * @param attachmentObjectType the type of the object holding the attachment
+   * @param attachmentObjectId the id of the object holding the attachment
+   * @param maxBytes the most bytes accepted, checked on the stored size before
+   *          the file is read and on the bytes read
+   * @return the file's bytes, its stored mime type and its name, "image" when
+   *         it has none
+   * @throws IllegalAccessException when the user may not read the object
+   * @throws ObjectNotFoundException when the object has no file, or its file is
+   *           empty or unreadable
+   */
+  private static FetchedContent readAttachment(AttachmentService attachmentService,
+                                               FileService fileService,
+                                               Identity aclIdentity,
+                                               String attachmentObjectType,
+                                               String attachmentObjectId,
+                                               long maxBytes) throws IllegalAccessException, ObjectNotFoundException {
+    if (StringUtils.isBlank(attachmentObjectType)) {
+      throw new IllegalArgumentException("attachment_object_type is required together with attachment_object_id.");
+    }
+    List<String> fileIds = attachmentService.getAttachmentFileIds(attachmentObjectType, attachmentObjectId, aclIdentity);
+    if (CollectionUtils.isEmpty(fileIds)) {
+      throw new ObjectNotFoundException("No file attachment found for %s/%s.".formatted(attachmentObjectType,
+                                                                                       attachmentObjectId));
+    }
+    FileItem file;
+    try {
+      file = fileService.getFile(Long.parseLong(fileIds.get(0)));
+    } catch (Exception e) {
+      throw new IllegalStateException("Could not read the referenced attachment file: " + e.getMessage());
+    }
+    FileInfo fileInfo = file == null ? null : file.getFileInfo();
+    if (fileInfo != null && fileInfo.getSize() > maxBytes) {
+      throw tooLarge(maxBytes);
+    }
+    byte[] bytes;
+    try {
+      bytes = file == null ? null : file.getAsByte();
+    } catch (Exception e) {
+      throw new IllegalStateException("Could not read the referenced attachment file: " + e.getMessage());
+    }
+    if (bytes == null || bytes.length == 0) {
+      throw new ObjectNotFoundException("The referenced attachment file is empty or could not be read.");
+    }
+    if (bytes.length > maxBytes) {
+      throw tooLarge(maxBytes);
+    }
+    String mimeType = fileInfo != null ? fileInfo.getMimetype() : null;
+    String fileName = fileInfo != null ? fileInfo.getName() : null;
+    return new FetchedContent(bytes, mimeType, StringUtils.isBlank(fileName) ? "image" : fileName);
+  }
+
+  /**
+   * Reads the image a user sent through an upload link, then removes the
+   * upload, whatever the outcome, unless it is still being received.
+   *
+   * @param uploadService the upload registry
+   * @param username the user the upload must belong to
+   * @param uploadId the upload id start_upload returned
+   * @param maxBytes the most bytes accepted, checked on the stored file before
+   *          it is read
+   * @return the image bytes, the type told from them, and the uploaded file
+   *         name
+   * @throws ObjectNotFoundException when this server holds no upload of that id
+   *           for that user
+   */
+  private static FetchedContent readUploadedImage(UploadService uploadService,
+                                                  String username,
+                                                  String uploadId,
+                                                  long maxBytes) throws ObjectNotFoundException {
+    UploadResource resource = uploadService.getUploadResource(uploadId, username);
+    if (resource == null) {
+      throw new ObjectNotFoundException(UNKNOWN_UPLOAD_MESSAGE);
+    }
+    if (resource.getStatus() == UploadResource.UPLOADING_STATUS) {
+      throw new IllegalStateException("This upload is still being received: wait for its curl command to finish (get_upload tells its status), then retry.");
+    }
+    try {
+      if (resource.getStatus() != UploadResource.UPLOADED_STATUS || StringUtils.isBlank(resource.getStoreLocation())) {
+        throw new IllegalArgumentException("This upload failed. Call start_upload again, run its curl command, then pass the new upload_id.");
+      }
+      Path path = Path.of(resource.getStoreLocation());
+      if (Files.size(path) > maxBytes) {
+        throw tooLarge(maxBytes);
+      }
+      byte[] bytes = Files.readAllBytes(path);
+      String mimeType = sniffImageMime(bytes);
+      if (mimeType == null) {
+        throw new IllegalArgumentException("The uploaded file is not a supported image (png, jpeg, gif or webp).");
+      }
+      String fileName = StringUtils.isBlank(resource.getFileName()) ? "image" + extensionForMime(mimeType)
+                                                                     : resource.getFileName();
+      return new FetchedContent(bytes, mimeType, fileName);
+    } catch (IOException e) {
+      throw new IllegalStateException("Could not read the uploaded file: " + e.getMessage());
+    } finally {
+      uploadService.removeUploadResource(uploadId, username);
+    }
+  }
+
+  /**
+   * The refusal of an image over the size limit.
+   *
+   * @param maxBytes the limit
+   * @return the exception to throw
+   */
+  private static IllegalArgumentException tooLarge(long maxBytes) {
+    return new IllegalArgumentException("Image exceeds the maximum allowed size (" + (maxBytes / (1024 * 1024)) + " MB).");
   }
 
   /**
@@ -295,7 +511,7 @@ public final class UploadToolUtils {
   private static FetchedContent decodeBase64Image(String imageBase64, long maxBytes) {
     byte[] bytes = decodeBase64(imageBase64);
     if (bytes.length > maxBytes) {
-      throw new IllegalArgumentException("Image exceeds the maximum allowed size (" + (maxBytes / (1024 * 1024)) + " MB).");
+      throw tooLarge(maxBytes);
     }
     String mimeType = sniffImageMime(bytes);
     if (mimeType == null) {
@@ -318,7 +534,9 @@ public final class UploadToolUtils {
 
   /**
    * Downloads an image through a given fetcher: the seam of the tests, which
-   * hand in one over a table of names.
+   * hand in one over a table of names. The type is told from the bytes, never
+   * from the declared {@code Content-Type}: a png, jpeg, gif or webp image
+   * only, so a body declared {@code image/svg+xml} or mislabelled is refused.
    *
    * @param fetcher the fetcher
    * @param url the http(s) URL
@@ -328,9 +546,9 @@ public final class UploadToolUtils {
   static FetchedContent fetchImage(SafeHttpFetcher fetcher, String url, long maxBytes) {
     SafeFetchResponse response = fetchInternal(fetcher, url, maxBytes, "image");
     byte[] bytes = response.body();
-    String mimeType = StringUtils.startsWith(response.mediaType(), "image/") ? response.mediaType() : sniffImageMime(bytes);
+    String mimeType = sniffImageMime(bytes);
     if (mimeType == null) {
-      throw new IllegalArgumentException("The URL does not point to a supported image.");
+      throw new IllegalArgumentException("The URL does not point to a supported image (png, jpeg, gif or webp).");
     }
     return new FetchedContent(bytes, mimeType, "image" + extensionForMime(mimeType));
   }
