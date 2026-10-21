@@ -161,7 +161,7 @@
       "name": "get_all_spaces",
       "icon": "fa-users",
       "title": "Search in all spaces",
-      "description": "List the spaces the user can see in the Spaces Directory, a page at a time. To find a space the user names, use search_spaces instead.",
+      "description": "Search in all accessible spaces for the user from Spaces Directory. When search_spaces is among your tools, use it instead to find a space the user names.",
       "input_schema": {
         "type": "object",
         "properties": {
@@ -218,7 +218,7 @@
       "name": "get_my_spaces",
       "icon": "fa-users",
       "title": "Search in my spaces",
-      "description": "Retrieve the list of spaces where the current user is a member, a page at a time. To find a space the user names, use search_spaces instead.",
+      "description": "Retrieve the list of spaces where the current user is a member. When search_spaces is among your tools, use it instead to find a space the user names.",
       "input_schema": {
         "type": "object",
         "properties": {

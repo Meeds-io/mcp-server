@@ -106,10 +106,10 @@ public class SpaceSearchMcpTool implements McpToolPlugin {
    */
   @SneakyThrows
   public List<SpaceSearchHitModel> searchSpaces(String query, Integer limit) {
-    List<String> words = words(query);
-    // the condition searched is the query as SpaceFilter processes it: it must hold a word too
+    // the condition searched is the query as SpaceFilter processes it: it must hold a word, and the rank reads its words
     SpaceFilter filter = new SpaceFilter(StringUtils.trimToEmpty(query));
-    if (words.isEmpty() || words(filter.getSpaceNameSearchCondition()).isEmpty()) {
+    List<String> words = words(filter.getSpaceNameSearchCondition());
+    if (words.isEmpty()) {
       throw new IllegalArgumentException(MSG_QUERY_REQUIRED);
     }
     String username = getCurrentUserName();
@@ -120,7 +120,8 @@ public class SpaceSearchMcpTool implements McpToolPlugin {
     }
     return Stream.of(spaces)
                  .filter(Objects::nonNull)
-                 .sorted(Comparator.comparingInt((Space space) -> nameMatch(space, query, words)).reversed())
+                 .sorted(Comparator.comparingInt((Space space) -> nameMatch(space, filter.getSpaceNameSearchCondition(), words))
+                                    .reversed())
                  .limit(size)
                  .map(space -> toHit(space, username))
                  .toList();
@@ -133,8 +134,8 @@ public class SpaceSearchMcpTool implements McpToolPlugin {
    * above the same word in the name.
    *
    * @param space a matching space
-   * @param query the query
-   * @param words the query words, without accents and in lower case
+   * @param query the searched condition
+   * @param words its words, without accents and in lower case
    * @return 2 when the name is the query, 1 when each word of the query
    *         starts a word of the name, 0 otherwise; ignoring case and accents
    */
