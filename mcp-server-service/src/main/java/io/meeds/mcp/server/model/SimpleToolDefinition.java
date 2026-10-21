@@ -19,9 +19,15 @@
 package io.meeds.mcp.server.model;
 
 import java.io.IOException;
+import java.util.Collections;
+import java.util.LinkedHashMap;
+import java.util.Map;
+import java.util.Set;
 
 import org.springframework.ai.tool.definition.ToolDefinition;
 
+import com.fasterxml.jackson.annotation.JsonAnySetter;
+import com.fasterxml.jackson.annotation.JsonIgnore;
 import com.fasterxml.jackson.annotation.JsonInclude;
 import com.fasterxml.jackson.annotation.JsonInclude.Include;
 import com.fasterxml.jackson.annotation.JsonProperty;
@@ -32,13 +38,24 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.annotation.JsonDeserialize;
 
 import io.modelcontextprotocol.spec.McpSchema.ToolAnnotations;
-import lombok.AllArgsConstructor;
+import lombok.AccessLevel;
 import lombok.Data;
+import lombok.EqualsAndHashCode;
+import lombok.Getter;
 import lombok.NoArgsConstructor;
+import lombok.Setter;
+import lombok.ToString;
 
+/**
+ * One MCP tool definition, as shipped in an {@code ai-tool-definitions.json}
+ * file and as persisted with the administrator's edits. A key this model does
+ * not know does not fail the parsing: it is collected in
+ * {@link #unknownPropertyNames()}, so the reader decides what the entry is
+ * worth. A misspelled {@code require_approval} or {@code annotations} key
+ * would otherwise leave the field at its permissive default.
+ */
 @Data
 @NoArgsConstructor
-@AllArgsConstructor
 public class SimpleToolDefinition implements ToolDefinition {
 
   @JsonProperty("name")
@@ -64,6 +81,58 @@ public class SimpleToolDefinition implements ToolDefinition {
   @JsonInclude(Include.NON_EMPTY)
   private ToolAnnotations annotations;
 
+  /**
+   * The Font Awesome icon name of the tool ({@code fa-clipboard}), declared by
+   * the add-on that ships it. Owned by the add-on: always read from its file,
+   * never from the persisted copy.
+   */
+  @JsonProperty("icon")
+  @JsonInclude(Include.NON_EMPTY)
+  private String          icon;
+
+  /**
+   * The keys of the entry that this model does not know, with their values.
+   * Never serialized, so the persisted copy never carries them.
+   */
+  @JsonIgnore
+  @Getter(AccessLevel.NONE)
+  @Setter(AccessLevel.NONE)
+  @EqualsAndHashCode.Exclude
+  @ToString.Exclude
+  private Map<String, Object> unknownProperties;
+
+  /**
+   * Builds a definition with no icon.
+   *
+   * @param name            the tool name
+   * @param title           the readable title
+   * @param description     the description given to the model
+   * @param inputSchema     the JSON schema of the arguments
+   * @param requireApproval whether a call asks the user first
+   * @param disabled        whether the tool is switched off
+   * @param annotations     the MCP hints, or null
+   */
+  public SimpleToolDefinition(String name,
+                              String title,
+                              String description,
+                              String inputSchema,
+                              boolean requireApproval,
+                              boolean disabled,
+                              ToolAnnotations annotations) {
+    this.name = name;
+    this.title = title;
+    this.description = description;
+    this.inputSchema = inputSchema;
+    this.requireApproval = requireApproval;
+    this.disabled = disabled;
+    this.annotations = annotations;
+  }
+
+  /**
+   * Copies a definition, its icon and its unknown keys included.
+   *
+   * @param simpleToolDefinition the definition to copy
+   */
   public SimpleToolDefinition(SimpleToolDefinition simpleToolDefinition) {
     this(simpleToolDefinition.name,
          simpleToolDefinition.title,
@@ -72,6 +141,9 @@ public class SimpleToolDefinition implements ToolDefinition {
          simpleToolDefinition.requireApproval,
          simpleToolDefinition.disabled,
          simpleToolDefinition.annotations);
+    this.icon = simpleToolDefinition.icon;
+    this.unknownProperties = simpleToolDefinition.unknownProperties == null ? null :
+                                                                             new LinkedHashMap<>(simpleToolDefinition.unknownProperties);
   }
 
   @Override
@@ -91,6 +163,28 @@ public class SimpleToolDefinition implements ToolDefinition {
   @Override
   public String inputSchema() {
     return inputSchema;
+  }
+
+  /**
+   * Collects a key of the JSON entry that no field of this model maps.
+   *
+   * @param key   the unknown key
+   * @param value its value
+   */
+  @JsonAnySetter
+  public void addUnknownProperty(String key, Object value) {
+    if (unknownProperties == null) {
+      unknownProperties = new LinkedHashMap<>();
+    }
+    unknownProperties.put(key, value);
+  }
+
+  /**
+   * @return the keys of the JSON entry that this model does not know, in their
+   *         order in the entry, empty when there are none
+   */
+  public Set<String> unknownPropertyNames() {
+    return unknownProperties == null ? Collections.emptySet() : Collections.unmodifiableSet(unknownProperties.keySet());
   }
 
   public static class JsonObjectToStringDeserializer extends JsonDeserializer<String> {

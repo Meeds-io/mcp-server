@@ -26,6 +26,7 @@ import static io.meeds.mcp.server.service.McpServerToolService.WRITE_SCOPE_AUTHO
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
@@ -33,6 +34,7 @@ import static org.mockito.Mockito.doReturn;
 import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -184,6 +186,93 @@ class McpToolServerServiceTest {
     assertEquals("Gamma", defs.get("gamma_tool").getDescription());
 
     verify(settingService).set(any(), any(), any(), any());
+  }
+
+  /**
+   * The icon belongs to the add-on: a persisted definition takes the shipped
+   * file's icon (added, changed or removed) while every administrator value
+   * is kept, so a booted instance needs no TOOLS_KEY bump.
+   *
+   * @param tmp a temporary folder
+   */
+  @Test
+  void getToolDefinitions_takesTheIconFromTheShippedFile_keepsSavedValues(// NOSONAR
+                                                                         @TempDir
+                                                                         Path tmp) {
+    ReflectionTestUtils.setField(mcpServerToolService, FORCE_REIMPORT_PARAM, false);
+
+    SimpleToolDefinition shippedAlpha = tool(ALPHA_TOOL, "ParsedDesc", TYPE_OBJECT, false, false);
+    shippedAlpha.setIcon("fa-clipboard");
+    SimpleToolDefinition shippedBeta = tool(BETA_TOOL, "ParsedBeta", TYPE_OBJECT, false, false);
+
+    SimpleToolDefinition savedAlpha = tool(ALPHA_TOOL, "SavedDesc", TYPE_OBJECT, true, true);
+    savedAlpha.setTitle("Saved title");
+    SimpleToolDefinition savedBeta = tool(BETA_TOOL, "SavedBeta", TYPE_OBJECT, true, false);
+    savedBeta.setIcon("fa-stale");
+    String savedBase64 = McpToolUtils.toJsonStringBase64(new ToolDefinitionMethods(List.of(savedAlpha, savedBeta)));
+    when(settingService.get(any(), any(), any())).thenReturn((SettingValue) SettingValue.create(savedBase64));
+
+    mockContainerResources(writeToolDefinitionsJson(tmp, List.of(shippedAlpha, shippedBeta)));
+
+    Map<String, SimpleToolDefinition> defs = mcpServerToolService.getToolDefinitions();
+
+    SimpleToolDefinition alpha = defs.get(ALPHA_TOOL);
+    assertEquals("fa-clipboard", alpha.getIcon());
+    assertEquals("SavedDesc", alpha.getDescription());
+    assertEquals("Saved title", alpha.getTitle());
+    assertTrue(alpha.isRequireApproval());
+    assertTrue(alpha.isDisabled());
+
+    SimpleToolDefinition beta = defs.get(BETA_TOOL);
+    assertNull(beta.getIcon());
+    assertEquals("SavedBeta", beta.getDescription());
+    assertTrue(beta.isRequireApproval());
+  }
+
+  /**
+   * A tool its file declares with a key this server does not know is left out
+   * of the registry, and its saved definition is persisted back unchanged, at
+   * the registry build and at an administrator's edit of another tool, so the
+   * administrator's values return with the tool once the key is known.
+   *
+   * @param tmp a temporary folder
+   */
+  @Test
+  void getToolDefinitions_toolLeftOutForAnUnknownKey_keepsItsSavedDefinition(// NOSONAR
+                                                                            @TempDir
+                                                                            Path tmp) throws Exception {
+    ReflectionTestUtils.setField(mcpServerToolService, FORCE_REIMPORT_PARAM, false);
+
+    SimpleToolDefinition savedAlpha = tool(ALPHA_TOOL, "SavedAlpha", TYPE_OBJECT, false, false);
+    SimpleToolDefinition savedBeta = tool(BETA_TOOL, "SavedBeta", TYPE_OBJECT, true, true);
+    SimpleToolDefinition savedRemoved = tool("removed_tool", "SavedRemoved", TYPE_OBJECT, true, false);
+    String savedBase64 = McpToolUtils.toJsonStringBase64(new ToolDefinitionMethods(List.of(savedAlpha,
+                                                                                            savedBeta,
+                                                                                            savedRemoved)));
+    when(settingService.get(any(), any(), any())).thenReturn((SettingValue) SettingValue.create(savedBase64));
+
+    Path file = tmp.resolve("ai-tool-definitions.json");
+    Files.writeString(file, """
+        { "tools": [ { "name": "alpha_tool", "description": "ShippedAlpha", "input_schema": {} },
+                     { "name": "beta_tool", "description": "ShippedBeta", "space_scope": true, "input_schema": {} } ] }
+        """, StandardCharsets.UTF_8);
+    mockContainerResources(file.toUri().toURL());
+
+    Map<String, SimpleToolDefinition> defs = mcpServerToolService.getToolDefinitions();
+    assertEquals(List.of(ALPHA_TOOL), List.copyOf(defs.keySet()));
+
+    mcpServerToolService.updateToolDefinition(ALPHA_TOOL, NEW_TITLE, NEW_DESCRIPTION, TYPE_OBJECT, false, false);
+
+    ArgumentCaptor<SettingValue<?>> settingValueCaptor = ArgumentCaptor.forClass(SettingValue.class);
+    verify(settingService, times(2)).set(any(), any(), any(), settingValueCaptor.capture());
+    for (SettingValue<?> persisted : settingValueCaptor.getAllValues()) {
+      List<SimpleToolDefinition> tools = McpToolUtils.fromJsonStringBase64(persisted.getValue().toString()).tools();
+      assertEquals(List.of(ALPHA_TOOL, BETA_TOOL), tools.stream().map(SimpleToolDefinition::getName).toList());
+      SimpleToolDefinition beta = tools.get(1);
+      assertEquals("SavedBeta", beta.getDescription());
+      assertTrue(beta.isRequireApproval());
+      assertTrue(beta.isDisabled());
+    }
   }
 
   @Test

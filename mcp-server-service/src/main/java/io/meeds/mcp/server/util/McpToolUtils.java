@@ -24,8 +24,10 @@ import java.lang.reflect.Field;
 import java.net.URL;
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
+import java.util.ArrayList;
 import java.util.Base64;
 import java.util.Calendar;
+import java.util.Collection;
 import java.util.Collections;
 import java.util.Date;
 import java.util.List;
@@ -135,16 +137,48 @@ public class McpToolUtils {
   }
 
   /**
-   * Parses one {@code ai-tool-definitions.json} resource.
+   * Parses one {@code ai-tool-definitions.json} resource. A tool that declares
+   * no icon takes the file's default icon, when the file declares one. A key
+   * the file declares at its root and this server does not know is ignored. A
+   * tool entry carrying a key this server does not know is left out, with a
+   * WARN, and the file's other tools load: loaded, the tool would run with the
+   * default of whatever field the key misspells, a misspelled
+   * {@code require_approval} or {@code annotations} key included. The keys
+   * inside {@code annotations} are read by the MCP SDK's
+   * {@code ToolAnnotations}, which ignores the ones it does not know.
    *
    * @param url the resource to read
    * @return the tool definitions it declares, empty when it cannot be read
    */
   public static List<SimpleToolDefinition> parseToolDefinitions(URL url) {
+    return parseToolDefinitions(url, new ArrayList<>());
+  }
+
+  /**
+   * Same as {@link #parseToolDefinitions(URL)}, and adds the name of each tool
+   * left out for a key this server does not know to the given collection.
+   *
+   * @param url              the resource to read
+   * @param leftOutToolNames receives the names of the tools left out
+   * @return the tool definitions it declares, empty when it cannot be read
+   */
+  public static List<SimpleToolDefinition> parseToolDefinitions(URL url, Collection<String> leftOutToolNames) {
     try (InputStream inputStream = url.openStream()) {
       String content = IOUtils.toString(inputStream, StandardCharsets.UTF_8);
       ToolDefinitionMethods definitionMethods = fromJsonString(content);
-      return definitionMethods.tools();
+      if (definitionMethods == null || definitionMethods.tools() == null) {
+        return Collections.emptyList();
+      }
+      List<SimpleToolDefinition> tools = definitionMethods.tools()
+                                                          .stream()
+                                                          .filter(tool -> hasOnlyKnownProperties(url, tool, leftOutToolNames))
+                                                          .toList();
+      if (StringUtils.isNotBlank(definitionMethods.icon())) {
+        tools.stream()
+             .filter(tool -> StringUtils.isBlank(tool.getIcon()))
+             .forEach(tool -> tool.setIcon(definitionMethods.icon()));
+      }
+      return tools;
     } catch (IOException e) {
       log.warn("An error occurred while parsing Tool Definitions from url {}", url, e);
       return Collections.emptyList();
@@ -165,7 +199,12 @@ public class McpToolUtils {
 
   /**
    * Same as {@link #fromJsonString(String)} for the persisted form, whose
-   * input schemas are base64 encoded.
+   * input schemas are base64 encoded. A saved tool carrying a key this server
+   * does not know is kept, with a WARN: the persisted form is written by
+   * {@link #toJsonStringBase64(ToolDefinitionMethods)} alone, so such a key
+   * comes from a newer server, not from a misspelling, and dropping the tool
+   * would replace the administrator's {@code require_approval} and
+   * {@code disabled} with the shipped values.
    *
    * @param value the persisted tool definitions
    * @return the parsed definitions with decoded schemas, or null when blank
@@ -181,6 +220,11 @@ public class McpToolUtils {
                                                                    .decode(t.getInputSchema()
                                                                             .replace("\"", "")
                                                                             .getBytes()))));
+    toolDefinitions.tools()
+                   .stream()
+                   .filter(t -> !t.unknownPropertyNames().isEmpty())
+                   .forEach(t -> log.warn("The saved definition of tool '{}' carries keys this server does not know {}: "
+                       + "the tool keeps its saved values and the keys are ignored", t.getName(), t.unknownPropertyNames()));
     return toolDefinitions;
   }
 
@@ -199,6 +243,23 @@ public class McpToolUtils {
                                                       .toList();
     tools.forEach(t -> t.setInputSchema(new String(Base64.getEncoder().encode(t.getInputSchema().getBytes()))));
     return OBJECT_MAPPER.writeValueAsString(new ToolDefinitionMethods(tools));
+  }
+
+  /**
+   * @param url              the file the tool is declared in
+   * @param tool             a tool entry of that file
+   * @param leftOutToolNames receives the tool's name when it is left out
+   * @return true when the entry carries only keys this server knows, else
+   *         false, after a WARN naming the file, the tool and the keys
+   */
+  private static boolean hasOnlyKnownProperties(URL url, SimpleToolDefinition tool, Collection<String> leftOutToolNames) {
+    if (tool.unknownPropertyNames().isEmpty()) {
+      return true;
+    }
+    log.warn("Tool '{}' of {} is not loaded: its definition carries keys this server does not know {}. "
+        + "The file's other tools are loaded, and its saved values are kept", tool.getName(), url, tool.unknownPropertyNames());
+    leftOutToolNames.add(tool.getName());
+    return false;
   }
 
   /**

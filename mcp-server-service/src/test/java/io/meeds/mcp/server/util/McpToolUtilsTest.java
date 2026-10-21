@@ -24,13 +24,19 @@ import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
+import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.time.Instant;
+import java.util.Base64;
 import java.util.Date;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.io.TempDir;
 import org.springframework.mock.web.MockHttpServletRequest;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
 import org.springframework.security.core.GrantedAuthority;
@@ -246,6 +252,134 @@ class McpToolUtilsTest {
     assertEquals("{\"type\":\"object\",\"x\":1}", decodedTool.getInputSchema());
     assertTrue(decodedTool.isRequireApproval());
     assertFalse(decodedTool.isDisabled());
+  }
+
+  /**
+   * A tool with no icon takes the file's default; a tool's own icon wins.
+   *
+   * @param tmp a temporary folder
+   */
+  @Test
+  void parseToolDefinitions_fileDefaultIcon_appliesToToolsWithoutTheirOwn(@TempDir Path tmp) throws Exception {// NOSONAR
+    Path file = tmp.resolve("ai-tool-definitions.json");
+    Files.writeString(file, """
+        { "icon": "fa-tasks",
+          "tools": [ { "name": "plain_tool", "input_schema": {} },
+                     { "name": "own_icon_tool", "icon": "fa-clipboard", "input_schema": {} } ] }
+        """, StandardCharsets.UTF_8);
+
+    List<SimpleToolDefinition> tools = McpToolUtils.parseToolDefinitions(file.toUri().toURL());
+
+    assertEquals(2, tools.size());
+    assertEquals("fa-tasks", tools.get(0).getIcon());
+    assertEquals("fa-clipboard", tools.get(1).getIcon());
+  }
+
+  /**
+   * A key this server does not know at the root of the file does not drop its
+   * tools.
+   *
+   * @param tmp a temporary folder
+   */
+  @Test
+  void parseToolDefinitions_unknownFileLevelKey_keepsTheTools(@TempDir Path tmp) throws Exception {// NOSONAR
+    Path file = tmp.resolve("ai-tool-definitions.json");
+    Files.writeString(file, """
+        { "future_file_field": 1,
+          "tools": [ { "name": "plain_tool", "input_schema": {} },
+                     { "name": "other_tool", "require_approval": true, "input_schema": {} } ] }
+        """, StandardCharsets.UTF_8);
+
+    List<SimpleToolDefinition> tools = McpToolUtils.parseToolDefinitions(file.toUri().toURL());
+
+    assertEquals(List.of("plain_tool", "other_tool"), tools.stream().map(SimpleToolDefinition::getName).toList());
+    assertTrue(tools.get(1).isRequireApproval());
+  }
+
+  /**
+   * A tool entry carrying a key this server does not know is left out, so a
+   * misspelled {@code require_approval} or {@code annotations} never loads the
+   * tool with the permissive default, a key given a {@code null} value
+   * included; the file's other tools still load.
+   *
+   * @param tmp a temporary folder
+   */
+  @Test
+  void parseToolDefinitions_unknownToolLevelKey_dropsThatToolAndKeepsItsSiblings(@TempDir Path tmp) throws Exception {// NOSONAR
+    Path file = tmp.resolve("ai-tool-definitions.json");
+    Files.writeString(file, """
+        { "icon": "fa-tasks",
+          "tools": [ { "name": "first_tool", "input_schema": {} },
+                     { "name": "misspelled_approval_tool", "require_aproval": true, "input_schema": {} },
+                     { "name": "misspelled_annotations_tool", "anotations": { "readOnlyHint": false }, "input_schema": {} },
+                     { "name": "null_valued_key_tool", "require_aproval": null, "input_schema": {} },
+                     { "name": "last_tool", "require_approval": true, "input_schema": {} } ] }
+        """, StandardCharsets.UTF_8);
+
+    List<SimpleToolDefinition> tools = McpToolUtils.parseToolDefinitions(file.toUri().toURL());
+
+    assertEquals(List.of("first_tool", "last_tool"), tools.stream().map(SimpleToolDefinition::getName).toList());
+    assertTrue(tools.get(1).isRequireApproval());
+    assertEquals("fa-tasks", tools.get(0).getIcon());
+  }
+
+  /**
+   * A saved tool carrying a key this server does not know keeps its saved
+   * values, and the key is not persisted again.
+   */
+  @Test
+  void fromJsonStringBase64_unknownKeyOnASavedTool_keepsTheToolAndDoesNotPersistTheKey() {// NOSONAR
+    String schema = Base64.getEncoder().encodeToString("{}".getBytes(StandardCharsets.UTF_8));
+    String saved = """
+        { "tools": [ { "name": "saved_tool", "require_approval": true, "disabled": true,
+                       "future_tool_field": "x", "input_schema": "%s" } ] }
+        """.formatted(schema);
+
+    ToolDefinitionMethods decoded = McpToolUtils.fromJsonStringBase64(saved);
+
+    assertEquals(1, decoded.tools().size());
+    SimpleToolDefinition tool = decoded.tools().get(0);
+    assertEquals("saved_tool", tool.getName());
+    assertTrue(tool.isRequireApproval());
+    assertTrue(tool.isDisabled());
+    assertEquals(Set.of("future_tool_field"), tool.unknownPropertyNames());
+    String persisted = McpToolUtils.toJsonStringBase64(decoded);
+    assertFalse(persisted.contains("future_tool_field"), persisted);
+    assertFalse(persisted.contains("unknownProperties"), persisted);
+  }
+
+  /**
+   * The persisted copy keeps the icon through the base64 round trip.
+   */
+  @Test
+  void toJsonStringBase64_keepsTheIcon() {// NOSONAR
+    SimpleToolDefinition tool = new SimpleToolDefinition();
+    tool.setName(TOOL_NAME);
+    tool.setInputSchema("{}");
+    tool.setIcon("fa-clipboard");
+
+    ToolDefinitionMethods decoded = McpToolUtils.fromJsonStringBase64(McpToolUtils.toJsonStringBase64(new ToolDefinitionMethods(List.of(tool))));
+
+    assertEquals("fa-clipboard", decoded.tools().get(0).getIcon());
+  }
+
+  /**
+   * A copy is the same definition: its icon and its unknown keys included,
+   * the copy's keys independent of the original's.
+   */
+  @Test
+  void copy_keepsTheIconAndTheUnknownKeys() {// NOSONAR
+    SimpleToolDefinition tool = new SimpleToolDefinition();
+    tool.setName(TOOL_NAME);
+    tool.setIcon("fa-clipboard");
+    tool.addUnknownProperty("require_aproval", true);
+
+    SimpleToolDefinition copy = new SimpleToolDefinition(tool);
+    tool.addUnknownProperty("other_key", 1);
+
+    assertEquals("fa-clipboard", copy.getIcon());
+    assertEquals(Set.of("require_aproval"), copy.unknownPropertyNames());
+    assertTrue(new SimpleToolDefinition(new SimpleToolDefinition()).unknownPropertyNames().isEmpty());
   }
 
   @Test

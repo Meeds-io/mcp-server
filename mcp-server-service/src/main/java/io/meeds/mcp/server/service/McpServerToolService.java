@@ -30,8 +30,10 @@ import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Collections;
 import java.util.Enumeration;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.function.Function;
 import java.util.stream.Collectors;
 
@@ -109,6 +111,8 @@ public class McpServerToolService {
 
   @Setter
   private Map<String, SimpleToolDefinition> toolDefinitions;
+
+  private List<SimpleToolDefinition>        leftOutSavedDefinitions       = Collections.emptyList();
 
   /**
    * @param methodName the Java method name implementing the tool
@@ -281,7 +285,7 @@ public class McpServerToolService {
                                                                 existingToolDefinition.getAnnotations().openWorldHint(),
                                                                 existingToolDefinition.getAnnotations().returnDirect()));
     }
-    this.saveToolsContent(McpToolUtils.toJsonStringBase64(new ToolDefinitionMethods(new ArrayList<>(toolDefinitions.values()))));
+    this.saveToolsContent(McpToolUtils.toJsonStringBase64(new ToolDefinitionMethods(withLeftOutSavedDefinitions(toolDefinitions.values()))));
     toolListeners.forEach(l -> l.handleToolUpdate(toolName));
     listenerService.broadcast(EVENT_TOOL_UPDATED, toolName, existingToolDefinition);
     return existingToolDefinition;
@@ -372,7 +376,12 @@ public class McpServerToolService {
   /**
    * Builds the tool registry: every {@code ai-tool-definitions.json} on the
    * portal classpath, each entry overridden by its persisted version when one
-   * exists, then persisted back as the new reference set.
+   * exists, then persisted back as the new reference set. The icon is the
+   * add-on's, not the administrator's: it is always taken from the shipped
+   * file, so a booted instance shows a changed icon at its next restart. A
+   * tool its file declares with a key this server does not know is left out
+   * of the registry, and its saved definition is persisted back unchanged, so
+   * the administrator's values return with the tool once the key is known.
    */
   @SneakyThrows
   private void retrieveToolDefinitions() {
@@ -389,21 +398,55 @@ public class McpServerToolService {
       forceReimport = false;
     }
     Enumeration<URL> toolDefinitionResources = container.getPortalClassLoader().getResources(AI_TOOLS_JSON_PATH);
+    Set<String> leftOutToolNames = new HashSet<>();
     List<SimpleToolDefinition> toolDefinitionList = Collections.list(toolDefinitionResources)
                                                                .stream()
-                                                               .map(McpToolUtils::parseToolDefinitions)
+                                                               .map(url -> McpToolUtils.parseToolDefinitions(url, leftOutToolNames))
                                                                .flatMap(Collection::stream)
                                                                .map(toolDefinition -> savedDefinitions.stream()
                                                                                                       .filter(t -> t.getName()
                                                                                                                     .equals(toolDefinition.getName()))
                                                                                                       .findFirst()
+                                                                                                      .map(saved -> withShippedIcon(saved,
+                                                                                                                                    toolDefinition))
                                                                                                       .orElse(toolDefinition))
                                                                .toList();
-    saveToolsContent(McpToolUtils.toJsonStringBase64(new ToolDefinitionMethods(toolDefinitionList)));
+    Set<String> loadedToolNames = toolDefinitionList.stream().map(SimpleToolDefinition::getName).collect(Collectors.toSet());
+    leftOutSavedDefinitions = savedDefinitions.stream()
+                                              .filter(saved -> leftOutToolNames.contains(saved.getName())
+                                                  && !loadedToolNames.contains(saved.getName()))
+                                              .toList();
+    saveToolsContent(McpToolUtils.toJsonStringBase64(new ToolDefinitionMethods(withLeftOutSavedDefinitions(toolDefinitionList))));
     toolDefinitions = toolDefinitionList.stream() // NOSONAR
                                         .collect(Collectors.toMap(ToolDefinition::name,
                                                                   Function.identity(),
                                                                   ObjectUtils::firstNonNull));
+  }
+
+  /**
+   * @param registeredDefinitions the definitions of the registry
+   * @return the definitions to persist: the registry's, followed by the saved
+   *         definitions of the tools left out of it for a key this server does
+   *         not know
+   */
+  private List<SimpleToolDefinition> withLeftOutSavedDefinitions(Collection<SimpleToolDefinition> registeredDefinitions) {
+    List<SimpleToolDefinition> definitions = new ArrayList<>(registeredDefinitions);
+    definitions.addAll(leftOutSavedDefinitions);
+    return definitions;
+  }
+
+  /**
+   * Gives a persisted definition the icon of its shipped file, keeping every
+   * value the administrator may have edited.
+   *
+   * @param savedDefinition   the persisted definition
+   * @param shippedDefinition the definition read from the add-on's file
+   * @return the persisted definition, with the shipped icon
+   */
+  private SimpleToolDefinition withShippedIcon(SimpleToolDefinition savedDefinition,
+                                               SimpleToolDefinition shippedDefinition) {
+    savedDefinition.setIcon(shippedDefinition.getIcon());
+    return savedDefinition;
   }
 
   /**

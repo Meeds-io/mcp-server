@@ -1,0 +1,8 @@
+The SVG files of this folder are Font Awesome Free 5.15.4 solid icons,
+by Fonticons, Inc. - https://fontawesome.com
+Licensed under the Creative Commons Attribution 4.0 International License
+(CC BY 4.0) - https://creativecommons.org/licenses/by/4.0/
+Full Font Awesome Free license: https://fontawesome.com/license/free
+
+They are unmodified, except for the fill colour mcp-server sets on the root
+element when it publishes one as a standard MCP tool icon.

@@ -2,6 +2,7 @@
   "tools": [
     {
       "name": "list_space_templates",
+      "icon": "fa-users",
       "title": "Search space templates",
       "description": "Retrieve the list of available Space Templates with their basic information.",
       "input_schema": {
@@ -22,6 +23,7 @@
     },
     {
       "name": "get_space_template_by_id",
+      "icon": "fa-users",
       "title": "Get a space template",
       "description": "Retrieve a Space Template using its technical identifier.",
       "input_schema": {
@@ -45,6 +47,7 @@
     },
     {
       "name": "create_space",
+      "icon": "fa-users",
       "title": "Create a space",
       "description": "Creates a new Space for the current user based on a template. IMPORTANT: to create a SUB-SPACE under an existing space, you MUST set parent_space_id to that parent space's id (first look it up with get_my_spaces or get_all_spaces). Creating a space without parent_space_id always makes a TOP-LEVEL space, even if the user asked for a sub-space. A sub-space can only be created when the parent space's template explicitly allows it.",
       "input_schema": {
@@ -105,6 +108,7 @@
     },
     {
       "name": "update_space_settings",
+      "icon": "fa-users",
       "title": "Update a space settings",
       "description": "Update the settings of an existing Space.",
       "input_schema": {
@@ -154,6 +158,7 @@
     },
     {
       "name": "get_all_spaces",
+      "icon": "fa-users",
       "title": "Search in all spaces",
       "description": "Search in all accessible spaces for the user from Spaces Directory.",
       "input_schema": {
@@ -182,6 +187,7 @@
     },
     {
       "name": "get_my_spaces",
+      "icon": "fa-users",
       "title": "Search in my spaces",
       "description": "Retrieve the list of spaces where the current user is a member.",
       "input_schema": {
@@ -210,6 +216,7 @@
     },
     {
       "name": "count_my_spaces",
+      "icon": "fa-users",
       "title": "Count my spaces",
       "description": "Count the spaces where the current user is a member, optionally filtered by a keyword.",
       "input_schema": {
@@ -230,6 +237,7 @@
     },
     {
       "name": "get_managed_spaces",
+      "icon": "fa-users",
       "title": "Search in spaces I manage",
       "description": "Retrieve the list of spaces where the current user is a manager.",
       "input_schema": {
@@ -258,6 +266,7 @@
     },
     {
       "name": "get_space_by_id",
+      "icon": "fa-users",
       "title": "Get a space",
       "description": "Retrieve full details of a Space by its unique identifier.",
       "input_schema": {
@@ -281,6 +290,7 @@
     },
     {
       "name": "list_users_of_space_by_role",
+      "icon": "fa-users",
       "title": "List space members",
       "description": "Retrieve the list of users in a Space by role.",
       "input_schema": {
@@ -321,6 +331,7 @@
     },
     {
       "name": "invite_users_to_space",
+      "icon": "fa-users",
       "title": "Invite user to space",
       "description": "Invite one or more users to join a Space as members.",
       "input_schema": {
@@ -351,6 +362,7 @@
     },
     {
       "name": "remove_users_from_space",
+      "icon": "fa-users",
       "title": "Remove user from space",
       "description": "Remove one or more users from a Space.",
       "input_schema": {
@@ -381,6 +393,7 @@
     },
     {
       "name": "set_user_role_in_space",
+      "icon": "fa-users",
       "title": "Promote user in space",
       "description": "Assign or promote a role for a confirmed member of a Space.",
       "input_schema": {
@@ -417,6 +430,7 @@
     },
     {
       "name": "remove_user_role_in_space",
+      "icon": "fa-users",
       "title": "Remove user role from space",
       "description": "Remove a specific role from a user in a Space.",
       "input_schema": {
@@ -453,6 +467,7 @@
     },
     {
       "name": "get_my_user_information",
+      "icon": "fa-user",
       "title": "Get curent user info",
       "description": "Provides the identity and profile information of the currently connected user.",
       "input_schema": {
@@ -468,6 +483,7 @@
     },
     {
       "name": "get_user_by_username",
+      "icon": "fa-user",
       "title": "Get a user info",
       "description": "Provides identity and profile information of a user by username.",
       "input_schema": {
@@ -491,6 +507,7 @@
     },
     {
       "name": "search_users",
+      "icon": "fa-user",
       "title": "Search for users",
       "description": "Search for users across the platform by an optional keyword.",
       "input_schema": {
@@ -519,6 +536,7 @@
     },
     {
       "name": "get_users_count",
+      "icon": "fa-user",
       "title": "Count users",
       "description": "Retrieves the users count.",
       "input_schema": {
@@ -534,6 +552,7 @@
     },
     {
       "name": "search_activities",
+      "icon": "fa-stream",
       "title": "Search for activities",
       "description": "Search activities (Also Known As 'posts'), with optional filters for query text, space and favorites.",
       "input_schema": {
@@ -568,6 +587,7 @@
     },
     {
       "name": "get_activities",
+      "icon": "fa-stream",
       "title": "Get space activities",
       "description": "Retrieve a paginated list of activities (Also Known As 'posts') in a space (or all activities if space_id is null).",
       "input_schema": {
@@ -593,6 +613,7 @@
     },
     {
       "name": "get_activities_since_days",
+      "icon": "fa-stream",
       "title": "Get activities of last days",
       "description": "Retrieve a paginated list of activities (Also Known As 'posts') in a space (or all activities if space_id is null). This will return the posted activities since the number of designated 'days'.",
       "input_schema": {
@@ -615,6 +636,7 @@
     },
     {
       "name": "get_user_activity_stream",
+      "icon": "fa-stream",
       "title": "Get a user's activity stream",
       "description": "Retrieve the activities (Also Known As 'posts') on a given user's profile stream, filtered to what the current user is allowed to see.",
       "input_schema": {
@@ -646,6 +668,7 @@
     },
     {
       "name": "get_activity",
+      "icon": "fa-stream",
       "title": "Get an activity",
       "description": "Get a single activity (Also Known As 'post') by its ID.",
       "input_schema": {
@@ -668,6 +691,7 @@
     },
     {
       "name": "get_activity_comment",
+      "icon": "fa-stream",
       "title": "Get an activity comment",
       "description": "Get a specific comment on an activity. A reply carries `parent_comment_id`, the comment it answers; read the whole thread with `get_activity_comments` and the comment's `activity_id`.",
       "input_schema": {
@@ -690,6 +714,7 @@
     },
     {
       "name": "create_activity",
+      "icon": "fa-stream",
       "title": "Post an activity",
       "description": "Create a new activity (Also Known As 'post') in a space activity stream (or personal activity stream if space_id is null). Pass publication_start_time to schedule it for later instead of posting immediately.",
       "input_schema": {
@@ -720,6 +745,7 @@
     },
     {
       "name": "update_activity",
+      "icon": "fa-stream",
       "title": "Update an activity",
       "description": "Update an existing activity (Also Known As 'post') by its ID. Provide html_content, publication_start_time, or both; omitting html_content reschedules without changing the text.",
       "input_schema": {
@@ -750,6 +776,7 @@
     },
     {
       "name": "delete_activity",
+      "icon": "fa-stream",
       "title": "Delete an activity",
       "description": "Delete an activity (Also Known As 'post') by its ID. Deleting a post that is still scheduled cancels its scheduling and permanently discards it; there is no way to unschedule a post back to a draft.",
       "input_schema": {
@@ -773,6 +800,7 @@
     },
     {
       "name": "pin_activity",
+      "icon": "fa-stream",
       "title": "Pin an activity in stream",
       "description": "Pin an activity (Also Known As 'post') by its ID in the stream UI.",
       "input_schema": {
@@ -796,6 +824,7 @@
     },
     {
       "name": "unpin_activity",
+      "icon": "fa-stream",
       "title": "Unpin an activity from stream",
       "description": "Unpin an activity (Also Known As 'post') by its ID.",
       "input_schema": {
@@ -819,6 +848,7 @@
     },
     {
       "name": "get_activity_comments",
+      "icon": "fa-stream",
       "title": "Get activity comments",
       "description": "Read the discussion under an activity (Also Known As 'post'): its comments and the replies to them, as a flat paginated list in thread order. A reply carries `parent_comment_id`, the comment it answers, and follows that comment in the list; a top-level comment has no `parent_comment_id`. `offset` and `limit` (default 10) count top-level comments only: each page returns those comments together with all their replies, so lower `limit` to walk a long discussion page by page.",
       "input_schema": {
@@ -847,6 +877,7 @@
     },
     {
       "name": "create_activity_comment",
+      "icon": "fa-stream",
       "title": "Post an activity comment",
       "description": "Add a new activity's comment to an activity. Pass parent_comment_id to post it as a threaded reply to an existing comment of that activity instead of a top-level comment.",
       "input_schema": {
@@ -878,6 +909,7 @@
     },
     {
       "name": "update_comment",
+      "icon": "fa-stream",
       "title": "Update an activity comment",
       "description": "Update an existing activity's comment by its ID.",
       "input_schema": {
@@ -905,6 +937,7 @@
     },
     {
       "name": "share_activity_to_space",
+      "icon": "fa-stream",
       "title": "Share an activity to a space",
       "description": "Share an activity (Also Known As 'post') to another space.",
       "input_schema": {
@@ -932,6 +965,7 @@
     },
     {
       "name": "get_activity_likers",
+      "icon": "fa-stream",
       "title": "Get activity likers",
       "description": "Get a paginated list of users who liked an activity (Also Known As 'post').",
       "input_schema": {
@@ -960,6 +994,7 @@
     },
     {
       "name": "like_the_activity",
+      "icon": "fa-stream",
       "title": "Like an activity",
       "description": "Like an activity (Also Known As 'post') by its ID.",
       "input_schema": {
@@ -983,6 +1018,7 @@
     },
     {
       "name": "unlike_the_activity",
+      "icon": "fa-stream",
       "title": "Un-like an activity",
       "description": "Remove your like from an activity (Also Known As 'post') by its ID.",
       "input_schema": {
@@ -1006,6 +1042,7 @@
     },
     {
       "name": "get_content_types",
+      "icon": "fa-sitemap",
       "title": "List content types that support categories",
       "description": "List the content types that can be categorized - the values to pass as content_type to get_categories_of_content, add_content_to_category and remove_content_from_category (e.g. document, space, activity). Note: email content is categorized through its own dedicated list_email_categories / add_email_category / remove_email_category tools, so use those for email.",
       "input_schema": {
@@ -1021,6 +1058,7 @@
     },
     {
       "name": "get_category_tree",
+      "icon": "fa-sitemap",
       "title": "Get the contents categorization tree",
       "description": "get the available categories tree (including sub categories) which can be associated any type of content identified by its technical identifier. The returned category will describe either current user can manage contents association to the category (add/remove contents to the category) through the attribute `can_add_content`.",
       "input_schema": {
@@ -1036,6 +1074,7 @@
     },
     {
       "name": "get_categories_of_content",
+      "icon": "fa-sitemap",
       "title": "Get categories of a content",
       "description": "get the associated categories to a designated content. The returned category will describe either current user can manage contents association to the category (add/remove contents to the category) through the attribute `can_add_content`.",
       "input_schema": {
@@ -1064,6 +1103,7 @@
     },
     {
       "name": "add_content_to_category",
+      "icon": "fa-sitemap",
       "title": "Associate  a category to a content",
       "description": "Add a content into a category. The current user must have the permission (see `can_add_content` attribute in the category) to be able to make the operation on his/her behalf.",
       "input_schema": {
@@ -1097,6 +1137,7 @@
     },
     {
       "name": "remove_content_from_category",
+      "icon": "fa-sitemap",
       "title": "Remove a category to a content",
       "description": "Removes a content from an associated category. The current user must have the permission (see `can_add_content` attribute in the category) to be able to make the operation on his/her behalf.",
       "input_schema": {
@@ -1130,6 +1171,7 @@
     },
     {
       "name": "list_notifications",
+      "icon": "fa-bell",
       "title": "List my notifications",
       "description": "Retrieve the current user's web notifications, most recent first. Optionally return only unread ones or filter by a notification plugin type (see get_notification_settings for valid plugin ids).",
       "input_schema": {
@@ -1162,6 +1204,7 @@
     },
     {
       "name": "get_unread_notifications_count",
+      "icon": "fa-bell",
       "title": "Count my unread notifications",
       "description": "Get the current user's total unread web notifications badge count, plus the unread count broken down by notification plugin/type.",
       "input_schema": {
@@ -1177,6 +1220,7 @@
     },
     {
       "name": "mark_notification_read",
+      "icon": "fa-bell",
       "title": "Mark a notification as read",
       "description": "Mark a single web notification of the current user as read.",
       "input_schema": {
@@ -1201,6 +1245,7 @@
     },
     {
       "name": "mark_all_notifications_read",
+      "icon": "fa-bell",
       "title": "Mark all notifications as read",
       "description": "Mark all of the current user's web notifications as read. Optionally restrict to a single notification plugin/type id.",
       "input_schema": {
@@ -1222,6 +1267,7 @@
     },
     {
       "name": "hide_notification",
+      "icon": "fa-bell",
       "title": "Dismiss a notification",
       "description": "Hide/dismiss a single web notification of the current user from the notifications popover.",
       "input_schema": {
@@ -1246,6 +1292,7 @@
     },
     {
       "name": "get_notification_settings",
+      "icon": "fa-bell",
       "title": "Get my notification settings",
       "description": "Retrieve the current user's notification settings: available channels with their enabled state, per-plugin enabled channels, and the list of muted space identifiers.",
       "input_schema": {
@@ -1261,6 +1308,7 @@
     },
     {
       "name": "set_notification_channel_enabled",
+      "icon": "fa-bell",
       "title": "Enable or disable a notification channel",
       "description": "Enable or disable a whole notification channel (for example WEB_CHANNEL or MAIL_CHANNEL) for the current user. Use get_notification_settings to list valid channel ids.",
       "input_schema": {
@@ -1290,6 +1338,7 @@
     },
     {
       "name": "set_notification_plugin_enabled",
+      "icon": "fa-bell",
       "title": "Enable or disable a notification type on a channel",
       "description": "Enable or disable a specific notification plugin/type on a given channel for the current user. Use get_notification_settings to list valid plugin and channel ids.",
       "input_schema": {
@@ -1324,6 +1373,7 @@
     },
     {
       "name": "mute_space_notifications",
+      "icon": "fa-bell",
       "title": "Mute or unmute a space",
       "description": "Mute or unmute notifications from a given space for the current user.",
       "input_schema": {
@@ -1353,6 +1403,7 @@
     },
     {
       "name": "list_connection_requests",
+      "icon": "fa-user-friends",
       "title": "List received connection requests",
       "description": "List the pending incoming connection (network) requests the current user has received and can accept or refuse.",
       "input_schema": {
@@ -1377,6 +1428,7 @@
     },
     {
       "name": "list_sent_connection_requests",
+      "icon": "fa-user-friends",
       "title": "List sent connection requests",
       "description": "List the pending outgoing connection (network) requests the current user has sent and that are awaiting the other person's approval.",
       "input_schema": {
@@ -1401,6 +1453,7 @@
     },
     {
       "name": "list_my_connections",
+      "icon": "fa-user-friends",
       "title": "List my connections",
       "description": "List the current user's confirmed connections (their network), optionally filtered by a keyword on the connection's name.",
       "input_schema": {
@@ -1429,6 +1482,7 @@
     },
     {
       "name": "list_user_connections",
+      "icon": "fa-user-friends",
       "title": "List a user's connections",
       "description": "List the confirmed connections (network) of a given user by username.",
       "input_schema": {
@@ -1460,6 +1514,7 @@
     },
     {
       "name": "get_connection_status",
+      "icon": "fa-user-friends",
       "title": "Get connection status with a user",
       "description": "Return the connection status between the current user and a given user: CONFIRMED, PENDING (a request exists either way, direction isn't distinguished), IGNORED or NOT_CONNECTED.",
       "input_schema": {
@@ -1483,6 +1538,7 @@
     },
     {
       "name": "list_connection_suggestions",
+      "icon": "fa-user-friends",
       "title": "List connection suggestions",
       "description": "List suggested people to connect with for the current user, based on common connections.",
       "input_schema": {
@@ -1503,6 +1559,7 @@
     },
     {
       "name": "send_connection_request",
+      "icon": "fa-user-friends",
       "title": "Send a connection request",
       "description": "Send a connection (network) request from the current user to another user by username.",
       "input_schema": {
@@ -1527,6 +1584,7 @@
     },
     {
       "name": "accept_connection_request",
+      "icon": "fa-user-friends",
       "title": "Accept a connection request",
       "description": "Accept a pending incoming connection request from a given user. Use list_connection_requests to find valid usernames.",
       "input_schema": {
@@ -1551,6 +1609,7 @@
     },
     {
       "name": "refuse_connection_request",
+      "icon": "fa-user-friends",
       "title": "Refuse a connection request",
       "description": "Refuse/decline a pending incoming connection request from a given user.",
       "input_schema": {
@@ -1575,6 +1634,7 @@
     },
     {
       "name": "remove_connection",
+      "icon": "fa-user-friends",
       "title": "Remove a connection",
       "description": "Remove an existing connection between the current user and a given user (disconnect).",
       "input_schema": {
@@ -1599,6 +1659,7 @@
     },
     {
       "name": "update_my_profile",
+      "icon": "fa-user",
       "title": "Update my profile",
       "description": "Update the current user's own profile fields. Only the provided fields are changed; omit a field to leave it unchanged.",
       "input_schema": {
@@ -1652,6 +1713,7 @@
     },
     {
       "name": "add_work_experience",
+      "icon": "fa-user",
       "title": "Add a work experience",
       "description": "Add a work experience to the current user's profile. 'company' is required; other fields are optional.",
       "input_schema": {
@@ -1700,6 +1762,7 @@
     },
     {
       "name": "update_work_experience",
+      "icon": "fa-user",
       "title": "Update a work experience",
       "description": "Update an existing work experience of the current user. Only the supplied fields are changed; omit a field to leave it unchanged. Call get_my_user_information first to get the experience_id.",
       "input_schema": {
@@ -1752,6 +1815,7 @@
     },
     {
       "name": "remove_work_experience",
+      "icon": "fa-user",
       "title": "Remove a work experience",
       "description": "Remove a work experience from the current user's profile. Call get_my_user_information first to get the experience_id.",
       "input_schema": {
@@ -1776,6 +1840,7 @@
     },
     {
       "name": "set_profile_field_visibility",
+      "icon": "fa-user",
       "title": "Set profile field visibility",
       "description": "Hide or show one of the current user's own profile fields. field_name must be one of the toggleable fields returned by get_profile_field_visibility; call it first to get valid names. Some fields (like the full name) can't be hidden.",
       "input_schema": {
@@ -1805,6 +1870,7 @@
     },
     {
       "name": "get_profile_field_visibility",
+      "icon": "fa-user",
       "title": "Get hidden profile fields",
       "description": "List the current user's profile field visibility: returns which fields are hidden AND the list of fields you can toggle (their exact field_name values and current hidden state). Call this before set_profile_field_visibility.",
       "input_schema": {
@@ -1820,6 +1886,7 @@
     },
     {
       "name": "get_user_online_status",
+      "icon": "fa-user",
       "title": "Get a user's online status",
       "description": "Return whether a given user is currently online, their presence status, and the time of their last activity.",
       "input_schema": {
@@ -1843,6 +1910,7 @@
     },
     {
       "name": "list_online_users",
+      "icon": "fa-user",
       "title": "List online users",
       "description": "List users who are currently online, with their presence status and last activity time.",
       "input_schema": {
@@ -1867,6 +1935,7 @@
     },
     {
       "name": "join_space",
+      "icon": "fa-users",
       "title": "Join a space",
       "description": "Join a space directly as the current user. Only works for spaces whose registration is open. For spaces requiring validation use request_to_join_space.",
       "input_schema": {
@@ -1891,6 +1960,7 @@
     },
     {
       "name": "request_to_join_space",
+      "icon": "fa-users",
       "title": "Request to join a space",
       "description": "Send a request to join a space that requires manager validation. If the space is open the current user is added directly.",
       "input_schema": {
@@ -1915,6 +1985,7 @@
     },
     {
       "name": "cancel_join_request",
+      "icon": "fa-users",
       "title": "Cancel a join request",
       "description": "Cancel the current user's own pending request to join a space.",
       "input_schema": {
@@ -1939,6 +2010,7 @@
     },
     {
       "name": "leave_space",
+      "icon": "fa-users",
       "title": "Leave a space",
       "description": "Leave a space the current user is a member of. Fails if the current user is the only manager.",
       "input_schema": {
@@ -1963,6 +2035,7 @@
     },
     {
       "name": "accept_space_invitation",
+      "icon": "fa-users",
       "title": "Accept a space invitation",
       "description": "Accept an invitation the current user has received to join a space.",
       "input_schema": {
@@ -1987,6 +2060,7 @@
     },
     {
       "name": "decline_space_invitation",
+      "icon": "fa-users",
       "title": "Decline a space invitation",
       "description": "Decline an invitation the current user has received to join a space.",
       "input_schema": {
@@ -2011,6 +2085,7 @@
     },
     {
       "name": "list_space_join_requests",
+      "icon": "fa-users",
       "title": "List pending join requests",
       "description": "List the users who have requested to join a space and are awaiting validation. The current user must be a manager of the space.",
       "input_schema": {
@@ -2042,6 +2117,7 @@
     },
     {
       "name": "accept_space_join_request",
+      "icon": "fa-users",
       "title": "Accept a join request",
       "description": "Approve a user's pending request to join a space, adding them as a member. The current user must be a manager of the space.",
       "input_schema": {
@@ -2071,6 +2147,7 @@
     },
     {
       "name": "decline_space_join_request",
+      "icon": "fa-users",
       "title": "Decline a join request",
       "description": "Reject a user's pending request to join a space. The current user must be a manager of the space.",
       "input_schema": {
@@ -2100,6 +2177,7 @@
     },
     {
       "name": "get_space_members",
+      "icon": "fa-users",
       "title": "Get space members with roles",
       "description": "List the members of a space, each annotated with their roles in that space (MANAGER, REDACTOR, PUBLISHER, MEMBER).",
       "input_schema": {
@@ -2131,6 +2209,7 @@
     },
     {
       "name": "list_sub_spaces",
+      "icon": "fa-users",
       "title": "List sub-spaces",
       "description": "List the sub-spaces (child spaces in the 7.2 hierarchy) of a given parent space that are accessible to the current user.",
       "input_schema": {
@@ -2162,6 +2241,7 @@
     },
     {
       "name": "delete_space",
+      "icon": "fa-users",
       "title": "Delete a space",
       "description": "Permanently delete a space and all its content. The current user must be a manager of the space. This is irreversible.",
       "input_schema": {
@@ -2186,6 +2266,7 @@
     },
     {
       "name": "get_my_settings",
+      "icon": "fa-cog",
       "title": "Get my settings",
       "description": "Retrieve the current user's personal settings: preferred language, timezone and presence status.",
       "input_schema": {
@@ -2201,6 +2282,7 @@
     },
     {
       "name": "list_available_languages",
+      "icon": "fa-cog",
       "title": "List available languages",
       "description": "List the languages available on the platform, with their code (e.g. en, fr) and display label. Use this to find a valid code before calling set_my_language.",
       "input_schema": {
@@ -2216,6 +2298,7 @@
     },
     {
       "name": "set_my_language",
+      "icon": "fa-cog",
       "title": "Set my language",
       "description": "Set the current user's preferred interface language. The language code must be one of the platform's available languages (see list_available_languages).",
       "input_schema": {
@@ -2240,6 +2323,7 @@
     },
     {
       "name": "set_my_timezone",
+      "icon": "fa-cog",
       "title": "Set my timezone",
       "description": "Set the current user's timezone, used to display dates and times.",
       "input_schema": {
@@ -2264,6 +2348,7 @@
     },
     {
       "name": "set_my_status",
+      "icon": "fa-user",
       "title": "Set my presence status",
       "description": "Set the current user's presence status (online availability).",
       "input_schema": {
@@ -2295,6 +2380,7 @@
     },
     {
       "name": "add_to_favorites",
+      "icon": "fa-star",
       "title": "Add content to my favorites",
       "description": "Mark a content as favorite for the current user. Favoritable content types include: activity, space, note, news, task, event, file. Use the object's technical type and id (e.g. from expressions like /{content_type}:{content_id}).",
       "input_schema": {
@@ -2324,6 +2410,7 @@
     },
     {
       "name": "remove_from_favorites",
+      "icon": "fa-star",
       "title": "Remove content from my favorites",
       "description": "Remove a content from the current user's favorites.",
       "input_schema": {
@@ -2353,6 +2440,7 @@
     },
     {
       "name": "is_content_favorite",
+      "icon": "fa-star",
       "title": "Check if content is a favorite",
       "description": "Check whether a given content is currently in the current user's favorites.",
       "input_schema": {
@@ -2381,6 +2469,7 @@
     },
     {
       "name": "list_my_favorites",
+      "icon": "fa-star",
       "title": "List my favorites",
       "description": "List the current user's favorite contents, optionally filtered by content type. Returns each favorite's content type and id.",
       "input_schema": {
@@ -2409,6 +2498,7 @@
     },
     {
       "name": "get_content_tags",
+      "icon": "fa-tags",
       "title": "Get a content's tags",
       "description": "List the tags (hashtags) associated with a given content, e.g. an activity or a note.",
       "input_schema": {
@@ -2437,6 +2527,7 @@
     },
     {
       "name": "search_tags",
+      "icon": "fa-tags",
       "title": "Search tags",
       "description": "Search existing tags by a keyword, to discover tags in use (autocomplete). Returns matching tag names.",
       "input_schema": {
@@ -2461,6 +2552,7 @@
     },
     {
       "name": "get_contents_by_tag",
+      "icon": "fa-tags",
       "title": "Get contents by tag",
       "description": "Find contents that carry a given tag. Defaults to activities; pass content_type to look up another type (e.g. note).",
       "input_schema": {
@@ -2496,6 +2588,7 @@
     },
     {
       "name": "get_platform_info",
+      "icon": "fa-info-circle",
       "title": "Get platform information",
       "description": "Retrieve general information about the Meeds platform: name, version, edition, base URL, total number of users and spaces, and the default language.",
       "input_schema": {
@@ -2511,6 +2604,7 @@
     },
     {
       "name": "create_activity_with_image",
+      "icon": "fa-stream",
       "title": "Post an activity with an image",
       "description": "Create an activity (post) in a space (or the personal stream if space_id is null) and attach an image to it. The image comes from either a public image URL or base64-encoded bytes (e.g. a screenshot). Use create_activity when no image is needed.",
       "input_schema": {
@@ -2557,6 +2651,7 @@
     },
     {
       "name": "attach_image_to_activity",
+      "icon": "fa-stream",
       "title": "Attach an image to an activity",
       "description": "Attach an image to an existing activity (post) that the current user is allowed to edit. The image comes from either a public image URL or base64-encoded bytes (e.g. a screenshot).",
       "input_schema": {
@@ -2600,6 +2695,7 @@
     },
     {
       "name": "create_activity_comment_with_image",
+      "icon": "fa-stream",
       "title": "Comment on an activity with an image",
       "description": "Add a comment to an activity and attach an image to that comment. The image comes from a public image URL, base64-encoded bytes, or the current conversation's attached image. Use create_activity_comment when no image is needed.",
       "input_schema": {
@@ -2647,6 +2743,7 @@
     },
     {
       "name": "attach_image_to_comment",
+      "icon": "fa-stream",
       "title": "Attach an image to a comment",
       "description": "Attach an image to an existing activity comment that the current user is allowed to edit. The image comes from a public image URL, base64-encoded bytes, or the current conversation's attached image.",
       "input_schema": {
@@ -2690,6 +2787,7 @@
     },
     {
       "name": "set_my_avatar",
+      "icon": "fa-user",
       "title": "Set my profile avatar",
       "description": "Set the current user's profile picture (avatar) from an image. The image comes from a public image URL or base64-encoded bytes (e.g. a generated image). Applies to the current user only.",
       "input_schema": {
@@ -2724,6 +2822,7 @@
     },
     {
       "name": "set_my_banner",
+      "icon": "fa-user",
       "title": "Set my profile banner",
       "description": "Set the current user's profile banner (cover image) from an image. The image comes from a public image URL or base64-encoded bytes. Applies to the current user only.",
       "input_schema": {
@@ -2758,6 +2857,7 @@
     },
     {
       "name": "set_space_avatar",
+      "icon": "fa-users",
       "title": "Set a space's avatar",
       "description": "Set the avatar (picture) of a space the current user manages, from an image (public URL or base64 bytes). Only a manager of the space may change it.",
       "input_schema": {
@@ -2797,6 +2897,7 @@
     },
     {
       "name": "set_space_banner",
+      "icon": "fa-users",
       "title": "Set a space's banner",
       "description": "Set the banner (cover image) of a space the current user manages, from an image (public URL or base64 bytes). Only a manager of the space may change it.",
       "input_schema": {
@@ -2836,6 +2937,7 @@
     },
     {
       "name": "get_activity_attachments",
+      "icon": "fa-stream",
       "title": "List an activity's attachments",
       "description": "List the attachments (images) on an activity (post): each attachment's file id, name, mime type, size and alt text. Read as the current user, so the activity's ACL is enforced.",
       "input_schema": {
@@ -2858,6 +2960,7 @@
     },
     {
       "name": "get_comment_attachments",
+      "icon": "fa-stream",
       "title": "List a comment's attachments",
       "description": "List the attachments (images) on an activity comment: each attachment's file id, name, mime type, size and alt text. Read as the current user, so the comment's ACL is enforced.",
       "input_schema": {
@@ -2880,6 +2983,7 @@
     },
     {
       "name": "remove_image_from_activity",
+      "icon": "fa-stream",
       "title": "Remove an image from an activity",
       "description": "Remove one attachment (image) from an activity the current user can edit, by its file id (from get_activity_attachments). If the activity has exactly one attachment, file_id may be omitted.",
       "input_schema": {
@@ -2907,6 +3011,7 @@
     },
     {
       "name": "remove_image_from_comment",
+      "icon": "fa-stream",
       "title": "Remove an image from a comment",
       "description": "Remove one attachment (image) from an activity comment the current user can edit, by its file id (from get_comment_attachments). If the comment has exactly one attachment, file_id may be omitted.",
       "input_schema": {
@@ -2934,6 +3039,7 @@
     },
     {
       "name": "get_scheduled_activities",
+      "icon": "fa-stream",
       "title": "List scheduled posts",
       "description": "List the activities (posts) the current user has scheduled but not published yet, soonest first. Scheduled posts are deliberately excluded from search_activities and from the regular activity streams, so this is the only way to find them. Space content writers also see the scheduled posts of other members of that space; everyone else sees only their own.",
       "input_schema": {
@@ -2963,6 +3069,7 @@
     },
     {
       "name": "publish_scheduled_activity_now",
+      "icon": "fa-stream",
       "title": "Publish a scheduled post now",
       "description": "Publish immediately an activity (post) that is still scheduled, instead of waiting for its publication time. This is what triggers its notifications and makes it visible in streams and search.",
       "input_schema": {
