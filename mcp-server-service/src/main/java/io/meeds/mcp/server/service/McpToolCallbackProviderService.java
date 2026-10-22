@@ -297,6 +297,14 @@ public class McpToolCallbackProviderService implements ToolCallbackProvider {
     }
 
     /**
+     * @return the tool method this callback runs, whose return type tells
+     *         whether the tool answers a list
+     */
+    public Method getToolMethod() {
+      return toolMethod;
+    }
+
+    /**
      * Runs one tool call as the user: the acting identity check, the scope
      * check, the space scope check of a call limited to one space (which may
      * fill the space argument the tool then runs with), then for an

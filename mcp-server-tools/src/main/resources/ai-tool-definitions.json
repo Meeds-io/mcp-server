@@ -175,7 +175,7 @@
           },
           "limit": {
             "type": "integer",
-            "description": "Limit of spaces to retrieve: 10 by default, 100 at most"
+            "description": "Limit of spaces to retrieve (max 100)"
           }
         }
       },
@@ -204,7 +204,7 @@
           },
           "limit": {
             "type": "integer",
-            "description": "Limit of spaces to retrieve: 10 by default, 100 at most"
+            "description": "Limit of spaces to retrieve (max 100)"
           }
         }
       },
@@ -254,7 +254,7 @@
           },
           "limit": {
             "type": "integer",
-            "description": "Limit of spaces to retrieve: 10 by default, 100 at most"
+            "description": "Limit of spaces to retrieve (max 100)"
           }
         }
       },
@@ -318,7 +318,7 @@
           },
           "limit": {
             "type": "integer",
-            "description": "Maximum number of users to retrieve: 10 by default, 100 at most"
+            "description": "Maximum number of users to retrieve (max 100)"
           }
         },
         "required": [
@@ -530,7 +530,7 @@
           },
           "limit": {
             "type": "integer",
-            "description": "Maximum number of users to retrieve: 10 by default, 100 at most"
+            "description": "Maximum number of users to retrieve (max 100)"
           }
         },
         "required": [
@@ -565,7 +565,7 @@
       "space_scope": { "space_arg": "space_id", "when_absent": "use_scope", "allowed_args": ["query", "offset", "limit"], "false_only_args": ["is_favorite"] },
       "icon": "fa-stream",
       "title": "Search for activities",
-      "description": "Search activities (Also Known As 'posts'), with optional filters for query text, space and favorites. Each activity names its author (`username`, `display_name`) and its space (`space_id`, `name`) only: use get_activity for the full details.",
+      "description": "Search activities (Also Known As 'posts'), with optional filters for query text, space and favorites. Compact items; get_activity for details.",
       "input_schema": {
         "type": "object",
         "properties": {
@@ -583,7 +583,7 @@
           },
           "limit": {
             "type": "integer",
-            "description": "Maximum number of activities to retrieve: 10 by default, 100 at most"
+            "description": "Maximum number of activities to retrieve (max 100)"
           }
         },
         "required": [
@@ -602,7 +602,7 @@
       "space_scope": { "space_arg": "space_id", "when_absent": "use_scope", "allowed_args": ["offset", "limit"] },
       "icon": "fa-stream",
       "title": "Get space activities",
-      "description": "Retrieve a paginated list of activities (Also Known As 'posts') in a space (or all activities if space_id is null). Each activity names its author (`username`, `display_name`) and its space (`space_id`, `name`) only: use get_activity for the full details.",
+      "description": "Retrieve a paginated list of activities (Also Known As 'posts') in a space (or all activities if space_id is null). Compact items; get_activity for details.",
       "input_schema": {
         "type": "object",
         "properties": {
@@ -614,7 +614,7 @@
           },
           "limit": {
             "type": "integer",
-            "description": "Maximum number of activities to retrieve: 10 by default, 100 at most"
+            "description": "Maximum number of activities to retrieve (max 100)"
           }
         }
       },
@@ -630,7 +630,7 @@
       "space_scope": { "space_arg": "space_id", "when_absent": "use_scope", "allowed_args": ["days"] },
       "icon": "fa-stream",
       "title": "Get activities of last days",
-      "description": "Retrieve a paginated list of activities (Also Known As 'posts') in a space (or all activities if space_id is null). This will return the posted activities since the number of designated 'days'. It returns at most 100 activities, with `has_more` true when more may match; each activity names its author (`username`, `display_name`) and its space (`space_id`, `name`) only: use get_activity for the full details.",
+      "description": "Retrieve a paginated list of activities (Also Known As 'posts') in a space (or all activities if space_id is null). This will return the posted activities since the number of designated 'days'. At most 100, has_more when more match. Compact items; get_activity for details.",
       "input_schema": {
         "type": "object",
         "properties": {
@@ -653,7 +653,7 @@
       "name": "get_user_activity_stream",
       "icon": "fa-stream",
       "title": "Get a user's activity stream",
-      "description": "Retrieve the activities (Also Known As 'posts') on a given user's profile stream, filtered to what the current user is allowed to see. Each activity names its author (`username`, `display_name`) and its space (`space_id`, `name`) only: use get_activity for the full details.",
+      "description": "Retrieve the activities (Also Known As 'posts') on a given user's profile stream, filtered to what the current user is allowed to see. Compact items; get_activity for details.",
       "input_schema": {
         "type": "object",
         "properties": {
@@ -667,7 +667,7 @@
           },
           "limit": {
             "type": "integer",
-            "description": "Limit of activities to retrieve: 10 by default, 100 at most"
+            "description": "Limit of activities to retrieve (max 100)"
           }
         },
         "required": [
@@ -885,7 +885,7 @@
           },
           "limit": {
             "type": "integer",
-            "description": "Maximum number of top-level comments to retrieve: 10 by default, 100 at most"
+            "description": "Maximum number of top-level comments to retrieve (max 100)"
           }
         },
         "required": [
@@ -1004,7 +1004,7 @@
           },
           "limit": {
             "type": "integer",
-            "description": "Maximum number of users to retrieve: 10 by default, 100 at most"
+            "description": "Maximum number of users to retrieve (max 100)"
           }
         },
         "required": [
@@ -1220,7 +1220,7 @@
           },
           "limit": {
             "type": "integer",
-            "description": "Limit of notifications to retrieve: 10 by default, 100 at most"
+            "description": "Limit of notifications to retrieve (max 100)"
           }
         }
       },
@@ -1444,7 +1444,7 @@
           },
           "limit": {
             "type": "integer",
-            "description": "Limit of requests to retrieve: 10 by default, 100 at most"
+            "description": "Limit of requests to retrieve (max 100)"
           }
         }
       },
@@ -1469,7 +1469,7 @@
           },
           "limit": {
             "type": "integer",
-            "description": "Limit of requests to retrieve: 10 by default, 100 at most"
+            "description": "Limit of requests to retrieve (max 100)"
           }
         }
       },
@@ -1498,7 +1498,7 @@
           },
           "limit": {
             "type": "integer",
-            "description": "Limit of connections to retrieve: 10 by default, 100 at most"
+            "description": "Limit of connections to retrieve (max 100)"
           }
         }
       },
@@ -1527,7 +1527,7 @@
           },
           "limit": {
             "type": "integer",
-            "description": "Limit of connections to retrieve: 10 by default, 100 at most"
+            "description": "Limit of connections to retrieve (max 100)"
           }
         },
         "required": [
@@ -1575,7 +1575,7 @@
         "properties": {
           "limit": {
             "type": "integer",
-            "description": "Maximum number of suggestions to retrieve: 10 by default, 100 at most"
+            "description": "Maximum number of suggestions to retrieve (max 100)"
           }
         }
       },
@@ -1951,7 +1951,7 @@
           },
           "limit": {
             "type": "integer",
-            "description": "Limit of users to retrieve: 10 by default, 100 at most"
+            "description": "Limit of users to retrieve (max 100)"
           }
         }
       },
@@ -2130,7 +2130,7 @@
           },
           "limit": {
             "type": "integer",
-            "description": "Limit of requests to retrieve: 10 by default, 100 at most"
+            "description": "Limit of requests to retrieve (max 100)"
           }
         },
         "required": [
@@ -2226,7 +2226,7 @@
           },
           "limit": {
             "type": "integer",
-            "description": "Limit of members to retrieve: 10 by default, 100 at most"
+            "description": "Limit of members to retrieve (max 100)"
           }
         },
         "required": [
@@ -2258,7 +2258,7 @@
           },
           "limit": {
             "type": "integer",
-            "description": "Limit of sub-spaces to retrieve: 10 by default, 100 at most"
+            "description": "Limit of sub-spaces to retrieve (max 100)"
           }
         },
         "required": [
@@ -2520,7 +2520,7 @@
           },
           "limit": {
             "type": "integer",
-            "description": "Limit of favorites to retrieve: 10 by default, 100 at most"
+            "description": "Limit of favorites to retrieve (max 100)"
           }
         }
       },
@@ -2574,7 +2574,7 @@
           },
           "limit": {
             "type": "integer",
-            "description": "Maximum number of tags to retrieve: 10 by default, 100 at most"
+            "description": "Maximum number of tags to retrieve (max 100)"
           }
         }
       },
@@ -2607,7 +2607,7 @@
           },
           "limit": {
             "type": "integer",
-            "description": "Limit of contents to retrieve: 10 by default, 100 at most"
+            "description": "Limit of contents to retrieve (max 100)"
           }
         },
         "required": [
@@ -3086,7 +3086,7 @@
       "name": "get_scheduled_activities",
       "icon": "fa-stream",
       "title": "List scheduled posts",
-      "description": "List the activities (posts) the current user has scheduled but not published yet, soonest first. Scheduled posts are deliberately excluded from search_activities and from the regular activity streams, so this is the only way to find them. Space content writers also see the scheduled posts of other members of that space; everyone else sees only their own. Each activity names its author (`username`, `display_name`) and its space (`space_id`, `name`) only: use get_activity for the full details.",
+      "description": "List the activities (posts) the current user has scheduled but not published yet, soonest first. Scheduled posts are deliberately excluded from search_activities and from the regular activity streams, so this is the only way to find them. Space content writers also see the scheduled posts of other members of that space; everyone else sees only their own. Compact items; get_activity for details.",
       "input_schema": {
         "type": "object",
         "properties": {
@@ -3100,7 +3100,7 @@
           },
           "limit": {
             "type": "integer",
-            "description": "Maximum number of activities to retrieve: 10 by default, 100 at most"
+            "description": "Maximum number of activities to retrieve (max 100)"
           }
         },
         "required": []

@@ -28,10 +28,12 @@ import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
+import java.lang.reflect.Method;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.stream.Stream;
 
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
@@ -39,6 +41,10 @@ import org.springframework.ai.chat.model.ToolContext;
 import org.springframework.ai.tool.ToolCallback;
 import org.springframework.ai.tool.definition.DefaultToolDefinition;
 import org.springframework.util.MimeType;
+
+import com.fasterxml.jackson.annotation.JsonProperty;
+
+import io.meeds.mcp.server.service.McpToolCallbackProviderService.MethodToolCallbackWrapper;
 
 import io.modelcontextprotocol.server.McpServerFeatures.SyncToolSpecification;
 import io.modelcontextprotocol.server.McpSyncServerExchange;
@@ -245,6 +251,62 @@ class McpServerUtilsTest {
   }
 
   /**
+   * A tool answering a single item is listed without {@code fields}, runs with
+   * the arguments it was called with and has its result untouched.
+   */
+  @Test
+  void listsAToolAnsweringASingleItemWithoutFieldsArgument() {
+    ToolCallback toolCallback = toolCallback(SCHEMA, ENVELOPE, "getThing");
+    SyncToolSpecification specification = McpServerUtils.toSyncToolSpecification(toolCallback, null);
+
+    Map<?, ?> properties = (Map<?, ?>) specification.tool().inputSchema().get("properties");
+    assertEquals(Set.of("query", "limit"), properties.keySet());
+
+    CallToolResult result = call(specification, Map.of("query", "q", "fields", "id"));
+
+    assertTrue(captureToolInput(toolCallback).contains("\"fields\""));
+    assertEquals(ENVELOPE, ((TextContent) result.content().get(0)).text());
+  }
+
+  /**
+   * A tool whose method is not known is listed without {@code fields}.
+   */
+  @Test
+  void listsAToolOfAnUnknownMethodWithoutFieldsArgument() {
+    ToolCallback toolCallback = mock(ToolCallback.class);
+    when(toolCallback.getToolDefinition()).thenReturn(DefaultToolDefinition.builder()
+                                                                            .name(TOOL_NAME)
+                                                                            .description("Lists things")
+                                                                            .inputSchema(SCHEMA)
+                                                                            .build());
+
+    SyncToolSpecification specification = McpServerUtils.toSyncToolSpecification(toolCallback, null);
+
+    Map<?, ?> properties = (Map<?, ?>) specification.tool().inputSchema().get("properties");
+    assertEquals(Set.of("query", "limit"), properties.keySet());
+    assertFalse(McpServerUtils.returnsList(toolCallback));
+  }
+
+  /**
+   * A list is an array, an {@link Iterable}, or a type declaring
+   * {@code used_limit} or {@code has_more}, by its JSON name, in itself or a
+   * superclass; a single item paging its own content with
+   * {@code next_offset}, or carrying a {@code count}, is not.
+   */
+  @Test
+  void tellsAListTypeFromASingleItemType() {
+    assertTrue(McpServerUtils.isListType(Thing[].class));
+    assertTrue(McpServerUtils.isListType(List.class));
+    assertTrue(McpServerUtils.isListType(ThingCollection.class));
+    assertTrue(McpServerUtils.isListType(ThingPage.class));
+    assertTrue(McpServerUtils.isListType(SubThingPage.class));
+    assertTrue(McpServerUtils.isListType(UnannotatedPage.class));
+    assertFalse(McpServerUtils.isListType(Thing.class));
+    assertFalse(McpServerUtils.isListType(String.class));
+    assertFalse(McpServerUtils.isListType(void.class));
+  }
+
+  /**
    * The requested keys are read from a comma-separated string or a list, the
    * blank ones ignored.
    */
@@ -263,7 +325,18 @@ class McpServerUtilsTest {
    * @return a tool callback answering that result to any call
    */
   private static ToolCallback toolCallback(String inputSchema, String result) {
-    ToolCallback toolCallback = mock(ToolCallback.class);
+    return toolCallback(inputSchema, result, "listThings");
+  }
+
+  /**
+   * @param inputSchema the tool's input schema
+   * @param result      what the tool returns
+   * @param methodName  the {@link Tools} method the tool runs
+   * @return a tool callback of that method answering that result to any call
+   */
+  private static ToolCallback toolCallback(String inputSchema, String result, String methodName) {
+    MethodToolCallbackWrapper toolCallback = mock(MethodToolCallbackWrapper.class);
+    when(toolCallback.getToolMethod()).thenReturn(toolMethod(methodName));
     when(toolCallback.getToolDefinition()).thenReturn(DefaultToolDefinition.builder()
                                                                             .name(TOOL_NAME)
                                                                             .description("Lists things")
@@ -290,5 +363,85 @@ class McpServerUtilsTest {
     ArgumentCaptor<String> toolInput = ArgumentCaptor.forClass(String.class);
     verify(toolCallback).call(toolInput.capture(), any(ToolContext.class));
     return toolInput.getValue();
+  }
+
+  /**
+   * @param methodName a {@link Tools} method name
+   * @return that method
+   */
+  private static Method toolMethod(String methodName) {
+    return Stream.of(Tools.class.getDeclaredMethods())
+                 .filter(method -> method.getName().equals(methodName))
+                 .findFirst()
+                 .orElseThrow();
+  }
+
+  /**
+   * The tool methods the tests' callbacks run.
+   */
+  @SuppressWarnings("unused")
+  private static class Tools {
+
+    /**
+     * @return a list envelope
+     */
+    ThingCollection listThings() {
+      return null;
+    }
+
+    /**
+     * @return a single item
+     */
+    Thing getThing() {
+      return null;
+    }
+  }
+
+  /**
+   * A single item: a note read part by part carries {@code next_offset}, a
+   * statistic a {@code count}.
+   *
+   * @param id         the item id
+   * @param count      a count of the item
+   * @param nextOffset where its next part starts
+   * @param parts      its parts
+   */
+  private record Thing(long id, long count, @JsonProperty("next_offset") Integer nextOffset, List<String> parts) {
+  }
+
+  /**
+   * A list envelope declaring {@code used_limit}.
+   *
+   * @param things    the items
+   * @param usedLimit the limit applied
+   */
+  private record ThingCollection(List<Thing> things, @JsonProperty("used_limit") int usedLimit) {
+  }
+
+  /**
+   * A list envelope declaring {@code has_more}.
+   */
+  @SuppressWarnings("unused")
+  private static class ThingPage {
+
+    private List<Thing> things;
+
+    @JsonProperty("has_more")
+    private boolean     hasMore;
+  }
+
+  /**
+   * A list envelope through its superclass.
+   */
+  private static class SubThingPage extends ThingPage {
+  }
+
+  /**
+   * A list envelope whose field bears the JSON name without annotation.
+   */
+  @SuppressWarnings("unused")
+  private static class UnannotatedPage {
+
+    private boolean has_more; // NOSONAR the JSON name, as the rule reads it
   }
 }

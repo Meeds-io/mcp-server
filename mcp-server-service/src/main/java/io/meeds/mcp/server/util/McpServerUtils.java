@@ -20,6 +20,7 @@ package io.meeds.mcp.server.util;
 
 import static org.springframework.ai.mcp.McpToolUtils.TOOL_CONTEXT_MCP_EXCHANGE_KEY;
 
+import java.lang.reflect.Field;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collection;
@@ -44,7 +45,10 @@ import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.core.ParameterizedTypeReference;
 import org.springframework.util.MimeType;
 
+import com.fasterxml.jackson.annotation.JsonProperty;
+
 import io.meeds.mcp.server.model.SimpleToolDefinition;
+import io.meeds.mcp.server.service.McpToolCallbackProviderService.MethodToolCallbackWrapper;
 
 import io.modelcontextprotocol.server.McpServerFeatures;
 import io.modelcontextprotocol.server.McpSyncServerExchange;
@@ -69,7 +73,8 @@ public class McpServerUtils {
   private static final Map<String, String> TOOL_RESPONSE_MIME_TYPE = new ConcurrentHashMap<>();
 
   /**
-   * The optional argument every tool takes, unless it declares one of its own
+   * The optional argument every tool answering a list takes
+   * ({@link #returnsList(ToolCallback)}), unless it declares one of its own
    * with that name: the comma-separated top-level keys to keep in each item of
    * a list result.
    */
@@ -79,10 +84,7 @@ public class McpServerUtils {
    * The description of the {@link #FIELDS_ARGUMENT} argument, as clients list
    * it.
    */
-  public static final String               FIELDS_DESCRIPTION      =
-                                                              "Comma-separated top-level keys to keep in each item of a list result, "
-                                                                  + "to get a shorter answer; the list's envelope keys (count, has_more...) are always kept, "
-                                                                  + "and a single item is returned whole. Omit it to get every key.";
+  public static final String               FIELDS_DESCRIPTION      = "Comma-separated keys to keep in each item; omit for all.";
 
   /**
    * The keys of which at least one marks a JSON object as a list envelope,
@@ -94,6 +96,14 @@ public class McpServerUtils {
                                                                             "used_limit",
                                                                             "has_more",
                                                                             "next_offset");
+
+  /**
+   * The keys of which at least one marks a tool's result type as a list
+   * envelope, for the {@link #FIELDS_ARGUMENT} argument to be offered: the
+   * ones a single item never carries, unlike {@code count} or
+   * {@code next_offset}, which a note read part by part carries.
+   */
+  private static final Set<String>         LIST_TYPE_KEYS          = Set.of("used_limit", "has_more");
 
   private static final String              PROPERTIES_KEY          = "properties";
 
@@ -215,9 +225,11 @@ public class McpServerUtils {
     Map<String, Object> inputSchema = JSON_HELPER.fromJson(toolDefinition.inputSchema(),
                                                            new ParameterizedTypeReference<Map<String, Object>>() {
                                                            });
-    // A tool declaring its own 'fields' argument receives it as is, and its
-    // result is not projected
-    boolean projectable = inputSchema != null && !declaresProperty(inputSchema, FIELDS_ARGUMENT);
+    // Only a tool answering a list is offered 'fields'. A tool declaring its
+    // own 'fields' argument receives it as is, and its result is not projected
+    boolean projectable = inputSchema != null
+        && returnsList(toolCallback)
+        && !declaresProperty(inputSchema, FIELDS_ARGUMENT);
     McpSchema.Tool.Builder toolBuilder = McpSchema.Tool.builder(toolDefinition.name(),
                                                                 projectable ? withFieldsProperty(inputSchema) : inputSchema)
                                                        .description(toolDefinition.description());
@@ -302,6 +314,46 @@ public class McpServerUtils {
     properties.put(FIELDS_ARGUMENT, fieldsProperty);
     schema.put(PROPERTIES_KEY, properties);
     return schema;
+  }
+
+  /**
+   * Tells whether a tool answers a list, from the return type of its method:
+   * an array or an {@link Iterable}, or a list envelope, a type declaring one
+   * of {@link #LIST_TYPE_KEYS} as a JSON property. A tool whose method is not
+   * known answers no list.
+   *
+   * @param toolCallback the tool callback
+   * @return true when the tool's results are lists
+   */
+  static boolean returnsList(ToolCallback toolCallback) {
+    if (!(toolCallback instanceof MethodToolCallbackWrapper methodToolCallback)
+        || methodToolCallback.getToolMethod() == null) {
+      return false;
+    }
+    return isListType(methodToolCallback.getToolMethod().getReturnType());
+  }
+
+  /**
+   * @param type a tool method's return type
+   * @return true when the type is an array, an {@link Iterable}, or declares,
+   *         in itself or a superclass, a field whose JSON name, its
+   *         {@link JsonProperty} value or else its name, is one of
+   *         {@link #LIST_TYPE_KEYS}
+   */
+  static boolean isListType(Class<?> type) {
+    if (type.isArray() || Iterable.class.isAssignableFrom(type)) {
+      return true;
+    }
+    for (Class<?> current = type; current != null && current != Object.class; current = current.getSuperclass()) {
+      for (Field field : current.getDeclaredFields()) {
+        JsonProperty jsonProperty = field.getAnnotation(JsonProperty.class);
+        String name = jsonProperty == null || StringUtils.isBlank(jsonProperty.value()) ? field.getName() : jsonProperty.value();
+        if (LIST_TYPE_KEYS.contains(name)) {
+          return true;
+        }
+      }
+    }
+    return false;
   }
 
   /**
