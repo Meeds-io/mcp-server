@@ -31,6 +31,7 @@ import java.time.format.DateTimeParseException;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Collections;
+import java.util.Date;
 import java.util.HashMap;
 import java.util.Iterator;
 import java.util.List;
@@ -205,31 +206,41 @@ public class ActivityMcpTool implements McpToolPlugin {
     int offset = 0;
     int limit = DEFAULT_LIMIT;
     boolean hasMore = false;
-    List<ExoSocialActivity> activities = List.of();
-    do {
+    while (offset < MAX_TO_LOAD) {
       List<String> activityIds = activityManager.getActivitiesByFilterWithListAccess(currentUserIdentity,
                                                                                      activityFilter)
                                                 .loadIdsAsList(offset, limit);
       if (CollectionUtils.isEmpty(activityIds)) {
         break;
-      } else {
-        activities = activityIds.stream()
-                                .map(activityManager::getActivity)
-                                .filter(Objects::nonNull)
-                                .filter(a -> a.getUpdated() == null ? a.getPostedTime() > sinceTimestamp :
-                                                                    a.getUpdated().getTime() > sinceTimestamp)
-                                .toList();
-        if (CollectionUtils.isNotEmpty(activities)) {
-          activities.stream()
-                    .map(ExoSocialActivity::getId)
-                    .map(this::toActivitySummaryModel)
-                    .forEach(result::add);
-        }
-        offset += limit;
-        hasMore = !activities.isEmpty() && activityIds.size() >= limit && offset >= MAX_TO_LOAD;
       }
-    } while (!activities.isEmpty() && offset < MAX_TO_LOAD);
+      List<ExoSocialActivity> activities = activityIds.stream()
+                                                      .map(activityManager::getActivity)
+                                                      .filter(Objects::nonNull)
+                                                      .filter(a -> getLastChangeTime(a) > sinceTimestamp)
+                                                      .toList();
+      if (activities.isEmpty()) {
+        break;
+      }
+      activities.stream()
+                .map(ExoSocialActivity::getId)
+                .map(this::toActivitySummaryModel)
+                .forEach(result::add);
+      offset += limit;
+      hasMore = activityIds.size() >= limit && offset >= MAX_TO_LOAD;
+    }
     return new ActivityCollectionModel(result, MAX_TO_LOAD, hasMore, null);
+  }
+
+  /**
+   * Gives the time an activity last changed: its update time when it has one,
+   * its posting time otherwise.
+   *
+   * @param activity the activity
+   * @return the time in milliseconds
+   */
+  private long getLastChangeTime(ExoSocialActivity activity) {
+    Date updated = activity.getUpdated();
+    return updated == null ? activity.getPostedTime() : updated.getTime();
   }
 
   /**
