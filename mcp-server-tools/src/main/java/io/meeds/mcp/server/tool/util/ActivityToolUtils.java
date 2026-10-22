@@ -44,8 +44,11 @@ import org.exoplatform.social.core.utils.MentionUtils;
 
 import io.meeds.mcp.server.tool.model.ActivityCommentModel;
 import io.meeds.mcp.server.tool.model.ActivityModel;
+import io.meeds.mcp.server.tool.model.ActivitySummaryModel;
 import io.meeds.mcp.server.tool.model.SpaceModel;
+import io.meeds.mcp.server.tool.model.SpaceSummaryModel;
 import io.meeds.mcp.server.tool.model.UserModel;
+import io.meeds.mcp.server.tool.model.UserSummaryModel;
 import io.meeds.portal.permlink.model.PermanentLinkObject;
 import io.meeds.portal.permlink.service.PermanentLinkService;
 import io.meeds.social.activity.plugin.ActivityPermanentLinkPlugin;
@@ -65,7 +68,23 @@ public class ActivityToolUtils {
     // Utils class
   }
 
-  @SneakyThrows
+  /**
+   * Reads an activity and builds it as the current user sees it.
+   *
+   * @param activityManager         the activity service
+   * @param spaceService            the space service
+   * @param identityManager         the identity service
+   * @param userAcl                 the ACL service
+   * @param permanentLinkService    the permanent link service
+   * @param profilePropertyService  the profile property service
+   * @param translationService      the translation service
+   * @param i18NActivityProcessor   the activity i18n processor
+   * @param portalConfigService     the portal configuration service
+   * @param activityId              the activity id
+   * @param currentUserAclIdentity  the current user's ACL identity
+   * @param currentUserLocale       the current user's locale
+   * @return the activity, {@code null} when it doesn't exist
+   */
   public static ActivityModel toActivityModel(ActivityManager activityManager, // NOSONAR
                                               SpaceService spaceService,
                                               IdentityManager identityManager,
@@ -78,10 +97,55 @@ public class ActivityToolUtils {
                                               String activityId,
                                               org.exoplatform.services.security.Identity currentUserAclIdentity,
                                               Locale currentUserLocale) {
-    ExoSocialActivity activity = activityManager.getActivity(activityId);
+    return toActivityModel(activityManager,
+                           spaceService,
+                           identityManager,
+                           userAcl,
+                           permanentLinkService,
+                           profilePropertyService,
+                           translationService,
+                           i18NActivityProcessor,
+                           portalConfigService,
+                           activityManager.getActivity(activityId),
+                           currentUserAclIdentity,
+                           currentUserLocale);
+  }
+
+  /**
+   * Builds an activity already read as the current user sees it, without
+   * reading it again.
+   *
+   * @param activityManager         the activity service
+   * @param spaceService            the space service
+   * @param identityManager         the identity service
+   * @param userAcl                 the ACL service
+   * @param permanentLinkService    the permanent link service
+   * @param profilePropertyService  the profile property service
+   * @param translationService      the translation service
+   * @param i18NActivityProcessor   the activity i18n processor
+   * @param portalConfigService     the portal configuration service
+   * @param activity                the activity, may be {@code null}
+   * @param currentUserAclIdentity  the current user's ACL identity
+   * @param currentUserLocale       the current user's locale
+   * @return the activity model, {@code null} when the activity is
+   */
+  @SneakyThrows
+  public static ActivityModel toActivityModel(ActivityManager activityManager, // NOSONAR
+                                              SpaceService spaceService,
+                                              IdentityManager identityManager,
+                                              UserACL userAcl,
+                                              PermanentLinkService permanentLinkService,
+                                              ProfilePropertyService profilePropertyService,
+                                              TranslationService translationService,
+                                              I18NActivityProcessor i18NActivityProcessor,
+                                              UserPortalConfigService portalConfigService,
+                                              ExoSocialActivity activity,
+                                              org.exoplatform.services.security.Identity currentUserAclIdentity,
+                                              Locale currentUserLocale) {
     if (activity == null) {
       return null;
     }
+    String activityId = activity.getId();
     Long sharedActivityId = getSharedActivityId(activity);
     String activityUrl = CommonsUtils.getCurrentDomain() +
         permanentLinkService.getLink(new PermanentLinkObject(ActivityPermanentLinkPlugin.OBJECT_TYPE, activityId));
@@ -141,6 +205,60 @@ public class ActivityToolUtils {
                                                                                                     currentUserLocale) :
                                                                            null,
                              getActivitySpaceModel(spaceService, activity, currentUsername));
+  }
+
+  /**
+   * Reduces an activity to the item a list of activities returns: the same
+   * fields, its author, the author of its pin and its space reduced to what
+   * names them. The names are the ones the full activity carries, so a name
+   * the viewer may not see stays absent.
+   *
+   * @param activity the activity, may be {@code null}
+   * @return the list item, {@code null} when the activity is
+   */
+  public static ActivitySummaryModel toActivitySummaryModel(ActivityModel activity) {
+    if (activity == null) {
+      return null;
+    }
+    return new ActivitySummaryModel(activity.id(),
+                                    activity.sharedActivityId(),
+                                    activity.content(),
+                                    activity.url(),
+                                    activity.pinDate(),
+                                    activity.updatedDate(),
+                                    activity.createDate(),
+                                    activity.publicationStartTime(),
+                                    activity.referencedContentType(),
+                                    activity.referencedContentId(),
+                                    activity.numberOfLikes(),
+                                    activity.numberOfComments(),
+                                    activity.numberOfShares(),
+                                    activity.hasLiked(),
+                                    activity.hasCommented(),
+                                    activity.hidden(),
+                                    activity.pinned(),
+                                    activity.canEdit(),
+                                    activity.canDelete(),
+                                    toUserSummaryModel(activity.pinAuthor()),
+                                    toUserSummaryModel(activity.author()),
+                                    toSpaceSummaryModel(activity.space()));
+  }
+
+  /**
+   * @param user the user, may be {@code null}
+   * @return the user's username and display name, {@code null} when the user
+   *         is
+   */
+  public static UserSummaryModel toUserSummaryModel(UserModel user) {
+    return user == null ? null : new UserSummaryModel(user.getUsername(), user.getDisplayName());
+  }
+
+  /**
+   * @param space the space, may be {@code null}
+   * @return the space's id and name, {@code null} when the space is
+   */
+  public static SpaceSummaryModel toSpaceSummaryModel(SpaceModel space) {
+    return space == null ? null : new SpaceSummaryModel(space.getSpaceId(), space.getName());
   }
 
   @SneakyThrows
