@@ -165,7 +165,8 @@ public class ActivityMcpTool implements McpToolPlugin {
    * newest first, by pages of {@link McpToolPlugin#DEFAULT_LIMIT}, and stopping
    * at the first page holding none of them or once {@link #MAX_TO_LOAD}
    * activities were read. When it stops on that bound while the last page
-   * still held some, the result says {@code has_more}.
+   * still held some, the result says {@code has_more}. An activity deleted
+   * between the listing of its id and its read is skipped.
    *
    * @param spaceId restrict to one space, or null for every stream the user
    *                  sees
@@ -204,7 +205,7 @@ public class ActivityMcpTool implements McpToolPlugin {
     int offset = 0;
     int limit = DEFAULT_LIMIT;
     boolean hasMore = false;
-    List<ExoSocialActivity> activities;
+    List<ExoSocialActivity> activities = List.of();
     do {
       List<String> activityIds = activityManager.getActivitiesByFilterWithListAccess(currentUserIdentity,
                                                                                      activityFilter)
@@ -214,6 +215,7 @@ public class ActivityMcpTool implements McpToolPlugin {
       } else {
         activities = activityIds.stream()
                                 .map(activityManager::getActivity)
+                                .filter(Objects::nonNull)
                                 .filter(a -> a.getUpdated() == null ? a.getPostedTime() > sinceTimestamp :
                                                                     a.getUpdated().getTime() > sinceTimestamp)
                                 .toList();

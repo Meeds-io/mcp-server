@@ -25,6 +25,8 @@ import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.mockito.Mockito.doReturn;
+import static org.mockito.Mockito.mock;
 
 import java.time.OffsetDateTime;
 import java.time.temporal.ChronoUnit;
@@ -32,7 +34,9 @@ import java.util.List;
 import java.util.UUID;
 
 import org.junit.jupiter.api.Test;
+import org.mockito.AdditionalAnswers;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.test.util.ReflectionTestUtils;
 
 import org.exoplatform.commons.exception.ObjectNotFoundException;
 import org.exoplatform.social.core.activity.model.ExoSocialActivity;
@@ -562,6 +566,27 @@ class ActivityMcpToolTest extends IntegrationTestBase {
     assertEquals(10, result.activities().size());
     assertFalse(result.hasMore());
     assertFalse(JsonMapper.builder().build().writeValueAsString(result).contains("next_offset"));
+  }
+
+  /**
+   * get_activities_since_days skips an activity deleted between the listing
+   * of its id and its read, and lists the others.
+   */
+  @Test
+  void getActivitiesSinceDaysSkipsAnActivityDeletedMidListing() throws Exception {
+    SpaceModel space = createTestSpace();
+    ActivityModel kept = activityMcpTool.createActivity(space.getSpaceId(), "Kept activity", null);
+    ActivityModel gone = activityMcpTool.createActivity(space.getSpaceId(), "Deleted mid-listing", null);
+    ActivityManager deletingActivityManager = mock(ActivityManager.class, AdditionalAnswers.delegatesTo(activityManager));
+    doReturn(null).when(deletingActivityManager).getActivity(String.valueOf(gone.id()));
+    ReflectionTestUtils.setField(activityMcpTool, "activityManager", deletingActivityManager);
+    try {
+      ActivityCollectionModel result = activityMcpTool.getActivitiesSinceDays(space.getSpaceId(), 1L);
+
+      assertEquals(List.of(kept.id()), result.activities().stream().map(ActivitySummaryModel::id).toList());
+    } finally {
+      ReflectionTestUtils.setField(activityMcpTool, "activityManager", activityManager);
+    }
   }
 
   @Test

@@ -157,6 +157,36 @@ class McpServerUtilsTest {
   }
 
   /**
+   * A single item, a JSON object carrying none of the list envelope keys, is
+   * returned whole, its lists included: get_project_by_id keeps its statuses
+   * and labels when called with {@code fields}.
+   */
+  @Test
+  void leavesTheListsOfASingleItemUntouched() {
+    String project = """
+        {"id":2,"name":"Board","allowed_status_list":[{"id":1,"name":"ToDo"},{"id":2,"name":"Done"}],\
+        "allowed_label_list":[{"id":3,"color":"red"}],"managers":["root"]}""";
+    SyncToolSpecification specification = McpServerUtils.toSyncToolSpecification(toolCallback(SCHEMA, project), null);
+
+    CallToolResult result = call(specification, Map.of("query", "q", "fields", "name"));
+
+    assertEquals(project, ((TextContent) result.content().get(0)).text());
+    assertSame(project, McpServerUtils.projectFields(project, Set.of("name")));
+  }
+
+  /**
+   * One envelope key is enough to make a JSON object a list: a collection
+   * carrying only {@code used_limit} has its items projected.
+   */
+  @Test
+  void projectsTheItemsOfAnEnvelopeCarryingOneEnvelopeKey() {
+    String projected = McpServerUtils.projectFields("{\"tasks\":[{\"id\":1,\"title\":\"a\"}],\"used_limit\":20}",
+                                                    Set.of("id"));
+
+    assertEquals("{\"tasks\":[{\"id\":1}],\"used_limit\":20}", projected);
+  }
+
+  /**
    * A top-level JSON array has its items projected.
    */
   @Test

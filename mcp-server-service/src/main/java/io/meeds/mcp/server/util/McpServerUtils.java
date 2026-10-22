@@ -71,7 +71,7 @@ public class McpServerUtils {
   /**
    * The optional argument every tool takes, unless it declares one of its own
    * with that name: the comma-separated top-level keys to keep in each item of
-   * the result's lists.
+   * a list result.
    */
   public static final String               FIELDS_ARGUMENT         = "fields";
 
@@ -80,9 +80,20 @@ public class McpServerUtils {
    * it.
    */
   public static final String               FIELDS_DESCRIPTION      =
-                                                              "Comma-separated top-level keys to keep in each item of the result's lists, "
-                                                                  + "to get a shorter answer; the envelope keys are always kept. "
-                                                                  + "Omit it to get every key.";
+                                                              "Comma-separated top-level keys to keep in each item of a list result, "
+                                                                  + "to get a shorter answer; the list's envelope keys (count, has_more...) are always kept, "
+                                                                  + "and a single item is returned whole. Omit it to get every key.";
+
+  /**
+   * The keys of which at least one marks a JSON object as a list envelope,
+   * whose arrays hold the list's items: the paging keys every list collection
+   * of the tools carries.
+   */
+  private static final Set<String>         LIST_ENVELOPE_KEYS      = Set.of("count",
+                                                                            "used_offset",
+                                                                            "used_limit",
+                                                                            "has_more",
+                                                                            "next_offset");
 
   private static final String              PROPERTIES_KEY          = "properties";
 
@@ -237,7 +248,10 @@ public class McpServerUtils {
     return new SharedSyncToolSpecification(tool, (exchangeOrContext, request) -> {
       try {
         Map<String, Object> arguments = request.arguments();
-        Set<String> fields = projectable ? parseFields(arguments == null ? null : arguments.get(FIELDS_ARGUMENT)) : Set.of();
+        Set<String> fields = Set.of();
+        if (projectable && arguments != null) {
+          fields = parseFields(arguments.get(FIELDS_ARGUMENT));
+        }
         // The tool, its approval, grant and space scope checks and its trace
         // see the arguments without 'fields', which only shapes the answer
         String callResult = toolCallback.call(JSON_HELPER.toJson(projectable ? withoutFieldsArgument(arguments) : arguments),
@@ -321,14 +335,11 @@ public class McpServerUtils {
    * @return the keys to keep, empty when every key is to be kept
    */
   static Set<String> parseFields(Object value) {
-    Collection<?> names;
-    if (value instanceof String text) {
-      names = Arrays.asList(text.split(","));
-    } else if (value instanceof Collection<?> collection) {
-      names = collection;
-    } else {
-      return Set.of();
-    }
+    Collection<?> names = switch (value) {
+    case String text -> Arrays.asList(text.split(","));
+    case Collection<?> collection -> collection;
+    case null, default -> List.of();
+    };
     Set<String> fields = new LinkedHashSet<>();
     names.stream()
          .filter(Objects::nonNull)
@@ -339,12 +350,13 @@ public class McpServerUtils {
   }
 
   /**
-   * Keeps only the requested keys in each item of a JSON result's lists. In a
-   * JSON object, each element of every top-level array is projected and every
-   * other top-level key, the envelope (count, offset, limit, has_more...), is
-   * kept; in a top-level JSON array, its elements are projected. A requested
-   * key an item lacks stays absent. Any other result, a non-JSON text or one
-   * that doesn't parse included, is returned as is.
+   * Keeps only the requested keys in each item of a JSON list result. In a
+   * top-level JSON array, its elements are projected. In a list envelope, a
+   * JSON object carrying at least one of {@link #LIST_ENVELOPE_KEYS}, each
+   * element of every top-level array is projected and every other top-level
+   * key is kept. A requested key an item lacks stays absent. Any other JSON
+   * object is a single item and is returned whole, its arrays included, as is
+   * any other result, a non-JSON text or one that doesn't parse included.
    *
    * @param result the tool's result
    * @param fields the keys to keep, empty to keep every key
@@ -363,7 +375,7 @@ public class McpServerUtils {
     boolean projected = false;
     if (node instanceof ArrayNode items) {
       projected = projectItems(items, fields);
-    } else if (node instanceof ObjectNode envelope) {
+    } else if (node instanceof ObjectNode envelope && isListEnvelope(envelope)) {
       for (JsonNode value : envelope.values()) {
         if (value instanceof ArrayNode items) {
           projected = projectItems(items, fields) || projected;
@@ -371,6 +383,15 @@ public class McpServerUtils {
       }
     }
     return projected ? JSON_MAPPER.writeValueAsString(node) : result;
+  }
+
+  /**
+   * @param object a top-level JSON object of a tool's result
+   * @return true when the object carries at least one of
+   *         {@link #LIST_ENVELOPE_KEYS}, false for a single item
+   */
+  private static boolean isListEnvelope(ObjectNode object) {
+    return LIST_ENVELOPE_KEYS.stream().anyMatch(object::has);
   }
 
   /**
