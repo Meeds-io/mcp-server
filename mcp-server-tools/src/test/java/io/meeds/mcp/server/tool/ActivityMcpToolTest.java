@@ -40,13 +40,18 @@ import org.exoplatform.social.core.manager.ActivityManager;
 
 import io.meeds.mcp.server.tool.constant.Registration;
 import io.meeds.mcp.server.tool.constant.Visibility;
+import io.meeds.mcp.server.tool.model.ActivityCollectionModel;
 import io.meeds.mcp.server.tool.model.ActivityCommentModel;
 import io.meeds.mcp.server.tool.model.ActivityModel;
+import io.meeds.mcp.server.tool.model.ActivitySummaryModel;
 import io.meeds.mcp.server.tool.model.AttachmentModel;
 import io.meeds.mcp.server.tool.model.SpaceModel;
 import io.meeds.mcp.server.tool.model.SpaceTemplateModel;
 import io.meeds.mcp.server.tool.model.UserModel;
 import io.meeds.mcp.server.tool.test.IntegrationTestBase;
+import io.meeds.mcp.server.tool.util.McpToolPluginUtils;
+
+import tools.jackson.databind.json.JsonMapper;
 
 class ActivityMcpToolTest extends IntegrationTestBase {
 
@@ -456,7 +461,7 @@ class ActivityMcpToolTest extends IntegrationTestBase {
   void searchActivitiesFallsBackToGetActivitiesWhenNoFilter() throws Exception { // NOSONAR
     activityMcpTool.createActivity(null, "Search fallback activity " + UUID.randomUUID(), null);
 
-    List<ActivityModel> activities = activityMcpTool.searchActivities(null, null, false, 0, 10);
+    List<ActivitySummaryModel> activities = activityMcpTool.searchActivities(null, null, false, 0, 10);
 
     assertNotNull(activities);
   }
@@ -466,14 +471,14 @@ class ActivityMcpToolTest extends IntegrationTestBase {
     String marker = "mcp-search-" + UUID.randomUUID();
     activityMcpTool.createActivity(null, marker, null);
 
-    List<ActivityModel> activities = activityMcpTool.searchActivities(marker, null, false, 0, 10);
+    List<ActivitySummaryModel> activities = activityMcpTool.searchActivities(marker, null, false, 0, 10);
 
     assertNotNull(activities);
   }
 
   @Test
   void getUserActivityStream() throws Exception { // NOSONAR
-    List<ActivityModel> activities = activityMcpTool.getUserActivityStream(USERNAME, 0, 10);
+    List<ActivitySummaryModel> activities = activityMcpTool.getUserActivityStream(USERNAME, 0, 10);
 
     assertNotNull(activities);
   }
@@ -482,7 +487,7 @@ class ActivityMcpToolTest extends IntegrationTestBase {
   void getActivities() throws Exception { // NOSONAR
     activityMcpTool.createActivity(null, "Activity list item", null);
 
-    List<ActivityModel> activities = activityMcpTool.getActivities(null, 0, 10);
+    List<ActivitySummaryModel> activities = activityMcpTool.getActivities(null, 0, 10);
 
     assertNotNull(activities);
   }
@@ -491,9 +496,72 @@ class ActivityMcpToolTest extends IntegrationTestBase {
   void getActivitiesSinceDays() throws Exception { // NOSONAR
     activityMcpTool.createActivity(null, "Recent activity", null);
 
-    List<ActivityModel> activities = activityMcpTool.getActivitiesSinceDays(null, 1L);
+    ActivityCollectionModel activities = activityMcpTool.getActivitiesSinceDays(null, 1L);
 
-    assertNotNull(activities);
+    assertNotNull(activities.activities());
+  }
+
+  /**
+   * A list of activities names each activity's author and space, and no more
+   * of them: get_activity keeps the full shape.
+   */
+  @Test
+  void getActivitiesListsEachAuthorAndSpaceByTheirNamesOnly() throws Exception {
+    SpaceModel space = createTestSpace();
+    ActivityModel created = activityMcpTool.createActivity(space.getSpaceId(), "Compact list item", null);
+
+    List<ActivitySummaryModel> activities = activityMcpTool.getActivities(space.getSpaceId(), 0, 10);
+
+    ActivitySummaryModel item = activities.stream().filter(a -> a.id() == created.id()).findFirst().orElseThrow();
+    assertEquals(USERNAME, item.author().username());
+    assertEquals(created.author().getDisplayName(), item.author().displayName());
+    assertEquals(space.getSpaceId(), item.space().spaceId());
+    assertEquals(space.getName(), item.space().name());
+    String json = JsonMapper.builder().build().writeValueAsString(item);
+    assertTrue(json.contains("\"author\":{\"username\":\"" + USERNAME + "\""), json);
+    assertFalse(json.contains("avatar_url"), json);
+    assertFalse(json.contains("members_count"), json);
+    assertNotNull(activityMcpTool.getActivity(created.id()).author().getAvatarUrl());
+  }
+
+  /**
+   * get_activities_since_days stops on its bound and says more may match.
+   */
+  @Test
+  void getActivitiesSinceDaysSaysHasMoreOnceItReachesItsBound() throws Exception {
+    SpaceModel space = createTestSpace();
+    for (int i = 0; i <= McpToolPluginUtils.MAX_LIMIT; i++) {
+      activityMcpTool.createActivity(space.getSpaceId(), "Bounded activity " + i, null);
+    }
+
+    ActivityCollectionModel result = activityMcpTool.getActivitiesSinceDays(space.getSpaceId(), 1L);
+
+    assertEquals(100, result.activities().size());
+    assertEquals(100, result.usedLimit());
+    assertTrue(result.hasMore());
+    assertNull(result.nextOffset());
+
+    assertEquals(McpToolPluginUtils.MAX_LIMIT,
+                 activityMcpTool.getActivities(space.getSpaceId(), 0, McpToolPluginUtils.MAX_LIMIT + 1).size());
+  }
+
+  /**
+   * get_activities_since_days, under its bound, returns every activity and
+   * says no more remain, also when the last page it read was a full one
+   * followed by an empty one.
+   */
+  @Test
+  void getActivitiesSinceDaysHasNoMoreUnderItsBound() throws Exception {
+    SpaceModel space = createTestSpace();
+    for (int i = 0; i < 10; i++) {
+      activityMcpTool.createActivity(space.getSpaceId(), "Recent activity " + i, null);
+    }
+
+    ActivityCollectionModel result = activityMcpTool.getActivitiesSinceDays(space.getSpaceId(), 1L);
+
+    assertEquals(10, result.activities().size());
+    assertFalse(result.hasMore());
+    assertFalse(JsonMapper.builder().build().writeValueAsString(result).contains("next_offset"));
   }
 
   @Test
@@ -695,7 +763,7 @@ class ActivityMcpToolTest extends IntegrationTestBase {
     ActivityModel posted = activityMcpTool.createActivity(null, "Published post", null);
     ActivityModel scheduled = activityMcpTool.createActivity(null, "Scheduled post", futureIso(2));
 
-    List<ActivityModel> pending = activityMcpTool.getScheduledActivities(null, 0, 20);
+    List<ActivitySummaryModel> pending = activityMcpTool.getScheduledActivities(null, 0, 20);
 
     assertNotNull(pending);
     assertTrue(pending.stream().anyMatch(a -> a.id() == scheduled.id()));

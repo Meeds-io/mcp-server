@@ -18,6 +18,7 @@
  */
 package io.meeds.mcp.server.tool;
 
+import static io.meeds.mcp.server.tool.util.McpToolPluginUtils.clampLimit;
 import static io.meeds.mcp.server.tool.util.McpToolPluginUtils.getInteger;
 
 import java.util.Collections;
@@ -75,13 +76,13 @@ public class FavoriteMcpTool implements McpToolPlugin {
                                                                 ? favoriteService.getFavoriteItemsByCreator(userIdentityId,
                                                                                                             getInteger(offset,
                                                                                                                        DEFAULT_OFFSET),
-                                                                                                            getInteger(limit,
+                                                                                                            clampLimit(limit,
                                                                                                                        DEFAULT_LIMIT))
                                                                 : favoriteService.getFavoriteItemsByCreatorAndType(contentType,
                                                                                                                    userIdentityId,
                                                                                                                    getInteger(offset,
                                                                                                                               DEFAULT_OFFSET),
-                                                                                                                   getInteger(limit,
+                                                                                                                   clampLimit(limit,
                                                                                                                               DEFAULT_LIMIT));
     if (items == null) {
       return Collections.emptyList();

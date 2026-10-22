@@ -44,8 +44,11 @@ import org.exoplatform.social.core.utils.MentionUtils;
 
 import io.meeds.mcp.server.tool.model.ActivityCommentModel;
 import io.meeds.mcp.server.tool.model.ActivityModel;
+import io.meeds.mcp.server.tool.model.ActivitySummaryModel;
 import io.meeds.mcp.server.tool.model.SpaceModel;
+import io.meeds.mcp.server.tool.model.SpaceSummaryModel;
 import io.meeds.mcp.server.tool.model.UserModel;
+import io.meeds.mcp.server.tool.model.UserSummaryModel;
 import io.meeds.portal.permlink.model.PermanentLinkObject;
 import io.meeds.portal.permlink.service.PermanentLinkService;
 import io.meeds.social.activity.plugin.ActivityPermanentLinkPlugin;
@@ -141,6 +144,60 @@ public class ActivityToolUtils {
                                                                                                     currentUserLocale) :
                                                                            null,
                              getActivitySpaceModel(spaceService, activity, currentUsername));
+  }
+
+  /**
+   * Reduces an activity to the item a list of activities returns: the same
+   * fields, its author, the author of its pin and its space reduced to what
+   * names them. The names are the ones the full activity carries, so a name
+   * the viewer may not see stays absent.
+   *
+   * @param activity the activity, may be {@code null}
+   * @return the list item, {@code null} when the activity is
+   */
+  public static ActivitySummaryModel toActivitySummaryModel(ActivityModel activity) {
+    if (activity == null) {
+      return null;
+    }
+    return new ActivitySummaryModel(activity.id(),
+                                    activity.sharedActivityId(),
+                                    activity.content(),
+                                    activity.url(),
+                                    activity.pinDate(),
+                                    activity.updatedDate(),
+                                    activity.createDate(),
+                                    activity.publicationStartTime(),
+                                    activity.referencedContentType(),
+                                    activity.referencedContentId(),
+                                    activity.numberOfLikes(),
+                                    activity.numberOfComments(),
+                                    activity.numberOfShares(),
+                                    activity.hasLiked(),
+                                    activity.hasCommented(),
+                                    activity.hidden(),
+                                    activity.pinned(),
+                                    activity.canEdit(),
+                                    activity.canDelete(),
+                                    toUserSummaryModel(activity.pinAuthor()),
+                                    toUserSummaryModel(activity.author()),
+                                    toSpaceSummaryModel(activity.space()));
+  }
+
+  /**
+   * @param user the user, may be {@code null}
+   * @return the user's username and display name, {@code null} when the user
+   *         is
+   */
+  public static UserSummaryModel toUserSummaryModel(UserModel user) {
+    return user == null ? null : new UserSummaryModel(user.getUsername(), user.getDisplayName());
+  }
+
+  /**
+   * @param space the space, may be {@code null}
+   * @return the space's id and name, {@code null} when the space is
+   */
+  public static SpaceSummaryModel toSpaceSummaryModel(SpaceModel space) {
+    return space == null ? null : new SpaceSummaryModel(space.getSpaceId(), space.getName());
   }
 
   @SneakyThrows

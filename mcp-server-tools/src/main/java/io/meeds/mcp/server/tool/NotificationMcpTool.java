@@ -18,6 +18,7 @@
  */
 package io.meeds.mcp.server.tool;
 
+import static io.meeds.mcp.server.tool.util.McpToolPluginUtils.clampLimit;
 import static io.meeds.mcp.server.tool.util.McpToolPluginUtils.getInteger;
 
 import java.util.Collections;
@@ -81,7 +82,7 @@ public class NotificationMcpTool implements McpToolPlugin {
     }
     List<NotificationInfo> notificationInfos = webNotificationService.getNotificationInfos(filter,
                                                                                            getInteger(offset, DEFAULT_OFFSET),
-                                                                                           getInteger(limit, DEFAULT_LIMIT));
+                                                                                           clampLimit(limit, DEFAULT_LIMIT));
     return notificationInfos.stream()
                             .map(notification -> NotificationToolUtils.toNotificationModel(webNotificationService, notification))
                             .toList();

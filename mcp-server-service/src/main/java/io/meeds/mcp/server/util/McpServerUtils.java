@@ -21,14 +21,20 @@ package io.meeds.mcp.server.util;
 import static org.springframework.ai.mcp.McpToolUtils.TOOL_CONTEXT_MCP_EXCHANGE_KEY;
 
 import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.Collection;
+import java.util.LinkedHashMap;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
+import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.function.BiFunction;
 import java.util.stream.Collectors;
 
 import org.apache.commons.collections4.CollectionUtils;
+import org.apache.commons.lang3.StringUtils;
 import org.springframework.ai.chat.model.ToolContext;
 import org.springframework.ai.tool.ToolCallback;
 import org.springframework.ai.tool.ToolCallbackProvider;
@@ -49,14 +55,48 @@ import io.modelcontextprotocol.spec.McpSchema.ToolAnnotations;
 import lombok.extern.slf4j.Slf4j;
 import reactor.core.publisher.Mono;
 import reactor.core.scheduler.Schedulers;
+import tools.jackson.core.JacksonException;
+import tools.jackson.databind.DeserializationFeature;
+import tools.jackson.databind.JsonNode;
+import tools.jackson.databind.cfg.JsonNodeFeature;
+import tools.jackson.databind.json.JsonMapper;
+import tools.jackson.databind.node.ArrayNode;
+import tools.jackson.databind.node.ObjectNode;
 
 @Slf4j
 public class McpServerUtils {
 
   private static final Map<String, String> TOOL_RESPONSE_MIME_TYPE = new ConcurrentHashMap<>();
 
+  /**
+   * The optional argument every tool takes, unless it declares one of its own
+   * with that name: the comma-separated top-level keys to keep in each item of
+   * the result's lists.
+   */
+  public static final String               FIELDS_ARGUMENT         = "fields";
+
+  /**
+   * The description of the {@link #FIELDS_ARGUMENT} argument, as clients list
+   * it.
+   */
+  public static final String               FIELDS_DESCRIPTION      =
+                                                              "Comma-separated top-level keys to keep in each item of the result's lists, "
+                                                                  + "to get a shorter answer; the envelope keys are always kept. "
+                                                                  + "Omit it to get every key.";
+
+  private static final String              PROPERTIES_KEY          = "properties";
+
   private static final JsonHelper          JSON_HELPER             = new JsonHelper();
 
+  private static final JsonMapper          JSON_MAPPER             = JsonMapper.builder()
+                                                                               .enable(DeserializationFeature.USE_BIG_DECIMAL_FOR_FLOATS)
+                                                                               .enable(DeserializationFeature.FAIL_ON_TRAILING_TOKENS)
+                                                                               .disable(JsonNodeFeature.STRIP_TRAILING_BIGDECIMAL_ZEROES)
+                                                                               .build();
+
+  /**
+   * Static methods only, not instantiated.
+   */
   private McpServerUtils() {
     // Static Methods
   }
@@ -161,10 +201,14 @@ public class McpServerUtils {
                                                                            MimeType mimeType) {
 
     ToolDefinition toolDefinition = toolCallback.getToolDefinition();
+    Map<String, Object> inputSchema = JSON_HELPER.fromJson(toolDefinition.inputSchema(),
+                                                           new ParameterizedTypeReference<Map<String, Object>>() {
+                                                           });
+    // A tool declaring its own 'fields' argument receives it as is, and its
+    // result is not projected
+    boolean projectable = inputSchema != null && !declaresProperty(inputSchema, FIELDS_ARGUMENT);
     McpSchema.Tool.Builder toolBuilder = McpSchema.Tool.builder(toolDefinition.name(),
-                                                                JSON_HELPER.fromJson(toolDefinition.inputSchema(),
-                                                                                     new ParameterizedTypeReference<Map<String, Object>>() {
-                                                                                     }))
+                                                                projectable ? withFieldsProperty(inputSchema) : inputSchema)
                                                        .description(toolDefinition.description());
     if (toolDefinition instanceof SimpleToolDefinition simpleToolDefinition) {
       // Title and annotations (readOnlyHint, destructiveHint...) drive the MCP
@@ -192,7 +236,11 @@ public class McpServerUtils {
 
     return new SharedSyncToolSpecification(tool, (exchangeOrContext, request) -> {
       try {
-        String callResult = toolCallback.call(JSON_HELPER.toJson(request.arguments()),
+        Map<String, Object> arguments = request.arguments();
+        Set<String> fields = projectable ? parseFields(arguments == null ? null : arguments.get(FIELDS_ARGUMENT)) : Set.of();
+        // The tool, its approval, grant and space scope checks and its trace
+        // see the arguments without 'fields', which only shapes the answer
+        String callResult = toolCallback.call(JSON_HELPER.toJson(projectable ? withoutFieldsArgument(arguments) : arguments),
                                               new ToolContext(Map.of(TOOL_CONTEXT_MCP_EXCHANGE_KEY, exchangeOrContext)));
         if (mimeType != null && mimeType.toString().startsWith("image")) {
           McpSchema.Annotations annotations = McpSchema.Annotations.builder()
@@ -206,7 +254,7 @@ public class McpServerUtils {
                                          .build();
         }
         return McpSchema.CallToolResult.builder()
-                                       .content(List.of(McpSchema.TextContent.builder(callResult)
+                                       .content(List.of(McpSchema.TextContent.builder(projectFields(callResult, fields))
                                                                              .build()))
                                        .isError(false)
                                        .build();
@@ -218,6 +266,127 @@ public class McpServerUtils {
                                        .build();
       }
     });
+  }
+
+  /**
+   * Adds the optional {@link #FIELDS_ARGUMENT} string property to a tool's
+   * input schema, without changing the schema it was given nor its required
+   * properties.
+   *
+   * @param inputSchema the tool's input schema
+   * @return a copy of the schema declaring the property
+   */
+  static Map<String, Object> withFieldsProperty(Map<String, Object> inputSchema) {
+    Map<String, Object> schema = new LinkedHashMap<>(inputSchema);
+    Map<String, Object> properties = new LinkedHashMap<>();
+    if (schema.get(PROPERTIES_KEY) instanceof Map<?, ?> declaredProperties) {
+      declaredProperties.forEach((name, value) -> properties.put(String.valueOf(name), value));
+    }
+    Map<String, Object> fieldsProperty = new LinkedHashMap<>();
+    fieldsProperty.put("type", "string");
+    fieldsProperty.put("description", FIELDS_DESCRIPTION);
+    properties.put(FIELDS_ARGUMENT, fieldsProperty);
+    schema.put(PROPERTIES_KEY, properties);
+    return schema;
+  }
+
+  /**
+   * @param inputSchema  a tool's input schema
+   * @param propertyName a property name
+   * @return true when the schema declares that property
+   */
+  static boolean declaresProperty(Map<String, Object> inputSchema, String propertyName) {
+    return inputSchema.get(PROPERTIES_KEY) instanceof Map<?, ?> properties && properties.containsKey(propertyName);
+  }
+
+  /**
+   * @param arguments the call arguments, may be {@code null}
+   * @return the arguments without {@link #FIELDS_ARGUMENT}, the same instance
+   *         when they don't carry it
+   */
+  static Map<String, Object> withoutFieldsArgument(Map<String, Object> arguments) {
+    if (arguments == null || !arguments.containsKey(FIELDS_ARGUMENT)) {
+      return arguments;
+    }
+    Map<String, Object> toolArguments = new LinkedHashMap<>(arguments);
+    toolArguments.remove(FIELDS_ARGUMENT);
+    return toolArguments;
+  }
+
+  /**
+   * Reads the keys a caller asked to keep: a comma-separated string, or a list
+   * of strings, each one trimmed, the blank ones ignored.
+   *
+   * @param value the {@link #FIELDS_ARGUMENT} argument, may be {@code null}
+   * @return the keys to keep, empty when every key is to be kept
+   */
+  static Set<String> parseFields(Object value) {
+    Collection<?> names;
+    if (value instanceof String text) {
+      names = Arrays.asList(text.split(","));
+    } else if (value instanceof Collection<?> collection) {
+      names = collection;
+    } else {
+      return Set.of();
+    }
+    Set<String> fields = new LinkedHashSet<>();
+    names.stream()
+         .filter(Objects::nonNull)
+         .map(name -> StringUtils.trim(String.valueOf(name)))
+         .filter(StringUtils::isNotBlank)
+         .forEach(fields::add);
+    return fields;
+  }
+
+  /**
+   * Keeps only the requested keys in each item of a JSON result's lists. In a
+   * JSON object, each element of every top-level array is projected and every
+   * other top-level key, the envelope (count, offset, limit, has_more...), is
+   * kept; in a top-level JSON array, its elements are projected. A requested
+   * key an item lacks stays absent. Any other result, a non-JSON text or one
+   * that doesn't parse included, is returned as is.
+   *
+   * @param result the tool's result
+   * @param fields the keys to keep, empty to keep every key
+   * @return the projected result, the same instance when nothing was projected
+   */
+  static String projectFields(String result, Set<String> fields) {
+    if (fields == null || fields.isEmpty() || StringUtils.isBlank(result)) {
+      return result;
+    }
+    JsonNode node;
+    try {
+      node = JSON_MAPPER.readTree(result);
+    } catch (JacksonException e) {
+      return result;
+    }
+    boolean projected = false;
+    if (node instanceof ArrayNode items) {
+      projected = projectItems(items, fields);
+    } else if (node instanceof ObjectNode envelope) {
+      for (JsonNode value : envelope.values()) {
+        if (value instanceof ArrayNode items) {
+          projected = projectItems(items, fields) || projected;
+        }
+      }
+    }
+    return projected ? JSON_MAPPER.writeValueAsString(node) : result;
+  }
+
+  /**
+   * @param items  the items of a list
+   * @param fields the keys to keep in each item that is a JSON object
+   * @return true when at least one item is a JSON object
+   */
+  private static boolean projectItems(ArrayNode items, Set<String> fields) {
+    boolean projected = false;
+    for (JsonNode item : items) {
+      if (item instanceof ObjectNode objectItem) {
+        objectItem.retain(fields);
+        projected = true;
+      }
+    }
+    return projected;
   }
 
   private record SharedSyncToolSpecification(McpSchema.Tool tool,
