@@ -550,6 +550,25 @@ class ActivityMcpToolTest extends IntegrationTestBase {
   }
 
   /**
+   * get_activities_since_days, when exactly its bound of activities match,
+   * returns them all and says no more remain: the page after the bound is
+   * empty.
+   */
+  @Test
+  void getActivitiesSinceDaysHasNoMoreWhenExactlyItsBoundMatch() throws Exception {
+    SpaceModel space = createTestSpace();
+    int existing = activityMcpTool.getActivities(space.getSpaceId(), 0, McpToolPluginUtils.MAX_LIMIT).size();
+    for (int i = existing; i < McpToolPluginUtils.MAX_LIMIT; i++) {
+      activityMcpTool.createActivity(space.getSpaceId(), "Exactly bounded activity " + i, null);
+    }
+
+    ActivityCollectionModel result = activityMcpTool.getActivitiesSinceDays(space.getSpaceId(), 1L);
+
+    assertEquals(100, result.activities().size());
+    assertFalse(result.hasMore());
+  }
+
+  /**
    * get_activities_since_days, under its bound, returns every activity and
    * says no more remain, also when the last page it read was a full one
    * followed by an empty one.
@@ -584,6 +603,53 @@ class ActivityMcpToolTest extends IntegrationTestBase {
       ActivityCollectionModel result = activityMcpTool.getActivitiesSinceDays(space.getSpaceId(), 1L);
 
       assertEquals(List.of(kept.id()), result.activities().stream().map(ActivitySummaryModel::id).toList());
+    } finally {
+      ReflectionTestUtils.setField(activityMcpTool, "activityManager", activityManager);
+    }
+  }
+
+  /**
+   * get_activities_since_days reads each activity once: one deleted after
+   * that read is listed as read, never as an empty item.
+   */
+  @Test
+  void getActivitiesSinceDaysListsNoEmptyItemForAnActivityDeletedAfterItsRead() throws Exception {
+    SpaceModel space = createTestSpace();
+    ActivityModel kept = activityMcpTool.createActivity(space.getSpaceId(), "Kept activity", null);
+    ActivityModel gone = activityMcpTool.createActivity(space.getSpaceId(), "Deleted after its read", null);
+    String goneId = String.valueOf(gone.id());
+    ExoSocialActivity goneActivity = activityManager.getActivity(goneId);
+    ActivityManager deletingActivityManager = mock(ActivityManager.class, AdditionalAnswers.delegatesTo(activityManager));
+    doReturn(goneActivity).doReturn(null).when(deletingActivityManager).getActivity(goneId);
+    ReflectionTestUtils.setField(activityMcpTool, "activityManager", deletingActivityManager);
+    try {
+      ActivityCollectionModel result = activityMcpTool.getActivitiesSinceDays(space.getSpaceId(), 1L);
+
+      assertFalse(result.activities().contains(null));
+      assertEquals(List.of(gone.id(), kept.id()), result.activities().stream().map(ActivitySummaryModel::id).toList());
+    } finally {
+      ReflectionTestUtils.setField(activityMcpTool, "activityManager", activityManager);
+    }
+  }
+
+  /**
+   * get_activities skips an activity deleted between the listing of its id
+   * and its read, never listing an empty item.
+   */
+  @Test
+  void getActivitiesListsNoEmptyItemForAnActivityDeletedMidListing() throws Exception {
+    SpaceModel space = createTestSpace();
+    ActivityModel kept = activityMcpTool.createActivity(space.getSpaceId(), "Kept activity", null);
+    ActivityModel gone = activityMcpTool.createActivity(space.getSpaceId(), "Deleted mid-listing", null);
+    ActivityManager deletingActivityManager = mock(ActivityManager.class, AdditionalAnswers.delegatesTo(activityManager));
+    doReturn(null).when(deletingActivityManager).getActivity(String.valueOf(gone.id()));
+    ReflectionTestUtils.setField(activityMcpTool, "activityManager", deletingActivityManager);
+    try {
+      List<ActivitySummaryModel> activities = activityMcpTool.getActivities(space.getSpaceId(), 0, 10);
+
+      assertFalse(activities.contains(null));
+      assertTrue(activities.stream().anyMatch(a -> a.id() == kept.id()));
+      assertTrue(activities.stream().noneMatch(a -> a.id() == gone.id()));
     } finally {
       ReflectionTestUtils.setField(activityMcpTool, "activityManager", activityManager);
     }

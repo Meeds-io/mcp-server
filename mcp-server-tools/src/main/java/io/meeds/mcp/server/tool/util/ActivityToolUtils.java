@@ -68,7 +68,23 @@ public class ActivityToolUtils {
     // Utils class
   }
 
-  @SneakyThrows
+  /**
+   * Reads an activity and builds it as the current user sees it.
+   *
+   * @param activityManager         the activity service
+   * @param spaceService            the space service
+   * @param identityManager         the identity service
+   * @param userAcl                 the ACL service
+   * @param permanentLinkService    the permanent link service
+   * @param profilePropertyService  the profile property service
+   * @param translationService      the translation service
+   * @param i18NActivityProcessor   the activity i18n processor
+   * @param portalConfigService     the portal configuration service
+   * @param activityId              the activity id
+   * @param currentUserAclIdentity  the current user's ACL identity
+   * @param currentUserLocale       the current user's locale
+   * @return the activity, {@code null} when it doesn't exist
+   */
   public static ActivityModel toActivityModel(ActivityManager activityManager, // NOSONAR
                                               SpaceService spaceService,
                                               IdentityManager identityManager,
@@ -81,10 +97,55 @@ public class ActivityToolUtils {
                                               String activityId,
                                               org.exoplatform.services.security.Identity currentUserAclIdentity,
                                               Locale currentUserLocale) {
-    ExoSocialActivity activity = activityManager.getActivity(activityId);
+    return toActivityModel(activityManager,
+                           spaceService,
+                           identityManager,
+                           userAcl,
+                           permanentLinkService,
+                           profilePropertyService,
+                           translationService,
+                           i18NActivityProcessor,
+                           portalConfigService,
+                           activityManager.getActivity(activityId),
+                           currentUserAclIdentity,
+                           currentUserLocale);
+  }
+
+  /**
+   * Builds an activity already read as the current user sees it, without
+   * reading it again.
+   *
+   * @param activityManager         the activity service
+   * @param spaceService            the space service
+   * @param identityManager         the identity service
+   * @param userAcl                 the ACL service
+   * @param permanentLinkService    the permanent link service
+   * @param profilePropertyService  the profile property service
+   * @param translationService      the translation service
+   * @param i18NActivityProcessor   the activity i18n processor
+   * @param portalConfigService     the portal configuration service
+   * @param activity                the activity, may be {@code null}
+   * @param currentUserAclIdentity  the current user's ACL identity
+   * @param currentUserLocale       the current user's locale
+   * @return the activity model, {@code null} when the activity is
+   */
+  @SneakyThrows
+  public static ActivityModel toActivityModel(ActivityManager activityManager, // NOSONAR
+                                              SpaceService spaceService,
+                                              IdentityManager identityManager,
+                                              UserACL userAcl,
+                                              PermanentLinkService permanentLinkService,
+                                              ProfilePropertyService profilePropertyService,
+                                              TranslationService translationService,
+                                              I18NActivityProcessor i18NActivityProcessor,
+                                              UserPortalConfigService portalConfigService,
+                                              ExoSocialActivity activity,
+                                              org.exoplatform.services.security.Identity currentUserAclIdentity,
+                                              Locale currentUserLocale) {
     if (activity == null) {
       return null;
     }
+    String activityId = activity.getId();
     Long sharedActivityId = getSharedActivityId(activity);
     String activityUrl = CommonsUtils.getCurrentDomain() +
         permanentLinkService.getLink(new PermanentLinkObject(ActivityPermanentLinkPlugin.OBJECT_TYPE, activityId));

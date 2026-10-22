@@ -59,6 +59,7 @@ import org.exoplatform.social.attachment.AttachmentService;
 import org.exoplatform.social.attachment.model.ObjectAttachmentDetail;
 import org.exoplatform.social.attachment.model.ObjectAttachmentList;
 import org.exoplatform.social.attachment.model.UploadedAttachmentDetail;
+import org.exoplatform.social.common.RealtimeListAccess;
 import org.exoplatform.social.core.activity.ActivityFilter;
 import org.exoplatform.social.core.activity.ActivityStreamType;
 import org.exoplatform.social.core.activity.filter.ActivitySearchFilter;
@@ -165,9 +166,11 @@ public class ActivityMcpTool implements McpToolPlugin {
    * Lists the activities updated since a number of days, reading the stream
    * newest first, by pages of {@link McpToolPlugin#DEFAULT_LIMIT}, and stopping
    * at the first page holding none of them or once {@link #MAX_TO_LOAD}
-   * activities were read. When it stops on that bound while the last page
-   * still held some, the result says {@code has_more}. An activity deleted
-   * between the listing of its id and its read is skipped.
+   * activities were read. When it stops on that bound, it reads the next
+   * activity of the stream and says {@code has_more} only when that one
+   * exists and is updated since then too. An activity deleted between the
+   * listing of its id and its read is skipped, and each activity is read
+   * once, so none is listed empty.
    *
    * @param spaceId restrict to one space, or null for every stream the user
    *                  sees
@@ -202,14 +205,13 @@ public class ActivityMcpTool implements McpToolPlugin {
                                    .toEpochSecond() *
         1000l;
 
+    RealtimeListAccess<ExoSocialActivity> listAccess = activityManager.getActivitiesByFilterWithListAccess(currentUserIdentity,
+                                                                                                          activityFilter);
     List<ActivitySummaryModel> result = new ArrayList<>();
     int offset = 0;
     int limit = DEFAULT_LIMIT;
-    boolean hasMore = false;
     while (offset < MAX_TO_LOAD) {
-      List<String> activityIds = activityManager.getActivitiesByFilterWithListAccess(currentUserIdentity,
-                                                                                     activityFilter)
-                                                .loadIdsAsList(offset, limit);
+      List<String> activityIds = listAccess.loadIdsAsList(offset, limit);
       if (CollectionUtils.isEmpty(activityIds)) {
         break;
       }
@@ -222,13 +224,32 @@ public class ActivityMcpTool implements McpToolPlugin {
         break;
       }
       activities.stream()
-                .map(ExoSocialActivity::getId)
                 .map(this::toActivitySummaryModel)
+                .filter(Objects::nonNull)
                 .forEach(result::add);
       offset += limit;
-      hasMore = activityIds.size() >= limit && offset >= MAX_TO_LOAD;
     }
+    boolean hasMore = offset >= MAX_TO_LOAD && hasActivitySince(listAccess, MAX_TO_LOAD, sinceTimestamp);
     return new ActivityCollectionModel(result, MAX_TO_LOAD, hasMore, null);
+  }
+
+  /**
+   * Tells whether the activity at a position of a stream exists and changed
+   * since a time.
+   *
+   * @param listAccess     the stream
+   * @param position       the activity's index in the stream
+   * @param sinceTimestamp the time, in milliseconds
+   * @return true when the stream holds an activity there, readable and
+   *         changed after that time
+   */
+  private boolean hasActivitySince(RealtimeListAccess<ExoSocialActivity> listAccess, int position, long sinceTimestamp) {
+    List<String> activityIds = listAccess.loadIdsAsList(position, 1);
+    if (CollectionUtils.isEmpty(activityIds)) {
+      return false;
+    }
+    ExoSocialActivity activity = activityManager.getActivity(activityIds.get(0));
+    return activity != null && getLastChangeTime(activity) > sinceTimestamp;
   }
 
   /**
@@ -284,6 +305,7 @@ public class ActivityMcpTool implements McpToolPlugin {
                                                              clampLimit(limit, DEFAULT_LIMIT));
     return activityIds.stream()
                       .map(this::toActivitySummaryModel)
+                      .filter(Objects::nonNull)
                       .toList();
   }
 
@@ -315,6 +337,7 @@ public class ActivityMcpTool implements McpToolPlugin {
                                                              clampLimit(limit, DEFAULT_LIMIT));
     return activityIds.stream()
                       .map(this::toActivitySummaryModel)
+                      .filter(Objects::nonNull)
                       .toList();
   }
 
@@ -728,6 +751,7 @@ public class ActivityMcpTool implements McpToolPlugin {
                                                              clampLimit(limit, DEFAULT_LIMIT));
     return activityIds.stream()
                       .map(this::toActivitySummaryModel)
+                      .filter(Objects::nonNull)
                       .toList();
   }
 
@@ -1333,6 +1357,7 @@ public class ActivityMcpTool implements McpToolPlugin {
                         .map(ActivitySearchResult::getId)
                         .map(String::valueOf)
                         .map(this::toActivitySummaryModel)
+                        .filter(Objects::nonNull)
                         .toList();
   }
 
@@ -1364,6 +1389,26 @@ public class ActivityMcpTool implements McpToolPlugin {
    */
   private ActivitySummaryModel toActivitySummaryModel(String activityId) {
     return ActivityToolUtils.toActivitySummaryModel(toActivityModel(activityId));
+  }
+
+  /**
+   * @param activity an activity already read
+   * @return the activity as an item of a list of activities, as the current
+   *         user sees it, without reading it again
+   */
+  private ActivitySummaryModel toActivitySummaryModel(ExoSocialActivity activity) {
+    return ActivityToolUtils.toActivitySummaryModel(ActivityToolUtils.toActivityModel(activityManager,
+                                                                                      spaceService,
+                                                                                      identityManager,
+                                                                                      userAcl,
+                                                                                      permanentLinkService,
+                                                                                      profilePropertyService,
+                                                                                      translationService,
+                                                                                      i18NActivityProcessor,
+                                                                                      portalConfigService,
+                                                                                      activity,
+                                                                                      getCurrentUserAclIdentity(),
+                                                                                      getCurrentUserLocale()));
   }
 
   /**

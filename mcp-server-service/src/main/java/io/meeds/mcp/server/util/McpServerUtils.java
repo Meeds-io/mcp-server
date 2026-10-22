@@ -21,7 +21,10 @@ package io.meeds.mcp.server.util;
 import static org.springframework.ai.mcp.McpToolUtils.TOOL_CONTEXT_MCP_EXCHANGE_KEY;
 
 import java.lang.reflect.Field;
+import java.lang.reflect.GenericArrayType;
 import java.lang.reflect.Method;
+import java.lang.reflect.ParameterizedType;
+import java.lang.reflect.Type;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collection;
@@ -32,6 +35,7 @@ import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.function.BiFunction;
 import java.util.stream.Collectors;
 
@@ -44,6 +48,7 @@ import org.springframework.ai.tool.definition.ToolDefinition;
 import org.springframework.ai.util.JsonHelper;
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.core.ParameterizedTypeReference;
+import org.springframework.util.ClassUtils;
 import org.springframework.util.MimeType;
 
 import com.fasterxml.jackson.annotation.JsonProperty;
@@ -102,6 +107,13 @@ public class McpServerUtils {
    * it.
    */
   private static final String              TOOL_METHOD_FIELD       = "toolMethod";
+
+  /**
+   * Whether a failure to read the tool method of a callback was already
+   * logged at warn: it is once, the next ones at debug, since every tool of
+   * the server meets the same failure.
+   */
+  static final AtomicBoolean               TOOL_METHOD_READ_FAILURE_LOGGED = new AtomicBoolean();
 
   private static final String              PROPERTIES_KEY          = "properties";
 
@@ -316,16 +328,16 @@ public class McpServerUtils {
 
   /**
    * Tells whether a tool answers a list, from the return type of its method:
-   * an array or an {@link Iterable}, or a list envelope, a type declaring one
-   * of {@link #LIST_ENVELOPE_KEYS} as a JSON property. A tool whose method is not
-   * known answers no list.
+   * an array or an {@link Iterable} of objects, or a list envelope, a type
+   * declaring one of {@link #LIST_ENVELOPE_KEYS} as a JSON property. A tool
+   * whose method is not known answers no list.
    *
    * @param toolCallback the tool callback
    * @return true when the tool's results are lists
    */
   static boolean returnsList(ToolCallback toolCallback) {
     Method toolMethod = getToolMethod(toolCallback);
-    return toolMethod != null && isListType(toolMethod.getReturnType());
+    return toolMethod != null && isListType(toolMethod.getGenericReturnType());
   }
 
   /**
@@ -333,6 +345,10 @@ public class McpServerUtils {
    * field, declared by its class or a superclass, as
    * {@link McpToolUtils#getMethodToolFieldValue} reads Spring AI's callback,
    * which exposes no accessor for it.
+   *
+   * A field of that name that can't be read as a method is a failure, logged
+   * at warn the first time only ({@link #TOOL_METHOD_READ_FAILURE_LOGGED}): the
+   * tool is then listed without {@link #FIELDS_ARGUMENT}.
    *
    * @param toolCallback the tool callback
    * @return the method the callback runs, or null when it holds none
@@ -342,6 +358,10 @@ public class McpServerUtils {
       try {
         Field field = type.getDeclaredField(TOOL_METHOD_FIELD);
         if (!Method.class.isAssignableFrom(field.getType())) {
+          logToolMethodReadFailure(toolCallback, new IllegalStateException("Field '%s' of %s is a %s".formatted(TOOL_METHOD_FIELD,
+                                                                                                               type.getName(),
+                                                                                                               field.getType()
+                                                                                                                    .getName())));
           return null;
         }
         field.setAccessible(true); // NOSONAR
@@ -349,7 +369,7 @@ public class McpServerUtils {
       } catch (NoSuchFieldException e) {
         // Declared by a superclass, if any
       } catch (IllegalAccessException | RuntimeException e) {
-        log.debug("Can't read the tool method of tool callback {}", toolCallback.getClass(), e);
+        logToolMethodReadFailure(toolCallback, e);
         return null;
       }
     }
@@ -357,15 +377,38 @@ public class McpServerUtils {
   }
 
   /**
-   * @param type a tool method's return type
-   * @return true when the type is an array, an {@link Iterable}, or declares,
-   *         in itself or a superclass, a field whose JSON name, its
-   *         {@link JsonProperty} value or else its name, is one of
-   *         {@link #LIST_ENVELOPE_KEYS}
+   * Logs a failure to read the tool method of a callback: at warn the first
+   * time, at debug afterwards.
+   *
+   * @param toolCallback the tool callback
+   * @param e            the failure
    */
-  static boolean isListType(Class<?> type) {
+  private static void logToolMethodReadFailure(ToolCallback toolCallback, Exception e) {
+    if (TOOL_METHOD_READ_FAILURE_LOGGED.compareAndSet(false, true)) {
+      log.warn("Can't read the tool method of tool callback {}: the list tools are offered no '{}' argument. Next failures are logged at debug",
+               toolCallback.getClass(),
+               FIELDS_ARGUMENT,
+               e);
+    } else {
+      log.debug("Can't read the tool method of tool callback {}", toolCallback.getClass(), e);
+    }
+  }
+
+  /**
+   * @param genericType a tool method's return type
+   * @return true when the type is an array or an {@link Iterable} whose
+   *         elements are not simple values ({@link #isSimpleValueType}), or
+   *         whose element type is not known, or declares, in itself or a
+   *         superclass, a field whose JSON name, its {@link JsonProperty}
+   *         value or else its name, is one of {@link #LIST_ENVELOPE_KEYS}
+   */
+  static boolean isListType(Type genericType) {
+    Class<?> type = rawClass(genericType);
+    if (type == null) {
+      return false;
+    }
     if (type.isArray() || Iterable.class.isAssignableFrom(type)) {
-      return true;
+      return !isSimpleValueType(elementType(genericType));
     }
     for (Class<?> current = type; current != null && current != Object.class; current = current.getSuperclass()) {
       for (Field field : current.getDeclaredFields()) {
@@ -377,6 +420,54 @@ public class McpServerUtils {
       }
     }
     return false;
+  }
+
+  /**
+   * @param genericType a type
+   * @return its class, or null when it is a type variable or a wildcard
+   */
+  private static Class<?> rawClass(Type genericType) {
+    if (genericType instanceof Class<?> type) {
+      return type;
+    } else if (genericType instanceof ParameterizedType parameterizedType
+        && parameterizedType.getRawType() instanceof Class<?> type) {
+      return type;
+    } else if (genericType instanceof GenericArrayType arrayType) {
+      Class<?> componentType = rawClass(arrayType.getGenericComponentType());
+      return componentType == null ? Object[].class : componentType.arrayType();
+    } else {
+      return null;
+    }
+  }
+
+  /**
+   * @param listType an array or an {@link Iterable} type
+   * @return the type of its elements: the component type of an array, the
+   *         only type argument of a parameterized {@link Iterable}, null when
+   *         it is not known, as for a raw type
+   */
+  private static Type elementType(Type listType) {
+    if (listType instanceof Class<?> type && type.isArray()) {
+      return type.getComponentType();
+    } else if (listType instanceof GenericArrayType arrayType) {
+      return arrayType.getGenericComponentType();
+    } else if (listType instanceof ParameterizedType parameterizedType
+        && parameterizedType.getActualTypeArguments().length == 1) {
+      return parameterizedType.getActualTypeArguments()[0];
+    } else {
+      return null;
+    }
+  }
+
+  /**
+   * @param elementType the type of a list's elements, may be null
+   * @return true when the elements are plain values that hold no keys to keep:
+   *         primitives, their wrappers, strings, enums, dates and the other
+   *         types {@link ClassUtils#isSimpleValueType} names; false when the
+   *         type is not known
+   */
+  private static boolean isSimpleValueType(Type elementType) {
+    return elementType instanceof Class<?> type && ClassUtils.isSimpleValueType(type);
   }
 
   /**

@@ -38,6 +38,7 @@ import java.util.Set;
 import java.util.stream.Stream;
 
 import org.junit.jupiter.api.Test;
+import org.slf4j.LoggerFactory;
 import org.mockito.ArgumentCaptor;
 import org.springframework.ai.chat.model.ToolContext;
 import org.springframework.ai.tool.ToolCallback;
@@ -47,6 +48,11 @@ import org.springframework.ai.tool.method.MethodToolCallback;
 import org.springframework.util.MimeType;
 
 import com.fasterxml.jackson.annotation.JsonProperty;
+
+import ch.qos.logback.classic.Level;
+import ch.qos.logback.classic.Logger;
+import ch.qos.logback.classic.spi.ILoggingEvent;
+import ch.qos.logback.core.read.ListAppender;
 
 import io.meeds.mcp.server.service.McpServerToolService;
 import io.meeds.mcp.server.service.McpToolCallbackProviderService.MethodToolCallbackWrapper;
@@ -230,6 +236,43 @@ class McpServerUtilsTest {
   }
 
   /**
+   * A tool method that can't be read is logged at warn the first time, so
+   * that the list tools losing {@code fields} is seen, and at debug after.
+   */
+  @Test
+  void warnsOnceWhenTheToolMethodCanNotBeRead() {
+    Logger logger = (Logger) LoggerFactory.getLogger(McpServerUtils.class);
+    ListAppender<ILoggingEvent> appender = new ListAppender<>();
+    appender.start();
+    logger.addAppender(appender);
+    McpServerUtils.TOOL_METHOD_READ_FAILURE_LOGGED.set(false);
+    try {
+      assertEquals(null, McpServerUtils.getToolMethod(new UnreadableToolCallback()));
+      assertEquals(null, McpServerUtils.getToolMethod(new UnreadableToolCallback()));
+
+      assertEquals(1, appender.list.stream().filter(event -> event.getLevel() == Level.WARN).count());
+    } finally {
+      logger.detachAppender(appender);
+    }
+  }
+
+  /**
+   * A tool answering a list of plain values, which hold no keys to keep, is
+   * listed without {@code fields}; one answering a list of objects, or a raw
+   * list whose elements are not known, is listed with it.
+   */
+  @Test
+  void offersFieldsOnAListOfObjectsOnly() {
+    assertEquals(Set.of("query", "limit"), listedProperties(toolCallback(SCHEMA, "[]", "listNames")));
+    assertEquals(Set.of("query", "limit"), listedProperties(toolCallback(SCHEMA, "[]", "listCodes")));
+    assertEquals(Set.of("query", "limit", "fields"), listedProperties(toolCallback(SCHEMA, "[]", "listThingItems")));
+    assertEquals(Set.of("query", "limit", "fields"), listedProperties(toolCallback(SCHEMA, "[]", "listRawItems")));
+    assertFalse(McpServerUtils.isListType(String[].class));
+    assertFalse(McpServerUtils.isListType(int[].class));
+    assertTrue(McpServerUtils.isListType(toolMethod("listThingItems").getGenericReturnType()));
+  }
+
+  /**
    * A top-level JSON array has its items projected.
    */
   @Test
@@ -396,6 +439,15 @@ class McpServerUtilsTest {
 
 
   /**
+   * @param toolCallback a tool callback
+   * @return the argument names the MCP server lists the tool with
+   */
+  private static Set<?> listedProperties(ToolCallback toolCallback) {
+    SyncToolSpecification specification = McpServerUtils.toSyncToolSpecification(toolCallback, null);
+    return ((Map<?, ?>) specification.tool().inputSchema().get("properties")).keySet();
+  }
+
+  /**
    * @param specification the tool specification
    * @param arguments     the call arguments
    * @return the result of calling the tool through its MCP call handler
@@ -442,6 +494,61 @@ class McpServerUtilsTest {
      * @return a single item
      */
     Thing getThing() {
+      return null;
+    }
+
+    /**
+     * @return a list of plain values
+     */
+    List<String> listNames() {
+      return null;
+    }
+
+    /**
+     * @return an array of plain values
+     */
+    Long[] listCodes() {
+      return null;
+    }
+
+    /**
+     * @return a list of objects
+     */
+    List<Thing> listThingItems() {
+      return null;
+    }
+
+    /**
+     * @return a list whose elements are not known
+     */
+    @SuppressWarnings("rawtypes")
+    List listRawItems() {
+      return null;
+    }
+  }
+
+  /**
+   * A callback whose {@code toolMethod} field holds no method.
+   */
+  @SuppressWarnings("unused")
+  private static class UnreadableToolCallback implements ToolCallback {
+
+    private String toolMethod = "listThings";
+
+    /**
+     * @return no definition
+     */
+    @Override
+    public ToolDefinition getToolDefinition() {
+      return null;
+    }
+
+    /**
+     * @param toolInput the call arguments
+     * @return no result
+     */
+    @Override
+    public String call(String toolInput) {
       return null;
     }
   }
