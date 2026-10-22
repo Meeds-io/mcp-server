@@ -24,7 +24,9 @@ import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.Mockito.doReturn;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.spy;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -40,10 +42,13 @@ import org.mockito.ArgumentCaptor;
 import org.springframework.ai.chat.model.ToolContext;
 import org.springframework.ai.tool.ToolCallback;
 import org.springframework.ai.tool.definition.DefaultToolDefinition;
+import org.springframework.ai.tool.definition.ToolDefinition;
+import org.springframework.ai.tool.method.MethodToolCallback;
 import org.springframework.util.MimeType;
 
 import com.fasterxml.jackson.annotation.JsonProperty;
 
+import io.meeds.mcp.server.service.McpServerToolService;
 import io.meeds.mcp.server.service.McpToolCallbackProviderService.MethodToolCallbackWrapper;
 
 import io.modelcontextprotocol.server.McpServerFeatures.SyncToolSpecification;
@@ -193,6 +198,38 @@ class McpServerUtilsTest {
   }
 
   /**
+   * A JSON object carrying only {@code count} or {@code next_offset}, such as
+   * a note read part by part, is a single item: it is returned whole, its
+   * arrays included.
+   */
+  @Test
+  void leavesAnObjectWithoutListEnvelopeKeyUntouched() {
+    String notePart = "{\"note_id\":1,\"breadcrumb\":[{\"id\":1,\"title\":\"a\"}],\"next_offset\":40000}";
+    String counted = "{\"labels\":[{\"id\":1,\"title\":\"a\"}],\"count\":1,\"used_offset\":0}";
+
+    assertSame(notePart, McpServerUtils.projectFields(notePart, Set.of("id")));
+    assertSame(counted, McpServerUtils.projectFields(counted, Set.of("id")));
+  }
+
+  /**
+   * The tool method is read from the server's wrapper and from Spring AI's
+   * callback; a callback holding none has no method.
+   */
+  @Test
+  void readsTheToolMethodOfACallback() {
+    MethodToolCallbackWrapper toolCallback = (MethodToolCallbackWrapper) toolCallback(SCHEMA, "[]", "getThing");
+
+    assertEquals(toolMethod("getThing"), McpServerUtils.getToolMethod(toolCallback));
+    assertEquals(toolMethod("getThing"),
+                 McpServerUtils.getToolMethod(MethodToolCallback.builder()
+                                                                .toolDefinition(toolCallback.getToolDefinition())
+                                                                .toolMethod(toolMethod("getThing"))
+                                                                .toolObject(new Tools())
+                                                                .build()));
+    assertEquals(null, McpServerUtils.getToolMethod(mock(ToolCallback.class)));
+  }
+
+  /**
    * A top-level JSON array has its items projected.
    */
   @Test
@@ -335,16 +372,28 @@ class McpServerUtilsTest {
    * @return a tool callback of that method answering that result to any call
    */
   private static ToolCallback toolCallback(String inputSchema, String result, String methodName) {
-    MethodToolCallbackWrapper toolCallback = mock(MethodToolCallbackWrapper.class);
-    when(toolCallback.getToolMethod()).thenReturn(toolMethod(methodName));
-    when(toolCallback.getToolDefinition()).thenReturn(DefaultToolDefinition.builder()
-                                                                            .name(TOOL_NAME)
-                                                                            .description("Lists things")
-                                                                            .inputSchema(inputSchema)
-                                                                            .build());
-    when(toolCallback.call(anyString(), any(ToolContext.class))).thenReturn(result);
+    ToolDefinition toolDefinition = DefaultToolDefinition.builder()
+                                                                .name(TOOL_NAME)
+                                                                .description("Lists things")
+                                                                .inputSchema(inputSchema)
+                                                                .build();
+    MethodToolCallback methodToolCallback = MethodToolCallback.builder()
+                                                              .toolDefinition(toolDefinition)
+                                                              .toolMethod(toolMethod(methodName))
+                                                              .toolObject(new Tools())
+                                                              .build();
+    // The server's own wrapper, as the MCP server lists it
+    MethodToolCallbackWrapper toolCallback = spy(new MethodToolCallbackWrapper(mock(McpServerToolService.class),
+                                                                               null,
+                                                                               null,
+                                                                               null,
+                                                                               null,
+                                                                               methodToolCallback));
+    doReturn(toolDefinition).when(toolCallback).getToolDefinition();
+    doReturn(result).when(toolCallback).call(anyString(), any(ToolContext.class));
     return toolCallback;
   }
+
 
   /**
    * @param specification the tool specification

@@ -21,6 +21,7 @@ package io.meeds.mcp.server.util;
 import static org.springframework.ai.mcp.McpToolUtils.TOOL_CONTEXT_MCP_EXCHANGE_KEY;
 
 import java.lang.reflect.Field;
+import java.lang.reflect.Method;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collection;
@@ -48,7 +49,6 @@ import org.springframework.util.MimeType;
 import com.fasterxml.jackson.annotation.JsonProperty;
 
 import io.meeds.mcp.server.model.SimpleToolDefinition;
-import io.meeds.mcp.server.service.McpToolCallbackProviderService.MethodToolCallbackWrapper;
 
 import io.modelcontextprotocol.server.McpServerFeatures;
 import io.modelcontextprotocol.server.McpSyncServerExchange;
@@ -88,22 +88,20 @@ public class McpServerUtils {
 
   /**
    * The keys of which at least one marks a JSON object as a list envelope,
-   * whose arrays hold the list's items: the paging keys every list collection
-   * of the tools carries.
+   * whose arrays hold the list's items, both in a tool's result and in its
+   * result type, for the {@link #FIELDS_ARGUMENT} argument to be offered: the
+   * ones every list collection of the tools carries and a single item never
+   * does, unlike {@code count} or {@code next_offset}, which a note read part
+   * by part carries.
    */
-  private static final Set<String>         LIST_ENVELOPE_KEYS      = Set.of("count",
-                                                                            "used_offset",
-                                                                            "used_limit",
-                                                                            "has_more",
-                                                                            "next_offset");
+  private static final Set<String>         LIST_ENVELOPE_KEYS      = Set.of("used_limit", "has_more");
 
   /**
-   * The keys of which at least one marks a tool's result type as a list
-   * envelope, for the {@link #FIELDS_ARGUMENT} argument to be offered: the
-   * ones a single item never carries, unlike {@code count} or
-   * {@code next_offset}, which a note read part by part carries.
+   * The private field holding the tool method in a tool callback, as both
+   * Spring AI's {@code MethodToolCallback} and the server's wrapper of it name
+   * it.
    */
-  private static final Set<String>         LIST_TYPE_KEYS          = Set.of("used_limit", "has_more");
+  private static final String              TOOL_METHOD_FIELD       = "toolMethod";
 
   private static final String              PROPERTIES_KEY          = "properties";
 
@@ -319,18 +317,43 @@ public class McpServerUtils {
   /**
    * Tells whether a tool answers a list, from the return type of its method:
    * an array or an {@link Iterable}, or a list envelope, a type declaring one
-   * of {@link #LIST_TYPE_KEYS} as a JSON property. A tool whose method is not
+   * of {@link #LIST_ENVELOPE_KEYS} as a JSON property. A tool whose method is not
    * known answers no list.
    *
    * @param toolCallback the tool callback
    * @return true when the tool's results are lists
    */
   static boolean returnsList(ToolCallback toolCallback) {
-    if (!(toolCallback instanceof MethodToolCallbackWrapper methodToolCallback)
-        || methodToolCallback.getToolMethod() == null) {
-      return false;
+    Method toolMethod = getToolMethod(toolCallback);
+    return toolMethod != null && isListType(toolMethod.getReturnType());
+  }
+
+  /**
+   * Reads the tool method of a callback from its {@link #TOOL_METHOD_FIELD}
+   * field, declared by its class or a superclass, as
+   * {@link McpToolUtils#getMethodToolFieldValue} reads Spring AI's callback,
+   * which exposes no accessor for it.
+   *
+   * @param toolCallback the tool callback
+   * @return the method the callback runs, or null when it holds none
+   */
+  static Method getToolMethod(ToolCallback toolCallback) {
+    for (Class<?> type = toolCallback.getClass(); type != null && type != Object.class; type = type.getSuperclass()) {
+      try {
+        Field field = type.getDeclaredField(TOOL_METHOD_FIELD);
+        if (!Method.class.isAssignableFrom(field.getType())) {
+          return null;
+        }
+        field.setAccessible(true); // NOSONAR
+        return (Method) field.get(toolCallback);
+      } catch (NoSuchFieldException e) {
+        // Declared by a superclass, if any
+      } catch (IllegalAccessException | RuntimeException e) {
+        log.debug("Can't read the tool method of tool callback {}", toolCallback.getClass(), e);
+        return null;
+      }
     }
-    return isListType(methodToolCallback.getToolMethod().getReturnType());
+    return null;
   }
 
   /**
@@ -338,7 +361,7 @@ public class McpServerUtils {
    * @return true when the type is an array, an {@link Iterable}, or declares,
    *         in itself or a superclass, a field whose JSON name, its
    *         {@link JsonProperty} value or else its name, is one of
-   *         {@link #LIST_TYPE_KEYS}
+   *         {@link #LIST_ENVELOPE_KEYS}
    */
   static boolean isListType(Class<?> type) {
     if (type.isArray() || Iterable.class.isAssignableFrom(type)) {
@@ -348,7 +371,7 @@ public class McpServerUtils {
       for (Field field : current.getDeclaredFields()) {
         JsonProperty jsonProperty = field.getAnnotation(JsonProperty.class);
         String name = jsonProperty == null || StringUtils.isBlank(jsonProperty.value()) ? field.getName() : jsonProperty.value();
-        if (LIST_TYPE_KEYS.contains(name)) {
+        if (LIST_ENVELOPE_KEYS.contains(name)) {
           return true;
         }
       }
