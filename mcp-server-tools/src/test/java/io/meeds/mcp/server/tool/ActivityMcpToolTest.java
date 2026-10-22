@@ -27,9 +27,11 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.Mockito.doReturn;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.spy;
 
 import java.time.OffsetDateTime;
 import java.time.temporal.ChronoUnit;
+import java.util.Date;
 import java.util.List;
 import java.util.UUID;
 
@@ -566,6 +568,39 @@ class ActivityMcpToolTest extends IntegrationTestBase {
 
     assertEquals(100, result.activities().size());
     assertFalse(result.hasMore());
+  }
+
+  /**
+   * get_activities_since_days, when the activity after its bound last changed
+   * before the window, returns its bound and says no more remain: the stream
+   * holding one more activity is not enough. Mutant: the probe's time check
+   * removed ({@code return activity != null;}).
+   */
+  @Test
+  void getActivitiesSinceDaysHasNoMoreWhenTheNextActivityIsOutsideTheWindow() throws Exception {
+    SpaceModel space = createTestSpace();
+    int existing = activityMcpTool.getActivities(space.getSpaceId(), 0, McpToolPluginUtils.MAX_LIMIT).size();
+    for (int i = existing; i <= McpToolPluginUtils.MAX_LIMIT; i++) {
+      activityMcpTool.createActivity(space.getSpaceId(), "Activity before an old one " + i, null);
+    }
+    long nextId = activityMcpTool.getActivities(space.getSpaceId(), McpToolPluginUtils.MAX_LIMIT, 1).get(0).id();
+    String next = String.valueOf(nextId);
+    ExoSocialActivity oldActivity = spy(activityManager.getActivity(next));
+    long oldTime = System.currentTimeMillis() - 10L * 24 * 3600 * 1000;
+    doReturn(new Date(oldTime)).when(oldActivity).getUpdated();
+    doReturn(oldTime).when(oldActivity).getPostedTime();
+    ActivityManager agingActivityManager = mock(ActivityManager.class, AdditionalAnswers.delegatesTo(activityManager));
+    doReturn(oldActivity).when(agingActivityManager).getActivity(next);
+    ReflectionTestUtils.setField(activityMcpTool, "activityManager", agingActivityManager);
+    try {
+      ActivityCollectionModel result = activityMcpTool.getActivitiesSinceDays(space.getSpaceId(), 1L);
+
+      assertEquals(100, result.activities().size());
+      assertTrue(result.activities().stream().noneMatch(a -> a.id() == nextId));
+      assertFalse(result.hasMore());
+    } finally {
+      ReflectionTestUtils.setField(activityMcpTool, "activityManager", activityManager);
+    }
   }
 
   /**
