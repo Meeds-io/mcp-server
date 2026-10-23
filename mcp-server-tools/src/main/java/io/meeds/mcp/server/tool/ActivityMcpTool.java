@@ -105,6 +105,9 @@ public class ActivityMcpTool implements McpToolPlugin {
   // a comment's id / metadata object id is the numeric id prefixed with "comment"
   private static final String     COMMENT_ID_PREFIX        = "comment";
 
+  /** Template parameter holding the current text of an edited comment. */
+  private static final String     COMMENT_TEMPLATE_PARAM   = "comment";
+
   @Autowired
   private ActivityManager         activityManager;
 
@@ -633,10 +636,15 @@ public class ActivityMcpTool implements McpToolPlugin {
    * one it is a top-level comment, as before this parameter existed. The ACL
    * check is the activity's own view check in both cases: a reply is a comment
    * of the same activity and inherits its visibility, so no second check is
-   * needed and none is added.
+   * needed and none is added. The text is rendered from Markdown to HTML, as
+   * a post's is, unless it contains one of the markers
+   * {@link io.meeds.mcp.server.util.McpToolUtils#markdownToHtml} reads as
+   * "already HTML" ({@code <p>}, {@code <ul>}, {@code <li>}, {@code <div>},
+   * {@code <img }). Any other text is rendered as CommonMark, which keeps raw
+   * HTML as written and leaves Markdown inside a raw HTML block unrendered.
    *
    * @param activityId      identifier of the activity to comment on
-   * @param comment         comment text
+   * @param comment         comment text, Markdown or HTML
    * @param parentCommentId identifier of the comment to reply to, or null for a
    *                        top-level comment
    * @return the created comment
@@ -662,7 +670,7 @@ public class ActivityMcpTool implements McpToolPlugin {
     Identity currentUserIdentity = identityManager.getOrCreateUserIdentity(authenticatedUser);
 
     ExoSocialActivity commentActivity = new ExoSocialActivityImpl();
-    commentActivity.setTitle(comment);
+    commentActivity.setTitle(markdownToHtml(comment));
     commentActivity.setPosterId(currentUserIdentity.getId());
     commentActivity.setUserId(currentUserIdentity.getId());
     if (parentComment != null) {
@@ -715,7 +723,7 @@ public class ActivityMcpTool implements McpToolPlugin {
    * deleted again so nothing half-posted remains.
    *
    * @param activityId           identifier of the activity to comment on
-   * @param comment              comment text
+   * @param comment              comment text, Markdown or HTML
    * @param imageUrl             URL of the image to attach, may be null
    * @param imageBase64          base64 content of the image to attach, may be null
    * @param attachmentObjectType type of the object an existing attachment is
@@ -865,6 +873,19 @@ public class ActivityMcpTool implements McpToolPlugin {
     attachmentService.deleteAttachment(objectType, objectId, targetFileId);
   }
 
+  /**
+   * Replaces the text of an activity comment. The new text is rendered from
+   * Markdown to HTML exactly as {@link #createActivityComment} renders it,
+   * with the same "already HTML" markers left untouched; the previous text is
+   * kept in the {@code original_comment} template parameter.
+   *
+   * @param activityCommentId identifier of the comment to update
+   * @param comment           new comment text, Markdown or HTML
+   * @return the updated comment
+   * @throws IllegalAccessException  when the current user is refused access
+   *                                 to the comment
+   * @throws ObjectNotFoundException when the comment doesn't exist
+   */
   public ActivityCommentModel updateComment(long activityCommentId, String comment) throws IllegalAccessException,
                                                                                     ObjectNotFoundException {
     org.exoplatform.services.security.Identity authenticatedUserIdentity = getCurrentUserAclIdentity();
@@ -882,8 +903,9 @@ public class ActivityMcpTool implements McpToolPlugin {
       commentActivity.setTemplateParams(new HashMap<>(commentActivity.getTemplateParams()));
     }
     commentActivity.getTemplateParams().put("original_comment", commentActivity.getTitle());
-    commentActivity.getTemplateParams().put("comment", comment);
-    commentActivity.setTitle(comment);
+    String htmlComment = markdownToHtml(comment);
+    commentActivity.getTemplateParams().put(COMMENT_TEMPLATE_PARAM, htmlComment);
+    commentActivity.setTitle(htmlComment);
     commentActivity.setUpdated(System.currentTimeMillis());
     activityManager.updateActivity(commentActivity, true);
     return toActivityCommentModel(commentActivity.getId());
