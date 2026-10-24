@@ -49,8 +49,7 @@ public record McpToolGrantRequest(String requestId,
                                   ActingIdentity actingIdentity) {
 
   /**
-   * A call with no resolved acting identity, as add-ons built it before the
-   * identity existed.
+   * A call with no resolved acting identity ({@code actingIdentity} null).
    *
    * @param requestId      the call identifier
    * @param username       the user the tool runs as
