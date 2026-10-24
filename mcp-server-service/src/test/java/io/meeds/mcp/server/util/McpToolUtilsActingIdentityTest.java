@@ -160,8 +160,9 @@ class McpToolUtilsActingIdentityTest {
 
   /**
    * R3 on the server, and malformed headers: an agent account acting for a
-   * person, an unknown kind or origin, a missing or comma-joined chain are
-   * refused with an {@link IllegalStateException}.
+   * person or announcing a grant scope other than its own, an unknown kind or
+   * origin, a missing or comma-joined chain are refused with an
+   * {@link IllegalStateException}.
    */
   @Test
   void refusedIdentityHeadersThrow() {
@@ -171,6 +172,18 @@ class McpToolUtilsActingIdentityTest {
     addIdentityHeaders(bindRequest(TOOL_CONTEXT_ID, USERNAME), "AGENT", "agent-mail", "EMAIL_ASSISTANT", USERNAME, "[\"EMAIL_ASSISTANT\"]",
                        "MENTION", null);
     assertThatThrownBy(McpToolUtils::getCurrentActingIdentity).isInstanceOf(IllegalStateException.class);
+
+    addIdentityHeaders(bindRequest(TOOL_CONTEXT_ID, USERNAME), "AGENT", "agent-mail", "EMAIL_ASSISTANT", null, "[\"EMAIL_ASSISTANT\"]",
+                       "MENTION", "agent-user:COMPLETION");
+    assertThatThrownBy(McpToolUtils::getCurrentActingIdentity).isInstanceOf(IllegalStateException.class);
+
+    addIdentityHeaders(bindRequest(TOOL_CONTEXT_ID, USERNAME), "AGENT", "agent-mail", "EMAIL_ASSISTANT", null, "[\"EMAIL_ASSISTANT\"]",
+                       "MENTION", "EMAIL_ASSISTANT");
+    assertThatThrownBy(McpToolUtils::getCurrentActingIdentity).isInstanceOf(IllegalStateException.class);
+
+    addIdentityHeaders(bindRequest(TOOL_CONTEXT_ID, USERNAME), "AGENT", "agent-mail", "EMAIL_ASSISTANT", null, "[\"EMAIL_ASSISTANT\"]",
+                       "MENTION", "agent-user:EMAIL_ASSISTANT");
+    assertThat(McpToolUtils.getCurrentActingIdentity().grantScope()).isEqualTo("agent-user:EMAIL_ASSISTANT");
 
     addIdentityHeaders(bindRequest(TOOL_CONTEXT_ID, USERNAME), "ROBOT", USERNAME, null, USERNAME, "[]", "CHAT", null);
     assertThatThrownBy(McpToolUtils::getCurrentActingIdentity).isInstanceOf(IllegalStateException.class);
