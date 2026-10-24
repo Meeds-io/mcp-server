@@ -321,42 +321,41 @@ public class McpToolGrantService {
     } else if (grant.getConstraint() == null) {
       return true;
     } else {
-      return matchesConstraint(grant, request.toolName(), arguments);
+      return matchesConstraint(grant.getConstraint(), request.toolName(), arguments);
     }
   }
 
   /**
-   * Asks the tool's evaluators whether the call satisfies a grant's
-   * constraint, handing them the whole grant, failing closed when there is no
-   * evaluator, one refuses or one fails.
+   * Asks the tool's evaluators whether the call satisfies a constraint, failing
+   * closed when there is no evaluator, one refuses or one fails.
    *
-   * @param grant     the grant, whose constraint is set
-   * @param toolName  the MCP tool name
-   * @param arguments the call arguments as the tool receives them
+   * @param constraint the grant's constraint
+   * @param toolName   the MCP tool name
+   * @param arguments  the call arguments as the tool receives them
    * @return true only when every evaluator confirms the call stays within it
    */
-  private boolean matchesConstraint(McpToolGrant grant, String toolName, Map<String, Object> arguments) {
+  private boolean matchesConstraint(McpToolGrantConstraint constraint, String toolName, Map<String, Object> arguments) {
     List<McpToolGrantConstraintEvaluator> evaluators = getEvaluators(toolName);
     if (evaluators.isEmpty() || arguments == null) {
       return false;
     }
-    return evaluators.stream().allMatch(evaluator -> matches(evaluator, grant, toolName, arguments));
+    return evaluators.stream().allMatch(evaluator -> matches(evaluator, constraint, toolName, arguments));
   }
 
   /**
-   * @param evaluator an evaluator of the tool
-   * @param grant     the grant, whose constraint is set
-   * @param toolName  the MCP tool name
-   * @param arguments the call arguments as the tool receives them
-   * @return whether that evaluator confirms the call stays within the grant's
+   * @param evaluator  an evaluator of the tool
+   * @param constraint the grant's constraint
+   * @param toolName   the MCP tool name
+   * @param arguments  the call arguments as the tool receives them
+   * @return whether that evaluator confirms the call stays within the
    *         constraint, false when it fails
    */
   private boolean matches(McpToolGrantConstraintEvaluator evaluator,
-                          McpToolGrant grant,
+                          McpToolGrantConstraint constraint,
                           String toolName,
                           Map<String, Object> arguments) {
     try {
-      return evaluator.matchesGrant(toolName, arguments, grant);
+      return evaluator.matches(toolName, arguments, constraint);
     } catch (RuntimeException e) {
       log.warn("Argument limit of tool '{}' couldn't be checked, the grant doesn't apply", toolName, e);
       return false;
