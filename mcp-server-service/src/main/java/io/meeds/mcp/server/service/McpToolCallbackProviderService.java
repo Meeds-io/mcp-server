@@ -515,13 +515,12 @@ public class McpToolCallbackProviderService implements ToolCallbackProvider {
       }
       ActingIdentity actingIdentity = grantRequest.actingIdentity();
       boolean noApprover = actingIdentity != null && actingIdentity.onBehalfOf() == null;
-      if (StringUtils.isBlank(grantRequest.conversationId())) {
+      if (noApprover) {
+        throw new UserToolRefusedException(LLM_NO_APPROVER_EXPLANATION.formatted(toolMethod.getName()));
+      } else if (StringUtils.isBlank(grantRequest.conversationId())) {
         // The approval card lives in the chat conversation: without one,
         // nobody could ever answer and the request would only time out
-        String explanation = LLM_NO_CONVERSATION_EXPLANATION.formatted(toolMethod.getName());
-        throw noApprover ? new UserToolRefusedException(explanation) : new IllegalStateException(explanation);
-      } else if (noApprover) {
-        throw new UserToolRefusedException(LLM_NO_APPROVER_EXPLANATION.formatted(toolMethod.getName()));
+        throw new IllegalStateException(LLM_NO_CONVERSATION_EXPLANATION.formatted(toolMethod.getName()));
       }
       boolean grantable = !alwaysAsk
                           && mcpToolGrantService != null
