@@ -560,9 +560,9 @@ class McpToolCallbackProviderServiceTest {
   }
 
   /**
-   * An unattended agent-account run carries no conversation: the existing
-   * no-conversation refusal fires first, and for an agent acting as itself it
-   * is traced as denied.
+   * An unattended agent-account run carries no conversation: it gets the
+   * refusal written for an agent acting as itself, not the one asking the LLM
+   * to tell a user, and is traced as denied.
    */
   @Test
   void call_agentActingAsItselfWithoutConversation_refusedAsDenied() {// NOSONAR
@@ -574,7 +574,8 @@ class McpToolCallbackProviderServiceTest {
 
     UserToolRefusedException e = assertThrows(UserToolRefusedException.class, () -> toolCallback.call(TOOL_INPUT));
 
-    assertTrue(e.getMessage().contains("conversation"), e.getMessage());
+    assertTrue(e.getMessage().contains("nobody"), e.getMessage());
+    assertFalse(e.getMessage().contains("tell the user"), e.getMessage());
     verify(mcpToolApprovalService, never()).requestApproval(any(), any(), any(), any(), any(), any(), anyBoolean(), any());
     verify(mcpToolApprovalService).traceToolExecution(argThatIs(UserToolRequestType.TOOL_EXECUTION_DENIED));
     verify(mcpToolApprovalService, never()).traceToolExecution(argThatIs(UserToolRequestType.TOOL_EXECUTION_ERROR));
