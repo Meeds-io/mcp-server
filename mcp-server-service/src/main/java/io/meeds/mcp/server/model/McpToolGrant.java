@@ -75,12 +75,6 @@ public class McpToolGrant {
   /** The instant from which the grant no longer applies. */
   private Instant                expiresAt;
 
-  /**
-   * The login of who created the grant, which may differ from its owner, or
-   * null when the store doesn't say.
-   */
-  private String                 createdBy;
-
   // Workaround javadoc error not reading lombok classes
   public static class McpToolGrantBuilder { // NOSONAR
   }
