@@ -594,11 +594,17 @@ public class McpToolUtils {
       PrincipalRef actor = new PrincipalRef(toEnum(PrincipalKind.class, request.getHeader(TOOL_CONTEXT_ACTOR_KIND_PARAM)),
                                             StringUtils.trimToNull(request.getHeader(TOOL_CONTEXT_ACTOR_USER_NAME_PARAM)),
                                             StringUtils.trimToNull(request.getHeader(TOOL_CONTEXT_ACTOR_AGENT_NAME_ID_PARAM)));
-      return new ActingIdentity(actor,
-                                StringUtils.trimToNull(request.getHeader(TOOL_CONTEXT_ON_BEHALF_OF_PARAM)),
-                                parseAgentChain(request.getHeader(TOOL_CONTEXT_AGENT_CHAIN_PARAM)),
-                                toEnum(Origin.class, request.getHeader(TOOL_CONTEXT_ORIGIN_PARAM)),
-                                request.getHeader(TOOL_CONTEXT_AGENT_NAME_ID_PARAM));
+      ActingIdentity identity = new ActingIdentity(actor,
+                                                   StringUtils.trimToNull(request.getHeader(TOOL_CONTEXT_ON_BEHALF_OF_PARAM)),
+                                                   parseAgentChain(request.getHeader(TOOL_CONTEXT_AGENT_CHAIN_PARAM)),
+                                                   toEnum(Origin.class, request.getHeader(TOOL_CONTEXT_ORIGIN_PARAM)),
+                                                   request.getHeader(TOOL_CONTEXT_AGENT_NAME_ID_PARAM));
+      String agentAccountScope = ActingIdentity.AGENT_USER_SCOPE_PREFIX + actor.agentNameId();
+      if (actor.kind() == PrincipalKind.AGENT && !agentAccountScope.equals(identity.grantScope())) {
+        throw new IllegalArgumentException("agent '%s' announces the grant scope '%s' instead of its own".formatted(actor.agentNameId(),
+                                                                                                                   identity.grantScope()));
+      }
+      return identity;
     } catch (IllegalArgumentException e) {
       throw new IllegalStateException("The acting identity of the call is refused: %s".formatted(e.getMessage()), e);
     }
