@@ -83,8 +83,8 @@ class ActivityMcpToolCommentEditAclTest extends IntegrationTestBase {
   @Test
   void memberWhoCanViewACommentCannotEditAnotherMembersComment() throws Exception {
     SpaceModel space = createSpaceWithMember();
-    ActivityModel activity = activityMcpTool.createActivity(space.getSpaceId(), "A post in the space", null);
-    ActivityCommentModel comment = activityMcpTool.createActivityComment(activity.id(), "Words written by John", null);
+    ActivityModel activity = activityMcpTool.createActivity(space.getSpaceId(), "A post in the space");
+    ActivityCommentModel comment = activityMcpTool.createActivityComment(activity.id(), "Words written by John");
 
     actAs(MEMBER);
     assertNotNull(activityMcpTool.getActivityComment(comment.id()), "the member must be able to read the comment");
@@ -93,7 +93,7 @@ class ActivityMcpToolCommentEditAclTest extends IntegrationTestBase {
                                                   () -> activityMcpTool.updateComment(comment.id(), "Rewritten by Mary"));
 
     assertEquals("Comment with id '%s' can't be edited by current user".formatted(comment.id()), refusal.getMessage());
-    assertEquals("<p>Words written by John</p>", storedTitle(comment.id()));
+    assertEquals("Words written by John", storedTitle(comment.id()));
   }
 
   /**
@@ -105,17 +105,17 @@ class ActivityMcpToolCommentEditAclTest extends IntegrationTestBase {
   @Test
   void spaceManagerWhoIsNotTheAuthorCannotEditAMembersComment() throws Exception {
     SpaceModel space = createSpaceWithMember();
-    ActivityModel activity = activityMcpTool.createActivity(space.getSpaceId(), "The manager's post", null);
+    ActivityModel activity = activityMcpTool.createActivity(space.getSpaceId(), "The manager's post");
 
     actAs(MEMBER);
-    ActivityCommentModel comment = activityMcpTool.createActivityComment(activity.id(), "Words written by Mary", null);
+    ActivityCommentModel comment = activityMcpTool.createActivityComment(activity.id(), "Words written by Mary");
 
     actAs(USERNAME);
     assertTrue(spaceService.isManager(spaceService.getSpaceById(space.getSpaceId()), USERNAME));
     assertNotNull(activityMcpTool.getActivityComment(comment.id()), "the manager must be able to read the comment");
 
     assertThrows(IllegalAccessException.class, () -> activityMcpTool.updateComment(comment.id(), "Rewritten by John"));
-    assertEquals("<p>Words written by Mary</p>", storedTitle(comment.id()));
+    assertEquals("Words written by Mary", storedTitle(comment.id()));
   }
 
   /**
@@ -127,15 +127,15 @@ class ActivityMcpToolCommentEditAclTest extends IntegrationTestBase {
   @Test
   void authorEditsTheirOwnComment() throws Exception {
     SpaceModel space = createSpaceWithMember();
-    ActivityModel activity = activityMcpTool.createActivity(space.getSpaceId(), "A post to comment on", null);
+    ActivityModel activity = activityMcpTool.createActivity(space.getSpaceId(), "A post to comment on");
 
     actAs(MEMBER);
-    ActivityCommentModel comment = activityMcpTool.createActivityComment(activity.id(), "First version", null);
+    ActivityCommentModel comment = activityMcpTool.createActivityComment(activity.id(), "First version");
 
     ActivityCommentModel updated = activityMcpTool.updateComment(comment.id(), "Second version");
 
     assertEquals(comment.id(), updated.id());
-    assertEquals("<p>Second version</p>", storedTitle(comment.id()));
+    assertEquals("Second version", storedTitle(comment.id()));
   }
 
   /**
@@ -153,8 +153,7 @@ class ActivityMcpToolCommentEditAclTest extends IntegrationTestBase {
                                                      "Comment edit ACL space",
                                                      Visibility.LISTED,
                                                      Registration.OPEN,
-                                                     List.of(),
-                                                     null);
+                                                     List.of());
     identityManager.getOrCreateUserIdentity(MEMBER);
     Space space = spaceService.getSpaceById(spaceModel.getSpaceId());
     spaceService.addMember(space, MEMBER);
