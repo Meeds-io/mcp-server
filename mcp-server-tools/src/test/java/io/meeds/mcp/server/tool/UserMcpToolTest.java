@@ -279,8 +279,9 @@ class UserMcpToolTest extends IntegrationTestBase {
   /**
    * Hiding a field the platform marks as not editable is refused to a
    * non-administrator, as Social's visibility endpoint refuses it, and allowed
-   * to an administrator. Mutant: the editability check removed from
-   * setProfileFieldVisibility.
+   * to an administrator, whose toggleable fields list it while a
+   * non-administrator's don't. Mutants: the editability check removed from
+   * setProfileFieldVisibility; the toggleable list left unfiltered.
    */
   @Test
   void setProfileFieldVisibilityRefusesNonEditableFieldForNonAdministrator() throws Exception {
@@ -295,11 +296,17 @@ class UserMcpToolTest extends IntegrationTestBase {
     try {
       ProfileFieldVisibilityModel asAdministrator = userMcpTool.setProfileFieldVisibility("mcpLockedVisibilityField", Boolean.TRUE);
       assertTrue(asAdministrator.hiddenFields().contains("mcpLockedVisibilityField"));
+      assertTrue(asAdministrator.toggleableFields().stream().anyMatch(f -> "mcpLockedVisibilityField".equals(f.name())));
       userMcpTool.setProfileFieldVisibility("mcpLockedVisibilityField", Boolean.FALSE);
 
       ConversationState.setCurrent(new ConversationState(new org.exoplatform.services.security.Identity("james")));
       assertThrows(IllegalAccessException.class,
                    () -> userMcpTool.setProfileFieldVisibility("mcpLockedVisibilityField", Boolean.TRUE));
+      // the locked field is not offered to a non-administrator as one they can toggle
+      assertFalse(userMcpTool.getProfileFieldVisibility()
+                             .toggleableFields()
+                             .stream()
+                             .anyMatch(f -> "mcpLockedVisibilityField".equals(f.name())));
     } finally {
       profilePropertyService.deleteProfilePropertySetting(created.getId());
     }
