@@ -513,7 +513,8 @@ public class UserMcpTool implements McpToolPlugin {
     if (StringUtils.isBlank(fieldName)) {
       throw new IllegalArgumentException("'field_name' is mandatory.");
     }
-    List<ProfilePropertySetting> toggleable = toggleableSettings();
+    String username = getCurrentUserName();
+    List<ProfilePropertySetting> toggleable = toggleableSettings(username);
     ProfilePropertySetting setting = toggleable.stream()
                                                .filter(s -> fieldName.equals(s.getPropertyName()))
                                                .findFirst()
@@ -522,13 +523,16 @@ public class UserMcpTool implements McpToolPlugin {
       // Distinguish a field that exists but can't be hidden from a plain unknown name.
       ProfilePropertySetting existing = profilePropertyService.getProfileSettingByName(fieldName);
       if (existing != null) {
+        // a hiddenable field an administrator locked is refused for that reason
+        if (hiddenableSettings().stream().anyMatch(s -> s.getId().equals(existing.getId()))) {
+          assertEditable(username, existing.getPropertyName());
+        }
         throw new IllegalArgumentException("The '%s' field can't be hidden.".formatted(fieldName));
       }
       String validNames = toggleable.stream().map(ProfilePropertySetting::getPropertyName).collect(Collectors.joining(", "));
       throw new IllegalArgumentException("Unknown field '%s'. Toggleable fields are: %s. Call get_profile_field_visibility to see them.".formatted(fieldName,
                                                                                                                                                  validNames));
     }
-    assertEditable(getCurrentUserName(), setting.getPropertyName());
     long myUserIdentityId = Long.parseLong(me().getId());
     if (Boolean.TRUE.equals(hidden)) {
       profilePropertyService.hidePropertySetting(myUserIdentityId, setting.getId());
@@ -541,24 +545,36 @@ public class UserMcpTool implements McpToolPlugin {
   public ProfileFieldVisibilityModel getProfileFieldVisibility() {
     long myUserIdentityId = Long.parseLong(me().getId());
     List<Long> hiddenIds = profilePropertyService.getHiddenProfilePropertyIds(myUserIdentityId);
-    List<ToggleableField> toggleableFields = toggleableSettings().stream()
+    List<ToggleableField> toggleableFields = toggleableSettings(getCurrentUserName()).stream()
                                                                  .map(s -> new ToggleableField(s.getPropertyName(),
                                                                                                hiddenIds.contains(s.getId())))
                                                                  .toList();
-    List<String> hiddenFields = toggleableFields.stream()
-                                                .filter(ToggleableField::hidden)
-                                                .map(ToggleableField::name)
-                                                .toList();
+    List<String> hiddenFields = hiddenableSettings().stream()
+                                                    .filter(s -> hiddenIds.contains(s.getId()))
+                                                    .map(ProfilePropertySetting::getPropertyName)
+                                                    .toList();
     return new ProfileFieldVisibilityModel(hiddenFields, toggleableFields);
   }
 
   /**
-   * All profile property settings whose visibility the user can toggle: hiddenable
-   * ({@code isPropertySettingHiddenable} already excludes the un-hiddenable list,
-   * child properties and non-hiddenable flags) and not in the explicit
-   * un-hiddenable list.
+   * The profile property settings whose visibility the user can toggle: the
+   * hiddenable ones the user may edit, since a field an administrator locked is
+   * refused to a non-administrator, as Social's visibility endpoint refuses it.
+   *
+   * @param username the user
+   * @return the settings
    */
-  private List<ProfilePropertySetting> toggleableSettings() {
+  private List<ProfilePropertySetting> toggleableSettings(String username) {
+    boolean administrator = isAdministrator(username);
+    return hiddenableSettings().stream().filter(s -> administrator || s.isEditable()).toList();
+  }
+
+  /**
+   * All hiddenable profile property settings: {@code isPropertySettingHiddenable}
+   * already excludes child properties and non-hiddenable flags, and the explicit
+   * un-hiddenable list is left out.
+   */
+  private List<ProfilePropertySetting> hiddenableSettings() {
     List<String> unhiddenable = profilePropertyService.getUnhiddenableProfileProperties();
     return profilePropertyService.getPropertySettings()
                                  .stream()
@@ -674,9 +690,13 @@ public class UserMcpTool implements McpToolPlugin {
     ProfilePropertySetting propertySetting = profilePropertyService.getProfileSettingByName(propertyName);
     if (propertySetting != null
         && !propertySetting.isEditable()
-        && !userAcl.getUserIdentity(username).isMemberOf(userAcl.getAdminGroups())) {
+        && !isAdministrator(username)) {
       throw new IllegalAccessException("Not allowed to update non modifiable field '%s'".formatted(propertyName));
     }
+  }
+
+  private boolean isAdministrator(String username) {
+    return userAcl.getUserIdentity(username).isMemberOf(userAcl.getAdminGroups());
   }
 
   /**
