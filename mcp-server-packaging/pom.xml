@@ -26,7 +26,7 @@
   <parent>
     <groupId>io.meeds.mcp-server</groupId>
     <artifactId>mcp-server</artifactId>
-    <version>7.3.x-ai-contribution-SNAPSHOT</version>
+    <version>7.3.x-rtd-SNAPSHOT</version>
   </parent>
   <artifactId>mcp-server-packaging</artifactId>
   <packaging>pom</packaging>
