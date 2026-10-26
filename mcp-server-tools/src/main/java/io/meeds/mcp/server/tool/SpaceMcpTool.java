@@ -310,10 +310,13 @@ public class SpaceMcpTool implements McpToolPlugin {
    * Removes users from a space the current user manages. Refused before any
    * removal when one of them is the space's only manager, or when the list
    * holds every manager; each user is then checked again against the space as
-   * stored, right before its removal, so that a change made elsewhere
-   * meanwhile never leaves the space without a manager. A refusal at that
-   * point leaves the users removed before it removed. The current user is the
-   * editor of each removal, as in the Social REST endpoint.
+   * stored, right before its removal, so that a change made elsewhere before
+   * that read is taken into account. The read and the removal are not one
+   * transaction: a manager demoted or removed elsewhere between them, by a
+   * concurrent removal of the other manager among others, can still leave the
+   * space without one. A refusal at that point leaves the users removed before
+   * it removed. The current user is the editor of each removal, as in the
+   * Social REST endpoint.
    *
    * @param spaceId the space
    * @param usernamesToRemove the users, possibly prefixed with "@"
