@@ -76,6 +76,13 @@ import lombok.SneakyThrows;
 @Service
 public class UserMcpTool implements McpToolPlugin {
 
+  /**
+   * The profile setting of a user's phones, which Social's configuration may
+   * register; the phone parameter of update_my_profile writes
+   * {@link Profile#DISPLAYED_PHONE}.
+   */
+  private static final String     PHONES_SETTING = "phones";
+
   private IdentityManager         identityManager;
 
   private ProfilePropertyService  profilePropertyService;
@@ -374,7 +381,9 @@ public class UserMcpTool implements McpToolPlugin {
     assertEditable(username, Profile.TEAM, team);
     assertEditable(username, Profile.CITY, city);
     assertEditable(username, Profile.COUNTRY, country);
+    // the parameter writes displayedPhone; a "phones" setting an administrator locks governs it too
     assertEditable(username, Profile.DISPLAYED_PHONE, phones);
+    assertEditable(username, PHONES_SETTING, phones);
     assertEditable(username, Profile.CONTACT_URLS, urls);
     boolean changed = setIfPresent(profile, Profile.ABOUT_ME, aboutMe);
     changed = setIfPresent(profile, Profile.POSITION, position) || changed;
@@ -490,6 +499,16 @@ public class UserMcpTool implements McpToolPlugin {
   // Profile field visibility (current user)
   // ---------------------------------------------------------------------------
 
+  /**
+   * Hides or shows one of the current user's profile fields. A field the
+   * platform marks as not editable is refused to a non-administrator, as
+   * Social's visibility endpoint refuses it before toggling.
+   *
+   * @param fieldName the field
+   * @param hidden true to hide it, false or null to show it
+   * @return the user's field visibility after the change
+   */
+  @SneakyThrows
   public ProfileFieldVisibilityModel setProfileFieldVisibility(String fieldName, Boolean hidden) {
     if (StringUtils.isBlank(fieldName)) {
       throw new IllegalArgumentException("'field_name' is mandatory.");
@@ -509,6 +528,7 @@ public class UserMcpTool implements McpToolPlugin {
       throw new IllegalArgumentException("Unknown field '%s'. Toggleable fields are: %s. Call get_profile_field_visibility to see them.".formatted(fieldName,
                                                                                                                                                  validNames));
     }
+    assertEditable(getCurrentUserName(), setting.getPropertyName());
     long myUserIdentityId = Long.parseLong(me().getId());
     if (Boolean.TRUE.equals(hidden)) {
       profilePropertyService.hidePropertySetting(myUserIdentityId, setting.getId());

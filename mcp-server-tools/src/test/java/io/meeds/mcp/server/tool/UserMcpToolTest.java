@@ -250,6 +250,62 @@ class UserMcpToolTest extends IntegrationTestBase {
   }
 
   /**
+   * The phone parameter writes displayedPhone, and a "phones" setting an
+   * administrator locks governs it too. Mutant: the "phones" check removed.
+   */
+  @Test
+  void updateMyProfileRefusesPhonesUnderANonEditablePhonesSettingForNonAdministrator() throws Exception {
+    ProfilePropertySetting existing = profilePropertyService.getProfileSettingByName("phones");
+    ProfilePropertySetting locked = existing == null ? createNonEditableSetting("phones") : existing;
+    boolean wasEditable = existing != null && existing.isEditable();
+    if (existing != null) {
+      existing.setEditable(false);
+      profilePropertyService.updatePropertySetting(existing);
+    }
+    ConversationState.setCurrent(new ConversationState(new org.exoplatform.services.security.Identity("james")));
+    try {
+      assertThrows(IllegalAccessException.class,
+                   () -> userMcpTool.updateMyProfile(null, null, null, null, null, null, null, "+33123456789", null));
+    } finally {
+      if (existing == null) {
+        profilePropertyService.deleteProfilePropertySetting(locked.getId());
+      } else {
+        existing.setEditable(wasEditable);
+        profilePropertyService.updatePropertySetting(existing);
+      }
+    }
+  }
+
+  /**
+   * Hiding a field the platform marks as not editable is refused to a
+   * non-administrator, as Social's visibility endpoint refuses it, and allowed
+   * to an administrator. Mutant: the editability check removed from
+   * setProfileFieldVisibility.
+   */
+  @Test
+  void setProfileFieldVisibilityRefusesNonEditableFieldForNonAdministrator() throws Exception {
+    ProfilePropertySetting setting = new ProfilePropertySetting();
+    setting.setPropertyName("mcpLockedVisibilityField");
+    setting.setPropertyType("text");
+    setting.setActive(true);
+    setting.setVisible(true);
+    setting.setEditable(false);
+    setting.setHiddenbale(true);
+    ProfilePropertySetting created = profilePropertyService.createPropertySetting(setting);
+    try {
+      ProfileFieldVisibilityModel asAdministrator = userMcpTool.setProfileFieldVisibility("mcpLockedVisibilityField", Boolean.TRUE);
+      assertTrue(asAdministrator.hiddenFields().contains("mcpLockedVisibilityField"));
+      userMcpTool.setProfileFieldVisibility("mcpLockedVisibilityField", Boolean.FALSE);
+
+      ConversationState.setCurrent(new ConversationState(new org.exoplatform.services.security.Identity("james")));
+      assertThrows(IllegalAccessException.class,
+                   () -> userMcpTool.setProfileFieldVisibility("mcpLockedVisibilityField", Boolean.TRUE));
+    } finally {
+      profilePropertyService.deleteProfilePropertySetting(created.getId());
+    }
+  }
+
+  /**
    * Registers the position profile property as not editable.
    */
   private ProfilePropertySetting createNonEditablePositionSetting() throws Exception {
