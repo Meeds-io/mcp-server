@@ -18,6 +18,7 @@
  */
 package io.meeds.mcp.server.tool;
 
+import static io.meeds.mcp.server.tool.util.McpToolPluginUtils.clampLimit;
 import static io.meeds.mcp.server.tool.util.McpToolPluginUtils.getInteger;
 import static io.meeds.mcp.server.util.McpToolUtils.markdownToHtml;
 
@@ -30,6 +31,7 @@ import java.time.format.DateTimeParseException;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Collections;
+import java.util.Date;
 import java.util.HashMap;
 import java.util.Iterator;
 import java.util.List;
@@ -57,6 +59,7 @@ import org.exoplatform.social.attachment.AttachmentService;
 import org.exoplatform.social.attachment.model.ObjectAttachmentDetail;
 import org.exoplatform.social.attachment.model.ObjectAttachmentList;
 import org.exoplatform.social.attachment.model.UploadedAttachmentDetail;
+import org.exoplatform.social.common.RealtimeListAccess;
 import org.exoplatform.social.core.activity.ActivityFilter;
 import org.exoplatform.social.core.activity.ActivityStreamType;
 import org.exoplatform.social.core.activity.filter.ActivitySearchFilter;
@@ -75,8 +78,10 @@ import org.exoplatform.social.core.utils.MentionUtils;
 
 import io.meeds.mcp.server.model.ActingIdentity;
 import io.meeds.mcp.server.plugin.McpToolPlugin;
+import io.meeds.mcp.server.tool.model.ActivityCollectionModel;
 import io.meeds.mcp.server.tool.model.ActivityCommentModel;
 import io.meeds.mcp.server.tool.model.ActivityModel;
+import io.meeds.mcp.server.tool.model.ActivitySummaryModel;
 import io.meeds.mcp.server.tool.model.AttachmentModel;
 import io.meeds.mcp.server.tool.model.UserModel;
 import io.meeds.mcp.server.tool.util.ActivityToolUtils;
@@ -157,9 +162,26 @@ public class ActivityMcpTool implements McpToolPlugin {
   @Autowired
   private FileService             fileService;
 
+  /**
+   * Lists the activities updated since a number of days, reading the stream
+   * newest first, by pages of {@link McpToolPlugin#DEFAULT_LIMIT}, and stopping
+   * at the first page holding none of them or once {@link #MAX_TO_LOAD}
+   * activities were read. When it stops on that bound, it reads the next
+   * activity of the stream and says {@code has_more} only when that one
+   * exists and is updated since then too. An activity deleted between the
+   * listing of its id and its read is skipped, and each activity is read
+   * once, so none is listed empty.
+   *
+   * @param spaceId restrict to one space, or null for every stream the user
+   *                  sees
+   * @param days    the number of days to look back
+   * @return the activities updated since then, at most {@link #MAX_TO_LOAD}
+   * @throws IllegalAccessException  when the user can't view the space
+   * @throws ObjectNotFoundException when the space doesn't exist
+   */
   @SneakyThrows
-  public List<ActivityModel> getActivitiesSinceDays(Long spaceId, Long days) throws IllegalAccessException, // NOSONAR
-                                                                             ObjectNotFoundException {
+  public ActivityCollectionModel getActivitiesSinceDays(Long spaceId, Long days) throws IllegalAccessException, // NOSONAR
+                                                                                 ObjectNotFoundException {
     org.exoplatform.services.security.Identity currentUser = getCurrentUserAclIdentity();
     String currentUsername = currentUser.getUserId();
     Identity currentUserIdentity = identityManager.getOrCreateUserIdentity(currentUsername);
@@ -183,37 +205,81 @@ public class ActivityMcpTool implements McpToolPlugin {
                                    .toEpochSecond() *
         1000l;
 
-    List<ActivityModel> result = new ArrayList<>();
+    RealtimeListAccess<ExoSocialActivity> listAccess = activityManager.getActivitiesByFilterWithListAccess(currentUserIdentity,
+                                                                                                          activityFilter);
+    List<ActivitySummaryModel> result = new ArrayList<>();
     int offset = 0;
-    int limit = 10;
-    List<ExoSocialActivity> activities;
-    do {
-      List<String> activityIds = activityManager.getActivitiesByFilterWithListAccess(currentUserIdentity,
-                                                                                     activityFilter)
-                                                .loadIdsAsList(getInteger(offset, DEFAULT_OFFSET),
-                                                               getInteger(limit, DEFAULT_LIMIT));
+    int limit = DEFAULT_LIMIT;
+    while (offset < MAX_TO_LOAD) {
+      List<String> activityIds = listAccess.loadIdsAsList(offset, limit);
       if (CollectionUtils.isEmpty(activityIds)) {
         break;
-      } else {
-        activities = activityIds.stream()
-                                .map(activityManager::getActivity)
-                                .filter(a -> a.getUpdated() == null ? a.getPostedTime() > sinceTimestamp :
-                                                                    a.getUpdated().getTime() > sinceTimestamp)
-                                .toList();
-        if (CollectionUtils.isNotEmpty(activities)) {
-          activities.stream()
-                    .map(ExoSocialActivity::getId)
-                    .map(this::toActivityModel)
-                    .forEach(result::add);
-        }
-        offset += limit;
       }
-    } while (!activities.isEmpty() && offset < MAX_TO_LOAD);
-    return result;
+      List<ExoSocialActivity> activities = activityIds.stream()
+                                                      .map(activityManager::getActivity)
+                                                      .filter(Objects::nonNull)
+                                                      .filter(a -> getLastChangeTime(a) > sinceTimestamp)
+                                                      .toList();
+      if (activities.isEmpty()) {
+        break;
+      }
+      activities.stream()
+                .map(this::toActivitySummaryModel)
+                .filter(Objects::nonNull)
+                .forEach(result::add);
+      offset += limit;
+    }
+    boolean hasMore = offset >= MAX_TO_LOAD && hasActivitySince(listAccess, MAX_TO_LOAD, sinceTimestamp);
+    return new ActivityCollectionModel(result, MAX_TO_LOAD, hasMore, null);
   }
 
+  /**
+   * Tells whether the activity at a position of a stream exists and changed
+   * since a time.
+   *
+   * @param listAccess     the stream
+   * @param position       the activity's index in the stream
+   * @param sinceTimestamp the time, in milliseconds
+   * @return true when the stream holds an activity there, readable and
+   *         changed after that time
+   */
+  private boolean hasActivitySince(RealtimeListAccess<ExoSocialActivity> listAccess, int position, long sinceTimestamp) {
+    List<String> activityIds = listAccess.loadIdsAsList(position, 1);
+    if (CollectionUtils.isEmpty(activityIds)) {
+      return false;
+    }
+    ExoSocialActivity activity = activityManager.getActivity(activityIds.get(0));
+    return activity != null && getLastChangeTime(activity) > sinceTimestamp;
+  }
+
+  /**
+   * Gives the time an activity last changed: its update time when it has one,
+   * its posting time otherwise.
+   *
+   * @param activity the activity
+   * @return the time in milliseconds
+   */
+  private long getLastChangeTime(ExoSocialActivity activity) {
+    Date updated = activity.getUpdated();
+    return updated == null ? activity.getPostedTime() : updated.getTime();
+  }
+
+  /**
+   * Lists a page of the activities of a space, or of every stream the user
+   * sees.
+   *
+   * @param spaceId restrict to one space, or null for every stream the user
+   *                  sees
+   * @param offset  index of the first activity to retrieve
+   * @param limit   maximum number of activities to retrieve, at most
+   *                  {@link io.meeds.mcp.server.tool.util.McpToolPluginUtils#MAX_LIMIT}
+   * @return the activities, each one with its author and space reduced to
+   *         what names them
+   * @throws IllegalAccessException  when the user can't view the space
+   * @throws ObjectNotFoundException when the space doesn't exist
+   */
   @SneakyThrows
-  public List<ActivityModel> getActivities(Long spaceId,
+  public List<ActivitySummaryModel> getActivities(Long spaceId,
                                            Integer offset,
                                            Integer limit) throws IllegalAccessException, ObjectNotFoundException {
     org.exoplatform.services.security.Identity currentUser = getCurrentUserAclIdentity();
@@ -236,13 +302,27 @@ public class ActivityMcpTool implements McpToolPlugin {
     List<String> activityIds = activityManager.getActivitiesByFilterWithListAccess(currentUserIdentity,
                                                                                    activityFilter)
                                               .loadIdsAsList(getInteger(offset, DEFAULT_OFFSET),
-                                                             getInteger(limit, DEFAULT_LIMIT));
+                                                             clampLimit(limit, DEFAULT_LIMIT));
     return activityIds.stream()
-                      .map(this::toActivityModel)
+                      .map(this::toActivitySummaryModel)
+                      .filter(Objects::nonNull)
                       .toList();
   }
 
-  public List<ActivityModel> getUserActivityStream(String username,
+  /**
+   * Lists a page of the activity stream of a user, as the current user sees
+   * it.
+   *
+   * @param username the user whose stream to read, with or without a leading
+   *                   {@code @}
+   * @param offset   index of the first activity to retrieve
+   * @param limit    maximum number of activities to retrieve, at most
+   *                   {@link io.meeds.mcp.server.tool.util.McpToolPluginUtils#MAX_LIMIT}
+   * @return the activities, each one with its author and space reduced to
+   *         what names them
+   * @throws ObjectNotFoundException when the user doesn't exist
+   */
+  public List<ActivitySummaryModel> getUserActivityStream(String username,
                                                    Integer offset,
                                                    Integer limit) throws ObjectNotFoundException {
     org.exoplatform.services.security.Identity viewer = getCurrentUserAclIdentity();
@@ -254,9 +334,10 @@ public class ActivityMcpTool implements McpToolPlugin {
     Identity viewerIdentity = identityManager.getOrCreateUserIdentity(viewer.getUserId());
     List<String> activityIds = activityManager.getActivitiesWithListAccess(ownerIdentity, viewerIdentity)
                                               .loadIdsAsList(getInteger(offset, DEFAULT_OFFSET),
-                                                             getInteger(limit, DEFAULT_LIMIT));
+                                                             clampLimit(limit, DEFAULT_LIMIT));
     return activityIds.stream()
-                      .map(this::toActivityModel)
+                      .map(this::toActivitySummaryModel)
+                      .filter(Objects::nonNull)
                       .toList();
   }
 
@@ -644,7 +725,7 @@ public class ActivityMcpTool implements McpToolPlugin {
    * @param limit   maximum number of activities to retrieve
    * @return the list of pending scheduled activities, soonest first
    */
-  public List<ActivityModel> getScheduledActivities(Long spaceId,
+  public List<ActivitySummaryModel> getScheduledActivities(Long spaceId,
                                                     Integer offset,
                                                     Integer limit) throws IllegalAccessException, ObjectNotFoundException {
     org.exoplatform.services.security.Identity currentUser = getCurrentUserAclIdentity();
@@ -667,9 +748,10 @@ public class ActivityMcpTool implements McpToolPlugin {
     List<String> activityIds = activityManager.getActivitiesByFilterWithListAccess(currentUserIdentity,
                                                                                    activityFilter)
                                               .loadIdsAsList(getInteger(offset, DEFAULT_OFFSET),
-                                                             getInteger(limit, DEFAULT_LIMIT));
+                                                             clampLimit(limit, DEFAULT_LIMIT));
     return activityIds.stream()
-                      .map(this::toActivityModel)
+                      .map(this::toActivitySummaryModel)
+                      .filter(Objects::nonNull)
                       .toList();
   }
 
@@ -792,7 +874,7 @@ public class ActivityMcpTool implements McpToolPlugin {
     // loadSubComments = true: the replies of the page's comments come along,
     // each one right after its parent (Social's CommentComparator)
     ExoSocialActivity[] comments = activityManager.getCommentsWithListAccess(activity, true)
-                                                  .load(getInteger(offset, DEFAULT_OFFSET), getInteger(limit, DEFAULT_LIMIT));
+                                                  .load(getInteger(offset, DEFAULT_OFFSET), clampLimit(limit, DEFAULT_LIMIT));
     return comments == null ? Collections.emptyList() :
                             Stream.of(comments)
                                   .map(ExoSocialActivity::getId)
@@ -1178,7 +1260,7 @@ public class ActivityMcpTool implements McpToolPlugin {
       String currentUsername = currentUserIdentity.getUserId();
       return Stream.of(likerIdentityIds)
                    .skip(getInteger(offset, DEFAULT_OFFSET))
-                   .limit(getInteger(limit, DEFAULT_LIMIT))
+                   .limit(clampLimit(limit, DEFAULT_LIMIT))
                    .map(Long::parseLong)
                    .map(identityManager::getIdentity)
                    .filter(Objects::nonNull)
@@ -1221,7 +1303,23 @@ public class ActivityMcpTool implements McpToolPlugin {
     activityManager.deleteLike(activity, currentUserIdentity);
   }
 
-  public List<ActivityModel> searchActivities(String query,
+  /**
+   * Searches the activities the current user sees by text, or lists the
+   * favorite ones, or, with neither, lists the stream like
+   * {@link #getActivities(Long, Integer, Integer)}.
+   *
+   * @param query      the text to search
+   * @param spaceId    restrict to one space, or null for every stream
+   * @param isFavorite whether to return the favorite activities only
+   * @param offset     index of the first activity to retrieve
+   * @param limit      maximum number of activities to retrieve, at most
+   *                     {@link io.meeds.mcp.server.tool.util.McpToolPluginUtils#MAX_LIMIT}
+   * @return the activities, each one with its author and space reduced to
+   *         what names them
+   * @throws IllegalAccessException  when the user can't view the space
+   * @throws ObjectNotFoundException when the space doesn't exist
+   */
+  public List<ActivitySummaryModel> searchActivities(String query,
                                               Long spaceId,
                                               Boolean isFavorite,
                                               Integer offset,
@@ -1254,11 +1352,12 @@ public class ActivityMcpTool implements McpToolPlugin {
     List<ActivitySearchResult> searchResults = activitySearchConnector.search(currentUserIdentity,
                                                                               activityFilter,
                                                                               getInteger(offset, DEFAULT_OFFSET),
-                                                                              getInteger(limit, DEFAULT_LIMIT));
+                                                                              clampLimit(limit, DEFAULT_LIMIT));
     return searchResults.stream()
                         .map(ActivitySearchResult::getId)
                         .map(String::valueOf)
-                        .map(this::toActivityModel)
+                        .map(this::toActivitySummaryModel)
+                        .filter(Objects::nonNull)
                         .toList();
   }
 
@@ -1283,6 +1382,40 @@ public class ActivityMcpTool implements McpToolPlugin {
     activity.setTemplateParams(currentTemplateParams);
   }
 
+  /**
+   * @param activityId the activity id
+   * @return the activity as an item of a list of activities, {@code null} when
+   *         it doesn't exist
+   */
+  private ActivitySummaryModel toActivitySummaryModel(String activityId) {
+    return ActivityToolUtils.toActivitySummaryModel(toActivityModel(activityId));
+  }
+
+  /**
+   * @param activity an activity already read
+   * @return the activity as an item of a list of activities, as the current
+   *         user sees it, without reading it again
+   */
+  private ActivitySummaryModel toActivitySummaryModel(ExoSocialActivity activity) {
+    return ActivityToolUtils.toActivitySummaryModel(ActivityToolUtils.toActivityModel(activityManager,
+                                                                                      spaceService,
+                                                                                      identityManager,
+                                                                                      userAcl,
+                                                                                      permanentLinkService,
+                                                                                      profilePropertyService,
+                                                                                      translationService,
+                                                                                      i18NActivityProcessor,
+                                                                                      portalConfigService,
+                                                                                      activity,
+                                                                                      getCurrentUserAclIdentity(),
+                                                                                      getCurrentUserLocale()));
+  }
+
+  /**
+   * @param activityId the activity id
+   * @return the activity, as the current user sees it, {@code null} when it
+   *         doesn't exist
+   */
   private ActivityModel toActivityModel(String activityId) {
     return ActivityToolUtils.toActivityModel(activityManager,
                                              spaceService,

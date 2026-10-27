@@ -19,8 +19,10 @@
 package io.meeds.mcp.server.tool;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyBoolean;
 import static org.mockito.ArgumentMatchers.anyInt;
@@ -223,6 +225,36 @@ class SpaceMcpToolAclTest {
       SubSpacesPageModel lastPage = tool.listSubSpaces(SPACE_ID, 2, 2);
       assertEquals(List.of(23L), spaceIds(lastPage));
       assertNull(lastPage.nextOffset());
+    }
+  }
+
+  /**
+   * A limit above 100 loads pages of 100 sub-spaces, and the page says
+   * has_more exactly when it gives a next offset. Mutants: the limit not
+   * capped, which loads 500; has_more not derived from the next offset.
+   */
+  @Test
+  void listSubSpacesCapsTheLimitAndSaysWhenMoreFollow() throws Exception {
+    ListAccess<Space> subSpaces = mockSubSpaces();
+    Space[] fullLoad = new Space[100];
+    for (int i = 0; i < fullLoad.length; i++) {
+      fullLoad[i] = subSpace(1000L + i, Space.PRIVATE);
+    }
+    when(subSpaces.load(0, 100)).thenReturn(fullLoad);
+    when(subSpaces.load(100, 100)).thenReturn(new Space[] { subSpace(23L, Space.PRIVATE) });
+    SpaceMcpTool tool = toolLimitedTo(null);
+
+    try (MockedStatic<CommonsUtils> commonsUtils = mockCurrentDomain()) {
+      SubSpacesPageModel page = tool.listSubSpaces(SPACE_ID, 0, 500);
+      assertEquals(100, page.subSpaces().size());
+      assertEquals(100, page.nextOffset());
+      assertTrue(page.hasMore());
+      verify(subSpaces, never()).load(0, 500);
+
+      SubSpacesPageModel lastPage = tool.listSubSpaces(SPACE_ID, 100, 500);
+      assertEquals(List.of(23L), spaceIds(lastPage));
+      assertNull(lastPage.nextOffset());
+      assertFalse(lastPage.hasMore());
     }
   }
 
