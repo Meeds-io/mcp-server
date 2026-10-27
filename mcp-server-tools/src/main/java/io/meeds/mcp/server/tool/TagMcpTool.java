@@ -18,6 +18,7 @@
  */
 package io.meeds.mcp.server.tool;
 
+import static io.meeds.mcp.server.tool.util.McpToolPluginUtils.clampLimit;
 import static io.meeds.mcp.server.tool.util.McpToolPluginUtils.getInteger;
 
 import java.util.Collections;
@@ -69,7 +70,7 @@ public class TagMcpTool implements McpToolPlugin {
   }
 
   public List<String> searchTags(String query, Integer limit) throws IllegalAccessException {
-    List<TagName> tagNames = tagService.findTags(new TagFilter(StringUtils.defaultString(query), getInteger(limit, DEFAULT_LIMIT)),
+    List<TagName> tagNames = tagService.findTags(new TagFilter(StringUtils.defaultString(query), clampLimit(limit, DEFAULT_LIMIT)),
                                                  currentUserIdentityId());
     return tagNames == null ? Collections.emptyList() : tagNames.stream().map(TagName::getName).toList();
   }
@@ -87,7 +88,7 @@ public class TagMcpTool implements McpToolPlugin {
                                                                                              TagService.METADATA_TYPE.getName(),
                                                                                              objectType,
                                                                                              getInteger(offset, DEFAULT_OFFSET),
-                                                                                             getInteger(limit, DEFAULT_LIMIT));
+                                                                                             clampLimit(limit, DEFAULT_LIMIT));
     return items == null ? Collections.emptyList()
                          : items.stream()
                                 .filter(item -> canAccess(item.getObjectType(), item.getObjectId()))
