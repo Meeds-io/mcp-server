@@ -62,6 +62,7 @@ import org.exoplatform.social.core.profile.ProfileFilter;
 import org.exoplatform.social.core.profileproperty.ProfilePropertyService;
 import org.exoplatform.social.core.profileproperty.model.ProfilePropertySetting;
 import org.exoplatform.social.core.relationship.model.Relationship;
+import org.exoplatform.upload.UploadService;
 
 import io.meeds.mcp.server.plugin.McpToolPlugin;
 import io.meeds.mcp.server.tool.model.ExperienceModel;
@@ -103,6 +104,9 @@ public class UserMcpTool implements McpToolPlugin {
 
   @Autowired
   private FileService             fileService;
+
+  @Autowired
+  private UploadService           uploadService;
 
   public UserMcpTool(IdentityManager identityManager,
                      ProfilePropertyService profilePropertyService,
@@ -161,57 +165,90 @@ public class UserMcpTool implements McpToolPlugin {
 
   /**
    * Sets the current user's profile avatar from an image provided as exactly one
-   * of an http(s) URL, a base64 string, or an ACL-checked reference to a file
-   * already attached to a platform object. Acts as the current user, so the
-   * avatar always belongs to the caller. Refused with an
+   * of an http(s) URL, a base64 string, an ACL-checked reference to a file
+   * already attached to a platform object, or the upload id of a file the user
+   * sent with {@code start_upload}. Acts as the current user, so the avatar
+   * always belongs to the caller. Refused with an
    * {@code IllegalAccessException}, before the image is fetched, when the
    * platform marks the avatar as not editable, unless the user is an
    * administrator.
    *
+   * @param imageUrl the public http(s) URL of the image, or null
+   * @param imageBase64 the base64 bytes of the image, or null
+   * @param attachmentObjectType the type of the object holding an attachment
+   *          to use, or null
+   * @param attachmentObjectId the id of the object holding an attachment to
+   *          use, or null
+   * @param uploadId the upload id of an image the user uploaded, or null;
+   *          consumed by the call
    * @return the updated user
+   * @throws IllegalAccessException when the avatar is not editable, or the
+   *           attachment not readable
+   * @throws ObjectNotFoundException when the profile, the attachment or the
+   *           upload does not exist
    */
   public UserModel setMyAvatar(String imageUrl,
                                String imageBase64,
                                String attachmentObjectType,
-                               String attachmentObjectId) throws IllegalAccessException, ObjectNotFoundException {
-    return setProfileImage(Profile.AVATAR, imageUrl, imageBase64, attachmentObjectType, attachmentObjectId);
+                               String attachmentObjectId,
+                               String uploadId) throws IllegalAccessException, ObjectNotFoundException {
+    return setProfileImage(Profile.AVATAR,
+                           new UploadToolUtils.ImageSource(imageUrl, imageBase64, attachmentObjectType, attachmentObjectId, uploadId));
   }
 
   /**
    * Sets the current user's profile banner from an image provided as exactly one
-   * of an http(s) URL, a base64 string, or an ACL-checked reference to a readable
-   * platform attachment. Acts as the current user. Refused with an
+   * of an http(s) URL, a base64 string, an ACL-checked reference to a readable
+   * platform attachment, or the upload id of a file the user sent with
+   * {@code start_upload}. Acts as the current user. Refused with an
    * {@code IllegalAccessException}, before the image is fetched, when the
    * platform marks the banner as not editable, unless the user is an
    * administrator.
    *
+   * @param imageUrl the public http(s) URL of the image, or null
+   * @param imageBase64 the base64 bytes of the image, or null
+   * @param attachmentObjectType the type of the object holding an attachment
+   *          to use, or null
+   * @param attachmentObjectId the id of the object holding an attachment to
+   *          use, or null
+   * @param uploadId the upload id of an image the user uploaded, or null;
+   *          consumed by the call
    * @return the updated user
+   * @throws IllegalAccessException when the banner is not editable, or the
+   *           attachment not readable
+   * @throws ObjectNotFoundException when the profile, the attachment or the
+   *           upload does not exist
    */
   public UserModel setMyBanner(String imageUrl,
                                String imageBase64,
                                String attachmentObjectType,
-                               String attachmentObjectId) throws IllegalAccessException, ObjectNotFoundException {
-    return setProfileImage(Profile.BANNER, imageUrl, imageBase64, attachmentObjectType, attachmentObjectId);
+                               String attachmentObjectId,
+                               String uploadId) throws IllegalAccessException, ObjectNotFoundException {
+    return setProfileImage(Profile.BANNER,
+                           new UploadToolUtils.ImageSource(imageUrl, imageBase64, attachmentObjectType, attachmentObjectId, uploadId));
   }
 
   /**
    * Sets the avatar or the banner of the current user from the given image
    * source, once the platform setting of that property allows it.
+   *
+   * @param property {@link Profile#AVATAR} or {@link Profile#BANNER}
+   * @param source the one source of the image
+   * @return the updated user
+   * @throws IllegalAccessException when the property is not editable, or the
+   *           attachment not readable
+   * @throws ObjectNotFoundException when the profile, the attachment or the
+   *           upload does not exist
    */
   private UserModel setProfileImage(String property,
-                                    String imageUrl,
-                                    String imageBase64,
-                                    String attachmentObjectType,
-                                    String attachmentObjectId) throws IllegalAccessException, ObjectNotFoundException {
+                                    UploadToolUtils.ImageSource source) throws IllegalAccessException, ObjectNotFoundException {
     String username = getCurrentUserName();
     assertEditable(username, property);
     UploadToolUtils.FetchedContent image = UploadToolUtils.resolveImage(attachmentService,
                                                                       fileService,
+                                                                      uploadService,
                                                                       getCurrentUserAclIdentity(),
-                                                                      new UploadToolUtils.ImageSource(imageUrl,
-                                                                                                     imageBase64,
-                                                                                                     attachmentObjectType,
-                                                                                                     attachmentObjectId),
+                                                                      source,
                                                                       UploadToolUtils.DEFAULT_MAX_BYTES);
     Identity userIdentity = identityManager.getOrCreateUserIdentity(username);
     if (userIdentity == null || userIdentity.getProfile() == null) {

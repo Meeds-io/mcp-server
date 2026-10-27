@@ -48,7 +48,8 @@ import tools.jackson.databind.ObjectMapper;
 class ToolDefinitionAnnotationsTest {
 
   /** The tools of this module that write, each declaring readOnlyHint false. */
-  private static final Set<String> WRITE_TOOLS = Set.of("create_space",
+  private static final Set<String> WRITE_TOOLS = Set.of("start_upload",
+                                                        "create_space",
                                                         "update_space_settings",
                                                         "invite_users_to_space",
                                                         "remove_users_from_space",

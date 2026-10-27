@@ -82,7 +82,14 @@ public class McpServerToolService {
 
   private static final Context              AI_AGENT_CONTEXT              = Context.GLOBAL.id("AI_AGENT");
 
-  private static final String               TOOLS_KEY                     = "AI_AGENT_TOOL_DEFINITIONS_v18";
+  /**
+   * Key of the persisted tool definitions. A new key makes the next boot
+   * re-import every shipped definition, description and input schema
+   * included, and leaves the previous row unread: administrator edits made in
+   * the AI tools admin are reset once. The per-tool "always ask" flags live
+   * under their own scope and are kept.
+   */
+  private static final String               TOOLS_KEY                     = "AI_AGENT_TOOL_DEFINITIONS_v19";
 
   private static final Scope                TOOLS_SCOPE                   = Scope.APPLICATION.id(TOOLS_KEY);
 

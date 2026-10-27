@@ -56,6 +56,7 @@ import org.exoplatform.social.core.space.SpaceException;
 import org.exoplatform.social.core.space.SpaceFilter;
 import org.exoplatform.social.core.space.model.Space;
 import org.exoplatform.social.core.space.spi.SpaceService;
+import org.exoplatform.upload.UploadService;
 
 import io.meeds.mcp.server.plugin.McpToolPlugin;
 import io.meeds.mcp.server.tool.constant.Registration;
@@ -112,6 +113,9 @@ public class SpaceMcpTool implements McpToolPlugin {
 
   @Autowired
   private FileService             fileService;
+
+  @Autowired
+  private UploadService           uploadService;
 
   public SpaceModel createSpace(long spaceTemplateId, // NOSONAR
                                 String name,
@@ -424,26 +428,68 @@ public class SpaceMcpTool implements McpToolPlugin {
     }
   }
 
-  // Sets a space's avatar from an image provided as exactly one of an http(s)
-  // URL, a base64 string, or an ACL-checked reference to a readable platform
-  // attachment. Only a manager of the space may change it.
+  /**
+   * Sets a space's avatar from an image provided as exactly one of an http(s)
+   * URL, a base64 string, an ACL-checked reference to a readable platform
+   * attachment, or the upload id of a file the current user sent with
+   * {@code start_upload}. Only a manager of the space may change it.
+   *
+   * @param spaceId the space
+   * @param imageUrl the public http(s) URL of the image, or null
+   * @param imageBase64 the base64 bytes of the image, or null
+   * @param attachmentObjectType the type of the object holding an attachment
+   *          to use, or null
+   * @param attachmentObjectId the id of the object holding an attachment to
+   *          use, or null
+   * @param uploadId the upload id of an image the current user uploaded, or
+   *          null; consumed by the call
+   * @return the updated space
+   * @throws IllegalAccessException when the user does not manage the space, or
+   *           may not read the attachment
+   * @throws ObjectNotFoundException when the space, the attachment or the
+   *           upload does not exist
+   */
   public SpaceModel setSpaceAvatar(long spaceId,
                                    String imageUrl,
                                    String imageBase64,
                                    String attachmentObjectType,
-                                   String attachmentObjectId) throws IllegalAccessException, ObjectNotFoundException {
-    return setSpaceImage(spaceId, true, imageUrl, imageBase64, attachmentObjectType, attachmentObjectId);
+                                   String attachmentObjectId,
+                                   String uploadId) throws IllegalAccessException, ObjectNotFoundException {
+    return setSpaceImage(spaceId,
+                         true,
+                         new UploadToolUtils.ImageSource(imageUrl, imageBase64, attachmentObjectType, attachmentObjectId, uploadId));
   }
 
-  // Sets a space's banner from an image provided as exactly one of an http(s)
-  // URL, a base64 string, or an ACL-checked reference to a readable platform
-  // attachment. Only a manager of the space may change it.
+  /**
+   * Sets a space's banner from an image provided as exactly one of an http(s)
+   * URL, a base64 string, an ACL-checked reference to a readable platform
+   * attachment, or the upload id of a file the current user sent with
+   * {@code start_upload}. Only a manager of the space may change it.
+   *
+   * @param spaceId the space
+   * @param imageUrl the public http(s) URL of the image, or null
+   * @param imageBase64 the base64 bytes of the image, or null
+   * @param attachmentObjectType the type of the object holding an attachment
+   *          to use, or null
+   * @param attachmentObjectId the id of the object holding an attachment to
+   *          use, or null
+   * @param uploadId the upload id of an image the current user uploaded, or
+   *          null; consumed by the call
+   * @return the updated space
+   * @throws IllegalAccessException when the user does not manage the space, or
+   *           may not read the attachment
+   * @throws ObjectNotFoundException when the space, the attachment or the
+   *           upload does not exist
+   */
   public SpaceModel setSpaceBanner(long spaceId,
                                    String imageUrl,
                                    String imageBase64,
                                    String attachmentObjectType,
-                                   String attachmentObjectId) throws IllegalAccessException, ObjectNotFoundException {
-    return setSpaceImage(spaceId, false, imageUrl, imageBase64, attachmentObjectType, attachmentObjectId);
+                                   String attachmentObjectId,
+                                   String uploadId) throws IllegalAccessException, ObjectNotFoundException {
+    return setSpaceImage(spaceId,
+                         false,
+                         new UploadToolUtils.ImageSource(imageUrl, imageBase64, attachmentObjectType, attachmentObjectId, uploadId));
   }
 
   // ---------------------------------------------------------------------------
@@ -717,12 +763,22 @@ public class SpaceMcpTool implements McpToolPlugin {
                        false);
   }
 
+  /**
+   * Sets the avatar or the banner of a space from the given image source, once
+   * the current user is known to manage the space.
+   *
+   * @param spaceId the space
+   * @param avatar true for the avatar, false for the banner
+   * @param source the one source of the image
+   * @return the updated space
+   * @throws IllegalAccessException when the user does not manage the space, or
+   *           may not read the attachment
+   * @throws ObjectNotFoundException when the space, the attachment or the
+   *           upload does not exist
+   */
   private SpaceModel setSpaceImage(long spaceId,
                                    boolean avatar,
-                                   String imageUrl,
-                                   String imageBase64,
-                                   String attachmentObjectType,
-                                   String attachmentObjectId) throws IllegalAccessException, ObjectNotFoundException {
+                                   UploadToolUtils.ImageSource source) throws IllegalAccessException, ObjectNotFoundException {
     String username = getCurrentUserName();
     Space space = spaceService.getSpaceById(spaceId);
     if (space == null) {
@@ -732,11 +788,9 @@ public class SpaceMcpTool implements McpToolPlugin {
     }
     UploadToolUtils.FetchedContent image = UploadToolUtils.resolveImage(attachmentService,
                                                                       fileService,
+                                                                      uploadService,
                                                                       getCurrentUserAclIdentity(),
-                                                                      new UploadToolUtils.ImageSource(imageUrl,
-                                                                                                     imageBase64,
-                                                                                                     attachmentObjectType,
-                                                                                                     attachmentObjectId),
+                                                                      source,
                                                                       UploadToolUtils.DEFAULT_MAX_BYTES);
     try (InputStream inputStream = new ByteArrayInputStream(image.bytes())) {
       if (avatar) {
