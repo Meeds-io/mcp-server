@@ -22,6 +22,8 @@ import static io.meeds.mcp.server.tool.util.SpaceToolUtils.getUserRoles;
 import static io.meeds.mcp.server.tool.util.SpaceToolUtils.toSpaceModel;
 import static io.meeds.mcp.server.tool.util.SpaceToolUtils.toSpaceRegistration;
 import static io.meeds.mcp.server.tool.util.SpaceToolUtils.toSpaceVisibility;
+import static io.meeds.mcp.server.tool.util.McpToolPluginUtils.MAX_LIMIT;
+import static io.meeds.mcp.server.tool.util.McpToolPluginUtils.clampLimit;
 import static io.meeds.mcp.server.tool.util.McpToolPluginUtils.getInteger;
 import static io.meeds.mcp.server.tool.util.UserToolUtils.getUserIdentities;
 import static io.meeds.mcp.server.tool.util.UserToolUtils.toUserModel;
@@ -208,7 +210,7 @@ public class SpaceMcpTool implements McpToolPlugin {
 
     String currentUsername = getCurrentUserName();
     ListAccess<Space> spacesListAccess = spaceService.getAccessibleSpacesByFilter(currentUsername, new SpaceFilter(query));
-    Space[] spaces = spacesListAccess.load(getInteger(offset, DEFAULT_OFFSET), getInteger(limit, DEFAULT_LIMIT));
+    Space[] spaces = spacesListAccess.load(getInteger(offset, DEFAULT_OFFSET), clampLimit(limit, DEFAULT_LIMIT));
     return spaces == null ? Collections.emptyList() :
                           Stream.of(spaces)
                                 .map(s -> toSpaceModel(spaceService, s, currentUsername))
@@ -221,7 +223,7 @@ public class SpaceMcpTool implements McpToolPlugin {
                                       Integer limit) {
     String currentUsername = getCurrentUserName();
     ListAccess<Space> spacesListAccess = spaceService.getMemberSpacesByFilter(currentUsername, new SpaceFilter(query));
-    Space[] spaces = spacesListAccess.load(getInteger(offset, DEFAULT_OFFSET), getInteger(limit, DEFAULT_LIMIT));
+    Space[] spaces = spacesListAccess.load(getInteger(offset, DEFAULT_OFFSET), clampLimit(limit, DEFAULT_LIMIT));
     return spaces == null ? Collections.emptyList() :
                           Stream.of(spaces)
                                 .map(s -> toSpaceModel(spaceService, s, currentUsername))
@@ -241,7 +243,7 @@ public class SpaceMcpTool implements McpToolPlugin {
                                            Integer limit) {
     String currentUsername = getCurrentUserName();
     ListAccess<Space> spacesListAccess = spaceService.getManagerSpacesByFilter(currentUsername, new SpaceFilter(query));
-    Space[] spaces = spacesListAccess.load(getInteger(offset, DEFAULT_OFFSET), getInteger(limit, DEFAULT_LIMIT));
+    Space[] spaces = spacesListAccess.load(getInteger(offset, DEFAULT_OFFSET), clampLimit(limit, DEFAULT_LIMIT));
     return spaces == null ? Collections.emptyList() :
                           Stream.of(spaces)
                                 .map(s -> toSpaceModel(spaceService, s, currentUsername))
@@ -287,7 +289,7 @@ public class SpaceMcpTool implements McpToolPlugin {
       if (ArrayUtils.isNotEmpty(usernames)) {
         return Stream.of(usernames)
                      .skip(getInteger(offset, DEFAULT_OFFSET))
-                     .limit(getInteger(limit, DEFAULT_LIMIT))
+                     .limit(clampLimit(limit, DEFAULT_LIMIT))
                      .map(u -> toUserModel(identityManager,
                                            profilePropertyService,
                                            userAcl,
@@ -548,7 +550,7 @@ public class SpaceMcpTool implements McpToolPlugin {
     }
     return Stream.of(pendingUsers)
                  .skip(getInteger(offset, DEFAULT_OFFSET))
-                 .limit(getInteger(limit, DEFAULT_LIMIT))
+                 .limit(clampLimit(limit, DEFAULT_LIMIT))
                  .map(u -> user(u, currentUsername))
                  .filter(Objects::nonNull)
                  .toList();
@@ -586,7 +588,7 @@ public class SpaceMcpTool implements McpToolPlugin {
     }
     return Stream.of(members)
                  .skip(getInteger(offset, DEFAULT_OFFSET))
-                 .limit(getInteger(limit, DEFAULT_LIMIT))
+                 .limit(clampLimit(limit, DEFAULT_LIMIT))
                  .map(u -> new SpaceMemberModel(user(u, currentUsername), getUserRoles(spaceService, space, u)))
                  .filter(m -> m.user() != null)
                  .toList();
@@ -606,7 +608,8 @@ public class SpaceMcpTool implements McpToolPlugin {
    * @param parentSpaceId the parent space
    * @param offset        the offset among the accessible sub-spaces: 0, or
    *                        the next offset of the previous page
-   * @param limit         the page size
+   * @param limit         the page size, a larger one than
+   *                        100 is capped
    * @return the sub-spaces of the page, possibly fewer than {@code limit}
    *         while more follow, and the next page's offset, null when the list
    *         has ended
@@ -630,6 +633,7 @@ public class SpaceMcpTool implements McpToolPlugin {
     if (pageSize <= 0) {
       throw new IllegalArgumentException("The limit must be a positive number.");
     }
+    pageSize = Math.min(pageSize, MAX_LIMIT);
     boolean limitedToASpace = getScopeSpaceId() != null;
     SpaceFilter filter = new SpaceFilter((String) null);
     filter.setParentSpaceId(parentSpaceId);

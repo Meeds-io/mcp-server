@@ -36,6 +36,10 @@ import org.exoplatform.social.core.profileproperty.ProfilePropertyService;
 import org.exoplatform.social.core.space.spi.SpaceService;
 
 import io.meeds.mcp.server.tool.model.ActivityCommentModel;
+import io.meeds.mcp.server.tool.model.ActivityModel;
+import io.meeds.mcp.server.tool.model.ActivitySummaryModel;
+import io.meeds.mcp.server.tool.model.SpaceModel;
+import io.meeds.mcp.server.tool.model.UserModel;
 import io.meeds.portal.permlink.service.PermanentLinkService;
 import io.meeds.social.translation.service.TranslationService;
 
@@ -123,6 +127,41 @@ class ActivityToolUtilsTest {
     assertEquals(474431L, model.id());
     assertEquals(474400L, model.activityId());
     assertNull(model.parentCommentId());
+  }
+
+  /**
+   * A list item keeps every field of the activity, and reduces its author,
+   * the author of its pin and its space to what names them.
+   */
+  @Test
+  void toActivitySummaryModelKeepsTheNamesOfTheAuthorAndTheSpace() {
+    UserModel author = new UserModel();
+    author.setUsername("john");
+    author.setDisplayName("John Smith");
+    author.setAvatarUrl("https://host/avatar");
+    UserModel pinAuthor = new UserModel();
+    pinAuthor.setUsername("mary");
+    SpaceModel space = new SpaceModel();
+    space.setSpaceId(7L);
+    space.setName("Marketing");
+    space.setMembersCount(12);
+    ActivityModel activity = new ActivityModel(3L, null, "content", "url", "pin", "updated", "created", null, "news", "4",
+                                               1, 2, 3, true, false, false, true, true, false, pinAuthor, author, space);
+
+    ActivitySummaryModel item = ActivityToolUtils.toActivitySummaryModel(activity);
+
+    assertEquals(3L, item.id());
+    assertEquals("content", item.content());
+    assertEquals("news", item.referencedContentType());
+    assertEquals(2, item.numberOfComments());
+    assertEquals(true, item.canEdit());
+    assertEquals("john", item.author().username());
+    assertEquals("John Smith", item.author().displayName());
+    assertEquals("mary", item.pinAuthor().username());
+    assertNull(item.pinAuthor().displayName());
+    assertEquals(7L, item.space().spaceId());
+    assertEquals("Marketing", item.space().name());
+    assertNull(ActivityToolUtils.toActivitySummaryModel(null));
   }
 
 }
