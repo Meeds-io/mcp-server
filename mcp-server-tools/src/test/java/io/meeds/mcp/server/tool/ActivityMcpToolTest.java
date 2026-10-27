@@ -25,14 +25,20 @@ import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.mockito.Mockito.doReturn;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.spy;
 
 import java.time.OffsetDateTime;
 import java.time.temporal.ChronoUnit;
+import java.util.Date;
 import java.util.List;
 import java.util.UUID;
 
 import org.junit.jupiter.api.Test;
+import org.mockito.AdditionalAnswers;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.test.util.ReflectionTestUtils;
 
 import org.exoplatform.commons.exception.ObjectNotFoundException;
 import org.exoplatform.social.core.activity.model.ExoSocialActivity;
@@ -40,13 +46,18 @@ import org.exoplatform.social.core.manager.ActivityManager;
 
 import io.meeds.mcp.server.tool.constant.Registration;
 import io.meeds.mcp.server.tool.constant.Visibility;
+import io.meeds.mcp.server.tool.model.ActivityCollectionModel;
 import io.meeds.mcp.server.tool.model.ActivityCommentModel;
 import io.meeds.mcp.server.tool.model.ActivityModel;
+import io.meeds.mcp.server.tool.model.ActivitySummaryModel;
 import io.meeds.mcp.server.tool.model.AttachmentModel;
 import io.meeds.mcp.server.tool.model.SpaceModel;
 import io.meeds.mcp.server.tool.model.SpaceTemplateModel;
 import io.meeds.mcp.server.tool.model.UserModel;
 import io.meeds.mcp.server.tool.test.IntegrationTestBase;
+import io.meeds.mcp.server.tool.util.McpToolPluginUtils;
+
+import tools.jackson.databind.json.JsonMapper;
 
 class ActivityMcpToolTest extends IntegrationTestBase {
 
@@ -456,7 +467,7 @@ class ActivityMcpToolTest extends IntegrationTestBase {
   void searchActivitiesFallsBackToGetActivitiesWhenNoFilter() throws Exception { // NOSONAR
     activityMcpTool.createActivity(null, "Search fallback activity " + UUID.randomUUID(), null);
 
-    List<ActivityModel> activities = activityMcpTool.searchActivities(null, null, false, 0, 10);
+    List<ActivitySummaryModel> activities = activityMcpTool.searchActivities(null, null, false, 0, 10);
 
     assertNotNull(activities);
   }
@@ -466,14 +477,14 @@ class ActivityMcpToolTest extends IntegrationTestBase {
     String marker = "mcp-search-" + UUID.randomUUID();
     activityMcpTool.createActivity(null, marker, null);
 
-    List<ActivityModel> activities = activityMcpTool.searchActivities(marker, null, false, 0, 10);
+    List<ActivitySummaryModel> activities = activityMcpTool.searchActivities(marker, null, false, 0, 10);
 
     assertNotNull(activities);
   }
 
   @Test
   void getUserActivityStream() throws Exception { // NOSONAR
-    List<ActivityModel> activities = activityMcpTool.getUserActivityStream(USERNAME, 0, 10);
+    List<ActivitySummaryModel> activities = activityMcpTool.getUserActivityStream(USERNAME, 0, 10);
 
     assertNotNull(activities);
   }
@@ -482,7 +493,7 @@ class ActivityMcpToolTest extends IntegrationTestBase {
   void getActivities() throws Exception { // NOSONAR
     activityMcpTool.createActivity(null, "Activity list item", null);
 
-    List<ActivityModel> activities = activityMcpTool.getActivities(null, 0, 10);
+    List<ActivitySummaryModel> activities = activityMcpTool.getActivities(null, 0, 10);
 
     assertNotNull(activities);
   }
@@ -491,9 +502,192 @@ class ActivityMcpToolTest extends IntegrationTestBase {
   void getActivitiesSinceDays() throws Exception { // NOSONAR
     activityMcpTool.createActivity(null, "Recent activity", null);
 
-    List<ActivityModel> activities = activityMcpTool.getActivitiesSinceDays(null, 1L);
+    ActivityCollectionModel activities = activityMcpTool.getActivitiesSinceDays(null, 1L);
 
-    assertNotNull(activities);
+    assertNotNull(activities.activities());
+  }
+
+  /**
+   * A list of activities names each activity's author and space, and no more
+   * of them: get_activity keeps the full shape.
+   */
+  @Test
+  void getActivitiesListsEachAuthorAndSpaceByTheirNamesOnly() throws Exception {
+    SpaceModel space = createTestSpace();
+    ActivityModel created = activityMcpTool.createActivity(space.getSpaceId(), "Compact list item", null);
+
+    List<ActivitySummaryModel> activities = activityMcpTool.getActivities(space.getSpaceId(), 0, 10);
+
+    ActivitySummaryModel item = activities.stream().filter(a -> a.id() == created.id()).findFirst().orElseThrow();
+    assertEquals(USERNAME, item.author().username());
+    assertEquals(created.author().getDisplayName(), item.author().displayName());
+    assertEquals(space.getSpaceId(), item.space().spaceId());
+    assertEquals(space.getName(), item.space().name());
+    String json = JsonMapper.builder().build().writeValueAsString(item);
+    assertTrue(json.contains("\"author\":{\"username\":\"" + USERNAME + "\""), json);
+    assertFalse(json.contains("avatar_url"), json);
+    assertFalse(json.contains("members_count"), json);
+    assertNotNull(activityMcpTool.getActivity(created.id()).author().getAvatarUrl());
+  }
+
+  /**
+   * get_activities_since_days stops on its bound and says more may match.
+   */
+  @Test
+  void getActivitiesSinceDaysSaysHasMoreOnceItReachesItsBound() throws Exception {
+    SpaceModel space = createTestSpace();
+    for (int i = 0; i <= McpToolPluginUtils.MAX_LIMIT; i++) {
+      activityMcpTool.createActivity(space.getSpaceId(), "Bounded activity " + i, null);
+    }
+
+    ActivityCollectionModel result = activityMcpTool.getActivitiesSinceDays(space.getSpaceId(), 1L);
+
+    assertEquals(100, result.activities().size());
+    assertEquals(100, result.usedLimit());
+    assertTrue(result.hasMore());
+    assertNull(result.nextOffset());
+
+    assertEquals(McpToolPluginUtils.MAX_LIMIT,
+                 activityMcpTool.getActivities(space.getSpaceId(), 0, McpToolPluginUtils.MAX_LIMIT + 1).size());
+  }
+
+  /**
+   * get_activities_since_days, when exactly its bound of activities match,
+   * returns them all and says no more remain: the page after the bound is
+   * empty.
+   */
+  @Test
+  void getActivitiesSinceDaysHasNoMoreWhenExactlyItsBoundMatch() throws Exception {
+    SpaceModel space = createTestSpace();
+    int existing = activityMcpTool.getActivities(space.getSpaceId(), 0, McpToolPluginUtils.MAX_LIMIT).size();
+    for (int i = existing; i < McpToolPluginUtils.MAX_LIMIT; i++) {
+      activityMcpTool.createActivity(space.getSpaceId(), "Exactly bounded activity " + i, null);
+    }
+
+    ActivityCollectionModel result = activityMcpTool.getActivitiesSinceDays(space.getSpaceId(), 1L);
+
+    assertEquals(100, result.activities().size());
+    assertFalse(result.hasMore());
+  }
+
+  /**
+   * get_activities_since_days, when the activity after its bound last changed
+   * before the window, returns its bound and says no more remain: the stream
+   * holding one more activity is not enough. Mutant: the probe's time check
+   * removed ({@code return activity != null;}).
+   */
+  @Test
+  void getActivitiesSinceDaysHasNoMoreWhenTheNextActivityIsOutsideTheWindow() throws Exception {
+    SpaceModel space = createTestSpace();
+    int existing = activityMcpTool.getActivities(space.getSpaceId(), 0, McpToolPluginUtils.MAX_LIMIT).size();
+    for (int i = existing; i <= McpToolPluginUtils.MAX_LIMIT; i++) {
+      activityMcpTool.createActivity(space.getSpaceId(), "Activity before an old one " + i, null);
+    }
+    long nextId = activityMcpTool.getActivities(space.getSpaceId(), McpToolPluginUtils.MAX_LIMIT, 1).get(0).id();
+    String next = String.valueOf(nextId);
+    ExoSocialActivity oldActivity = spy(activityManager.getActivity(next));
+    long oldTime = System.currentTimeMillis() - 10L * 24 * 3600 * 1000;
+    doReturn(new Date(oldTime)).when(oldActivity).getUpdated();
+    doReturn(oldTime).when(oldActivity).getPostedTime();
+    ActivityManager agingActivityManager = mock(ActivityManager.class, AdditionalAnswers.delegatesTo(activityManager));
+    doReturn(oldActivity).when(agingActivityManager).getActivity(next);
+    ReflectionTestUtils.setField(activityMcpTool, "activityManager", agingActivityManager);
+    try {
+      ActivityCollectionModel result = activityMcpTool.getActivitiesSinceDays(space.getSpaceId(), 1L);
+
+      assertEquals(100, result.activities().size());
+      assertTrue(result.activities().stream().noneMatch(a -> a.id() == nextId));
+      assertFalse(result.hasMore());
+    } finally {
+      ReflectionTestUtils.setField(activityMcpTool, "activityManager", activityManager);
+    }
+  }
+
+  /**
+   * get_activities_since_days, under its bound, returns every activity and
+   * says no more remain, also when the last page it read was a full one
+   * followed by an empty one.
+   */
+  @Test
+  void getActivitiesSinceDaysHasNoMoreUnderItsBound() throws Exception {
+    SpaceModel space = createTestSpace();
+    for (int i = 0; i < 10; i++) {
+      activityMcpTool.createActivity(space.getSpaceId(), "Recent activity " + i, null);
+    }
+
+    ActivityCollectionModel result = activityMcpTool.getActivitiesSinceDays(space.getSpaceId(), 1L);
+
+    assertEquals(10, result.activities().size());
+    assertFalse(result.hasMore());
+    assertFalse(JsonMapper.builder().build().writeValueAsString(result).contains("next_offset"));
+  }
+
+  /**
+   * get_activities_since_days skips an activity deleted between the listing
+   * of its id and its read, and lists the others.
+   */
+  @Test
+  void getActivitiesSinceDaysSkipsAnActivityDeletedMidListing() throws Exception {
+    SpaceModel space = createTestSpace();
+    ActivityModel kept = activityMcpTool.createActivity(space.getSpaceId(), "Kept activity", null);
+    ActivityModel gone = activityMcpTool.createActivity(space.getSpaceId(), "Deleted mid-listing", null);
+    ActivityManager deletingActivityManager = mock(ActivityManager.class, AdditionalAnswers.delegatesTo(activityManager));
+    doReturn(null).when(deletingActivityManager).getActivity(String.valueOf(gone.id()));
+    ReflectionTestUtils.setField(activityMcpTool, "activityManager", deletingActivityManager);
+    try {
+      ActivityCollectionModel result = activityMcpTool.getActivitiesSinceDays(space.getSpaceId(), 1L);
+
+      assertEquals(List.of(kept.id()), result.activities().stream().map(ActivitySummaryModel::id).toList());
+    } finally {
+      ReflectionTestUtils.setField(activityMcpTool, "activityManager", activityManager);
+    }
+  }
+
+  /**
+   * get_activities_since_days reads each activity once: one deleted after
+   * that read is listed as read, never as an empty item.
+   */
+  @Test
+  void getActivitiesSinceDaysListsNoEmptyItemForAnActivityDeletedAfterItsRead() throws Exception {
+    SpaceModel space = createTestSpace();
+    ActivityModel kept = activityMcpTool.createActivity(space.getSpaceId(), "Kept activity", null);
+    ActivityModel gone = activityMcpTool.createActivity(space.getSpaceId(), "Deleted after its read", null);
+    String goneId = String.valueOf(gone.id());
+    ExoSocialActivity goneActivity = activityManager.getActivity(goneId);
+    ActivityManager deletingActivityManager = mock(ActivityManager.class, AdditionalAnswers.delegatesTo(activityManager));
+    doReturn(goneActivity).doReturn(null).when(deletingActivityManager).getActivity(goneId);
+    ReflectionTestUtils.setField(activityMcpTool, "activityManager", deletingActivityManager);
+    try {
+      ActivityCollectionModel result = activityMcpTool.getActivitiesSinceDays(space.getSpaceId(), 1L);
+
+      assertFalse(result.activities().contains(null));
+      assertEquals(List.of(gone.id(), kept.id()), result.activities().stream().map(ActivitySummaryModel::id).toList());
+    } finally {
+      ReflectionTestUtils.setField(activityMcpTool, "activityManager", activityManager);
+    }
+  }
+
+  /**
+   * get_activities skips an activity deleted between the listing of its id
+   * and its read, never listing an empty item.
+   */
+  @Test
+  void getActivitiesListsNoEmptyItemForAnActivityDeletedMidListing() throws Exception {
+    SpaceModel space = createTestSpace();
+    ActivityModel kept = activityMcpTool.createActivity(space.getSpaceId(), "Kept activity", null);
+    ActivityModel gone = activityMcpTool.createActivity(space.getSpaceId(), "Deleted mid-listing", null);
+    ActivityManager deletingActivityManager = mock(ActivityManager.class, AdditionalAnswers.delegatesTo(activityManager));
+    doReturn(null).when(deletingActivityManager).getActivity(String.valueOf(gone.id()));
+    ReflectionTestUtils.setField(activityMcpTool, "activityManager", deletingActivityManager);
+    try {
+      List<ActivitySummaryModel> activities = activityMcpTool.getActivities(space.getSpaceId(), 0, 10);
+
+      assertFalse(activities.contains(null));
+      assertTrue(activities.stream().anyMatch(a -> a.id() == kept.id()));
+      assertTrue(activities.stream().noneMatch(a -> a.id() == gone.id()));
+    } finally {
+      ReflectionTestUtils.setField(activityMcpTool, "activityManager", activityManager);
+    }
   }
 
   @Test
@@ -695,7 +889,7 @@ class ActivityMcpToolTest extends IntegrationTestBase {
     ActivityModel posted = activityMcpTool.createActivity(null, "Published post", null);
     ActivityModel scheduled = activityMcpTool.createActivity(null, "Scheduled post", futureIso(2));
 
-    List<ActivityModel> pending = activityMcpTool.getScheduledActivities(null, 0, 20);
+    List<ActivitySummaryModel> pending = activityMcpTool.getScheduledActivities(null, 0, 20);
 
     assertNotNull(pending);
     assertTrue(pending.stream().anyMatch(a -> a.id() == scheduled.id()));
