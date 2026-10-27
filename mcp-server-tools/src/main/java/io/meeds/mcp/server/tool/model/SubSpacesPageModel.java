@@ -31,11 +31,24 @@ import com.fasterxml.jackson.annotation.JsonProperty;
  *                     asked while more follow
  * @param nextOffset the offset the next page starts at, null when the list
  *                     has ended
+ * @param hasMore    true when more sub-spaces follow, that is when
+ *                     {@code nextOffset} is not null
  */
 @JsonInclude(value = Include.NON_NULL)
 public record SubSpacesPageModel(
                                  @JsonProperty("sub_spaces")
                                  List<SpaceModel> subSpaces,
                                  @JsonProperty("next_offset")
-                                 Integer nextOffset) {
+                                 Integer nextOffset,
+                                 @JsonProperty("has_more")
+                                 boolean hasMore) {
+
+  /**
+   * @param subSpaces  the sub-spaces of the page
+   * @param nextOffset the offset the next page starts at, null when the list
+   *                     has ended
+   */
+  public SubSpacesPageModel(List<SpaceModel> subSpaces, Integer nextOffset) {
+    this(subSpaces, nextOffset, nextOffset != null);
+  }
 }
