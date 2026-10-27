@@ -269,20 +269,17 @@ class UploadToolUtilsTest {
   void fetchImageRefusesANameRebindingToAnInternalAddress() throws Exception {
     InetAddress internal = InetAddress.getByAddress(new byte[] { 127, 0, 0, 2 });
     AtomicInteger lookups = new AtomicInteger();
-    SafeHttpFetcher rebinding = new SafeHttpFetcher(policy().resolver(host -> {
+    bodies.put("/logo.png", PNG);
+    try (SafeHttpFetcher rebinding = new SafeHttpFetcher(policy().resolver(host -> {
       if (!"rebind.test".equals(host)) {
         throw new UnknownHostException(host);
       }
       return lookups.incrementAndGet() == 1 ? new InetAddress[] { stub } : new InetAddress[] { internal };
-    }).build());
-    bodies.put("/logo.png", PNG);
-    try {
+    }).build())) {
       assertArrayEquals(PNG, UploadToolUtils.fetchImage(rebinding, url("rebind.test", "/logo.png"), UploadToolUtils.DEFAULT_MAX_BYTES).bytes());
       IllegalArgumentException refused = assertThrows(IllegalArgumentException.class,
                                                       () -> UploadToolUtils.fetchImage(rebinding, url("rebind.test", "/logo.png"), UploadToolUtils.DEFAULT_MAX_BYTES));
       assertEquals("URL host is not allowed (it points to a private or internal address).", refused.getMessage());
-    } finally {
-      rebinding.close();
     }
     assertEquals(2, lookups.get(), "the second connection must resolve the name again rather than trust the first answer");
     assertEquals(List.of("/logo.png"), hits, "no request may reach the stub through a name judged internal");
@@ -301,16 +298,13 @@ class UploadToolUtilsTest {
     assertEquals("Invalid URL.", refusal("not a url"));
     assertEquals("The URL must not carry credentials.", refusal("http://user:secret@public.test:" + port + "/x"));
     assertEquals("Could not fetch the URL: unknown host.", refusal(url("nowhere.test", "/x")));
-    SafeHttpFetcher jdk = new SafeHttpFetcher(unexemptedPolicy().resolver(InetAddress::getAllByName).build());
-    try {
+    try (SafeHttpFetcher jdk = new SafeHttpFetcher(unexemptedPolicy().resolver(InetAddress::getAllByName).build())) {
       for (String literal : new String[] { "http://127.0.0.1/x", "http://192.168.0.10/x", "http://169.254.169.254/latest/meta-data",
           "http://[::1]/x", "http://100.64.0.1/x" }) {
         assertEquals("URL host is not allowed (it points to a private or internal address).",
                      assertThrows(IllegalArgumentException.class, () -> UploadToolUtils.fetchImage(jdk, literal, 1024)).getMessage(),
                      literal);
       }
-    } finally {
-      jdk.close();
     }
     assertTrue(hits.isEmpty());
   }
@@ -383,14 +377,11 @@ class UploadToolUtilsTest {
    */
   @Test
   void aBodyOverTheFetcherLimitNamesThatLimit() {
-    SafeHttpFetcher small = new SafeHttpFetcher(policy().maxBytes(1024L * 1024).build());
     bodies.put("/big.bin", new byte[1024 * 1024 + 1]);
-    try {
+    try (SafeHttpFetcher small = new SafeHttpFetcher(policy().maxBytes(1024L * 1024).build())) {
       assertEquals("The file exceeds the maximum allowed size (1 MB).",
                    assertThrows(IllegalArgumentException.class,
                                 () -> UploadToolUtils.fetchUrl(small, url("public.test", "/big.bin"), 20L * 1024 * 1024, "x.bin")).getMessage());
-    } finally {
-      small.close();
     }
   }
 
