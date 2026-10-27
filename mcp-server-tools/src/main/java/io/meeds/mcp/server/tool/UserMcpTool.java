@@ -18,6 +18,7 @@
  */
 package io.meeds.mcp.server.tool;
 
+import static io.meeds.mcp.server.tool.util.McpToolPluginUtils.clampLimit;
 import static io.meeds.mcp.server.tool.util.McpToolPluginUtils.getInteger;
 import static io.meeds.mcp.server.tool.util.UserToolUtils.buildExperiences;
 import static io.meeds.mcp.server.tool.util.UserToolUtils.toUserModel;
@@ -144,7 +145,7 @@ public class UserMcpTool implements McpToolPlugin {
                                                                                            filter,
                                                                                            true);
     Identity[] identities = identityListAccess.load(getInteger(offset, DEFAULT_OFFSET),
-                                                    getInteger(limit, DEFAULT_LIMIT));
+                                                    clampLimit(limit, DEFAULT_LIMIT));
     return toUserModels(identities);
   }
 
@@ -249,13 +250,13 @@ public class UserMcpTool implements McpToolPlugin {
   @SneakyThrows
   public List<UserModel> listConnectionRequests(Integer offset, Integer limit) {
     ListAccess<Identity> listAccess = relationshipManager.getIncomingWithListAccess(me());
-    return toUserModels(listAccess.load(getInteger(offset, DEFAULT_OFFSET), getInteger(limit, DEFAULT_LIMIT)));
+    return toUserModels(listAccess.load(getInteger(offset, DEFAULT_OFFSET), clampLimit(limit, DEFAULT_LIMIT)));
   }
 
   @SneakyThrows
   public List<UserModel> listSentConnectionRequests(Integer offset, Integer limit) {
     ListAccess<Identity> listAccess = relationshipManager.getOutgoing(me());
-    return toUserModels(listAccess.load(getInteger(offset, DEFAULT_OFFSET), getInteger(limit, DEFAULT_LIMIT)));
+    return toUserModels(listAccess.load(getInteger(offset, DEFAULT_OFFSET), clampLimit(limit, DEFAULT_LIMIT)));
   }
 
   @SneakyThrows
@@ -270,13 +271,13 @@ public class UserMcpTool implements McpToolPlugin {
       filter.setViewerIdentity(currentIdentity);
       listAccess = relationshipManager.getConnectionsByFilter(currentIdentity, filter);
     }
-    return toUserModels(listAccess.load(getInteger(offset, DEFAULT_OFFSET), getInteger(limit, DEFAULT_LIMIT)));
+    return toUserModels(listAccess.load(getInteger(offset, DEFAULT_OFFSET), clampLimit(limit, DEFAULT_LIMIT)));
   }
 
   @SneakyThrows
   public List<UserModel> listUserConnections(String username, Integer offset, Integer limit) {
     ListAccess<Identity> listAccess = relationshipManager.getConnections(requireIdentity(username));
-    return toUserModels(listAccess.load(getInteger(offset, DEFAULT_OFFSET), getInteger(limit, DEFAULT_LIMIT)));
+    return toUserModels(listAccess.load(getInteger(offset, DEFAULT_OFFSET), clampLimit(limit, DEFAULT_LIMIT)));
   }
 
   public String getConnectionStatus(String username) {
@@ -285,7 +286,7 @@ public class UserMcpTool implements McpToolPlugin {
   }
 
   public List<UserModel> listConnectionSuggestions(Integer limit) {
-    Map<Identity, Integer> suggestions = relationshipManager.getSuggestions(me(), 0, 0, getInteger(limit, DEFAULT_LIMIT));
+    Map<Identity, Integer> suggestions = relationshipManager.getSuggestions(me(), 0, 0, clampLimit(limit, DEFAULT_LIMIT));
     return suggestions.keySet()
                       .stream()
                       .map(Identity::getRemoteId)
@@ -607,7 +608,7 @@ public class UserMcpTool implements McpToolPlugin {
     }
     return online.stream()
                  .skip(getInteger(offset, DEFAULT_OFFSET))
-                 .limit(getInteger(limit, DEFAULT_LIMIT))
+                 .limit(clampLimit(limit, DEFAULT_LIMIT))
                  .map(state -> new OnlineStatusModel(state.getUserId(),
                                                      true,
                                                      state.getStatus(),
