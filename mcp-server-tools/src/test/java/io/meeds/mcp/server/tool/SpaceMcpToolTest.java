@@ -316,7 +316,7 @@ class SpaceMcpToolTest extends IntegrationTestBase {
   void setSpaceAvatarFromBase64() throws Exception {
     SpaceModel space = createTestSpace();
 
-    SpaceModel updated = spaceMcpTool.setSpaceAvatar(space.getSpaceId(), null, PNG_1PX, null, null);
+    SpaceModel updated = spaceMcpTool.setSpaceAvatar(space.getSpaceId(), null, PNG_1PX, null, null, null);
 
     assertNotNull(updated);
     assertEquals(space.getSpaceId(), updated.getSpaceId());
@@ -326,7 +326,7 @@ class SpaceMcpToolTest extends IntegrationTestBase {
   void setSpaceBannerFromBase64() throws Exception {
     SpaceModel space = createTestSpace();
 
-    SpaceModel updated = spaceMcpTool.setSpaceBanner(space.getSpaceId(), null, PNG_1PX, null, null);
+    SpaceModel updated = spaceMcpTool.setSpaceBanner(space.getSpaceId(), null, PNG_1PX, null, null, null);
 
     assertNotNull(updated);
     assertEquals(space.getSpaceId(), updated.getSpaceId());
@@ -335,7 +335,7 @@ class SpaceMcpToolTest extends IntegrationTestBase {
   @Test
   void setSpaceAvatarWhenSpaceDoesNotExist() {
     assertThrows(org.exoplatform.commons.exception.ObjectNotFoundException.class,
-                 () -> spaceMcpTool.setSpaceAvatar(-1L, null, PNG_1PX, null, null));
+                 () -> spaceMcpTool.setSpaceAvatar(-1L, null, PNG_1PX, null, null, null));
   }
 
   private SpaceModel createTestSpace() throws Exception {// NOSONAR

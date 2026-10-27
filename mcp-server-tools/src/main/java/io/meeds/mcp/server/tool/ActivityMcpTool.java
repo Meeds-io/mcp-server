@@ -507,6 +507,9 @@ public class ActivityMcpTool implements McpToolPlugin {
    *                             copied from, may be null
    * @param attachmentObjectId   identifier of the object an existing attachment
    *                             is copied from, may be null
+   * @param uploadId             upload id of an image the current user sent
+   *                             with start_upload, may be null; consumed by
+   *                             the call
    * @param altText              alternative text of the image, may be null
    * @return the posted activity
    * @throws IllegalAccessException  when the user can't post there, or the text
@@ -520,15 +523,33 @@ public class ActivityMcpTool implements McpToolPlugin {
                                                String imageBase64,
                                                String attachmentObjectType,
                                                String attachmentObjectId,
+                                               String uploadId,
                                                String altText) throws IllegalAccessException, ObjectNotFoundException {
-    if (StringUtils.isBlank(imageUrl) && StringUtils.isBlank(imageBase64) && StringUtils.isBlank(attachmentObjectId)) {
-      throw new IllegalArgumentException("Provide an image via image_url, image_base64 or attachment_object_id. To post without an image, use create_activity.");
+    UploadToolUtils.ImageSource source = new UploadToolUtils.ImageSource(imageUrl,
+                                                                         imageBase64,
+                                                                         attachmentObjectType,
+                                                                         attachmentObjectId,
+                                                                         uploadId);
+    if (hasNoImageSource(source)) {
+      throw new IllegalArgumentException("Provide an image via attachment_object_id, image_url, upload_id or image_base64. To post without an image, use create_activity.");
     }
     checkScopeSpaceMembers(() -> mentionedUsers(htmlContent));
-    String uploadId = resolveImageUploadId(imageUrl, imageBase64, attachmentObjectType, attachmentObjectId);
-    ActivityModel model = postActivity(spaceId, htmlContent, null);
+    String stagedUploadId = resolveImageUploadId(source);
+    ActivityModel model;
     try {
-      attachUploadToObject(ACTIVITY_OBJECT_TYPE, String.valueOf(model.id()), uploadId, altText);
+      model = postActivity(spaceId, htmlContent, null);
+    } catch (IllegalAccessException e) {
+      UploadToolUtils.release(uploadService, stagedUploadId);
+      throw new IllegalAccessException(withConsumedUploadHint(e.getMessage(), source));
+    } catch (ObjectNotFoundException e) {
+      UploadToolUtils.release(uploadService, stagedUploadId);
+      throw new ObjectNotFoundException(withConsumedUploadHint(e.getMessage(), source));
+    } catch (RuntimeException e) {
+      UploadToolUtils.release(uploadService, stagedUploadId);
+      throw e;
+    }
+    try {
+      attachUploadToObject(ACTIVITY_OBJECT_TYPE, String.valueOf(model.id()), stagedUploadId, altText);
     } catch (RuntimeException e) {
       deleteActivityQuietly(String.valueOf(model.id()));
       throw new IllegalStateException("The image could not be attached, so the post was not created: " + e.getMessage()
@@ -537,11 +558,32 @@ public class ActivityMcpTool implements McpToolPlugin {
     return toActivityModel(String.valueOf(model.id()));
   }
 
+  /**
+   * Attaches an image to an activity the current user may edit.
+   *
+   * @param activityId           identifier of the activity
+   * @param imageUrl             URL of the image, may be null
+   * @param imageBase64          base64 content of the image, may be null
+   * @param attachmentObjectType type of the object an existing attachment is
+   *                             copied from, may be null
+   * @param attachmentObjectId   identifier of the object an existing attachment
+   *                             is copied from, may be null
+   * @param uploadId             upload id of an image the current user sent
+   *                             with start_upload, may be null; consumed by
+   *                             the call
+   * @param altText              alternative text of the image, may be null
+   * @return the updated activity
+   * @throws IllegalAccessException  when the user can't edit the activity, or
+   *                                 read the attachment
+   * @throws ObjectNotFoundException when the activity, the attachment or the
+   *                                 upload doesn't exist
+   */
   public ActivityModel attachImageToActivity(long activityId,
                                             String imageUrl,
                                             String imageBase64,
                                             String attachmentObjectType,
                                             String attachmentObjectId,
+                                            String uploadId,
                                             String altText) throws IllegalAccessException, ObjectNotFoundException {
     org.exoplatform.services.security.Identity userIdentity = getCurrentUserAclIdentity();
     ExoSocialActivity activity = activityManager.getActivity(String.valueOf(activityId));
@@ -551,30 +593,63 @@ public class ActivityMcpTool implements McpToolPlugin {
     if (!activityManager.isActivityEditable(activity, userIdentity)) {
       throw new IllegalAccessException("Activity with id '%s' can't be edited by current user".formatted(activityId));
     }
-    String uploadId = resolveImageUploadId(imageUrl, imageBase64, attachmentObjectType, attachmentObjectId);
-    attachUploadToObject(ACTIVITY_OBJECT_TYPE, String.valueOf(activityId), uploadId, altText);
+    String stagedUploadId = resolveImageUploadId(new UploadToolUtils.ImageSource(imageUrl,
+                                                                                 imageBase64,
+                                                                                 attachmentObjectType,
+                                                                                 attachmentObjectId,
+                                                                                 uploadId));
+    attachUploadToObject(ACTIVITY_OBJECT_TYPE, String.valueOf(activityId), stagedUploadId, altText);
     return toActivityModel(String.valueOf(activityId));
   }
 
   /**
-   * Resolves the image from exactly one source — a public URL, base64 bytes, or
-   * an existing platform attachment (by object type + id) — into an uploadId.
-   * The attachment source is read <b>as the current user</b>, so its ACL is
-   * enforced (no reading files the user cannot access).
+   * Resolves the image from exactly one source — a public URL, base64 bytes, an
+   * existing platform attachment (by object type + id), or a file the current
+   * user uploaded with start_upload — and stages it under a new upload id. The
+   * attachment and the upload are read <b>as the current user</b>, so the
+   * attachment's ACL and the upload's owner are enforced; the user's upload is
+   * consumed.
+   *
+   * @param source the one source of the image
+   * @return the upload id the image is staged under, released by
+   *         {@link #attachUploadToObject}
+   * @throws IllegalAccessException  when the user can't read the attachment
+   * @throws ObjectNotFoundException when the attachment or the upload doesn't
+   *                                 exist
    */
-  private String resolveImageUploadId(String imageUrl,
-                                      String imageBase64,
-                                      String attachmentObjectType,
-                                      String attachmentObjectId) throws IllegalAccessException, ObjectNotFoundException {
+  private String resolveImageUploadId(UploadToolUtils.ImageSource source) throws IllegalAccessException,
+                                                                          ObjectNotFoundException {
     UploadToolUtils.FetchedContent image = UploadToolUtils.resolveImage(attachmentService,
                                                                       fileService,
+                                                                      uploadService,
                                                                       getCurrentUserAclIdentity(),
-                                                                      new UploadToolUtils.ImageSource(imageUrl,
-                                                                                                     imageBase64,
-                                                                                                     attachmentObjectType,
-                                                                                                     attachmentObjectId),
+                                                                      source,
                                                                       UploadToolUtils.DEFAULT_MAX_BYTES);
     return UploadToolUtils.materialize(uploadService, image.bytes(), image.fileName(), image.mimeType());
+  }
+
+  /**
+   * @param source an image source
+   * @return true when it names no image at all: no attachment, URL, upload id
+   *         or base64
+   */
+  private static boolean hasNoImageSource(UploadToolUtils.ImageSource source) {
+    return StringUtils.isAllBlank(source.attachmentObjectId(), source.imageUrl(), source.uploadId(), source.imageBase64());
+  }
+
+  /**
+   * Adds to a refusal met after the image was read that the user's upload, if
+   * the image came from one, is spent: the image is read before the post is
+   * written, and reading an upload consumes it.
+   *
+   * @param message the refusal's message
+   * @param source the image source of the call
+   * @return the message, with the hint when the source is an upload id
+   */
+  private static String withConsumedUploadHint(String message, UploadToolUtils.ImageSource source) {
+    return StringUtils.isBlank(source.uploadId()) ? message
+                                                   : message + " The upload_id was consumed: call start_upload again, run its "
+                                                       + "curl command, then retry with the new upload_id.";
   }
 
   private void attachUploadToObject(String objectType, String objectId, String uploadId, String altText) {
@@ -1014,6 +1089,9 @@ public class ActivityMcpTool implements McpToolPlugin {
    *                             copied from, may be null
    * @param attachmentObjectId   identifier of the object an existing attachment
    *                             is copied from, may be null
+   * @param uploadId             upload id of an image the current user sent
+   *                             with start_upload, may be null; consumed by
+   *                             the call
    * @param altText              alternative text of the image, may be null
    * @return the created comment
    * @throws IllegalAccessException  when the activity isn't viewable by the
@@ -1029,19 +1107,37 @@ public class ActivityMcpTool implements McpToolPlugin {
                                                              String imageBase64,
                                                              String attachmentObjectType,
                                                              String attachmentObjectId,
+                                                             String uploadId,
                                                              String altText) throws IllegalAccessException,
                                                                              ObjectNotFoundException {
-    if (StringUtils.isBlank(imageUrl) && StringUtils.isBlank(imageBase64) && StringUtils.isBlank(attachmentObjectId)) {
-      throw new IllegalArgumentException("Provide an image via image_url, image_base64 or attachment_object_id. To comment without an image, use create_activity_comment.");
+    UploadToolUtils.ImageSource source = new UploadToolUtils.ImageSource(imageUrl,
+                                                                         imageBase64,
+                                                                         attachmentObjectType,
+                                                                         attachmentObjectId,
+                                                                         uploadId);
+    if (hasNoImageSource(source)) {
+      throw new IllegalArgumentException("Provide an image via attachment_object_id, image_url, upload_id or image_base64. To comment without an image, use create_activity_comment.");
     }
     checkScopeSpaceMembers(() -> mentionedUsers(comment));
-    String uploadId = resolveImageUploadId(imageUrl, imageBase64, attachmentObjectType, attachmentObjectId);
-    ActivityCommentModel model = saveActivityComment(activityId, comment, null);
+    String stagedUploadId = resolveImageUploadId(source);
+    ActivityCommentModel model;
+    try {
+      model = saveActivityComment(activityId, comment, null);
+    } catch (IllegalAccessException e) {
+      UploadToolUtils.release(uploadService, stagedUploadId);
+      throw new IllegalAccessException(withConsumedUploadHint(e.getMessage(), source));
+    } catch (ObjectNotFoundException e) {
+      UploadToolUtils.release(uploadService, stagedUploadId);
+      throw new ObjectNotFoundException(withConsumedUploadHint(e.getMessage(), source));
+    } catch (RuntimeException e) {
+      UploadToolUtils.release(uploadService, stagedUploadId);
+      throw e;
+    }
     // a comment is itself an activity; its attachment uses object type "activity" with the
     // comment's *prefixed* id ("comment<id>"), which is the metadata object id the comment renders from
     String commentActivityId = COMMENT_ID_PREFIX + model.id();
     try {
-      attachUploadToObject(ACTIVITY_OBJECT_TYPE, commentActivityId, uploadId, altText);
+      attachUploadToObject(ACTIVITY_OBJECT_TYPE, commentActivityId, stagedUploadId, altText);
     } catch (RuntimeException e) {
       deleteActivityQuietly(commentActivityId);
       throw new IllegalStateException("The image could not be attached, so the comment was not created: " + e.getMessage()
@@ -1050,11 +1146,33 @@ public class ActivityMcpTool implements McpToolPlugin {
     return toActivityCommentModel(commentActivityId);
   }
 
+  /**
+   * Attaches an image to an activity comment the current user may edit.
+   *
+   * @param commentId            identifier of the comment, without its
+   *                             "comment" prefix
+   * @param imageUrl             URL of the image, may be null
+   * @param imageBase64          base64 content of the image, may be null
+   * @param attachmentObjectType type of the object an existing attachment is
+   *                             copied from, may be null
+   * @param attachmentObjectId   identifier of the object an existing attachment
+   *                             is copied from, may be null
+   * @param uploadId             upload id of an image the current user sent
+   *                             with start_upload, may be null; consumed by
+   *                             the call
+   * @param altText              alternative text of the image, may be null
+   * @return the updated comment
+   * @throws IllegalAccessException  when the user can't edit the comment, or
+   *                                 read the attachment
+   * @throws ObjectNotFoundException when the comment, the attachment or the
+   *                                 upload doesn't exist
+   */
   public ActivityCommentModel attachImageToComment(long commentId,
                                                    String imageUrl,
                                                    String imageBase64,
                                                    String attachmentObjectType,
                                                    String attachmentObjectId,
+                                                   String uploadId,
                                                    String altText) throws IllegalAccessException, ObjectNotFoundException {
     org.exoplatform.services.security.Identity userIdentity = getCurrentUserAclIdentity();
     // comments are looked up / keyed by their prefixed id ("comment<id>")
@@ -1066,8 +1184,12 @@ public class ActivityMcpTool implements McpToolPlugin {
     if (!activityManager.isActivityEditable(comment, userIdentity)) {
       throw new IllegalAccessException("Comment with id '%s' can't be edited by current user".formatted(commentId));
     }
-    String uploadId = resolveImageUploadId(imageUrl, imageBase64, attachmentObjectType, attachmentObjectId);
-    attachUploadToObject(ACTIVITY_OBJECT_TYPE, commentActivityId, uploadId, altText);
+    String stagedUploadId = resolveImageUploadId(new UploadToolUtils.ImageSource(imageUrl,
+                                                                                 imageBase64,
+                                                                                 attachmentObjectType,
+                                                                                 attachmentObjectId,
+                                                                                 uploadId));
+    attachUploadToObject(ACTIVITY_OBJECT_TYPE, commentActivityId, stagedUploadId, altText);
     return toActivityCommentModel(commentActivityId);
   }
 
