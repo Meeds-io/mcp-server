@@ -235,19 +235,19 @@ class McpToolUtilsActingIdentityTest {
                          McpToolUtils.MCP_OAUTH2_CLIENT_CREDENTIALS_REGISTRATION_ID);
 
     addIdentityHeaders(bindRequest(TOOL_CONTEXT_ID, USERNAME), "AGENT", "agent-mail", "EMAIL_ASSISTANT", USERNAME, "[\"EMAIL_ASSISTANT\"]",
-                       "MENTION", null);
+                       "SCHEDULE", null);
     assertThatThrownBy(McpToolUtils::getCurrentActingIdentity).isInstanceOf(IllegalStateException.class);
 
     addIdentityHeaders(bindRequest(TOOL_CONTEXT_ID, USERNAME), "AGENT", "agent-mail", "EMAIL_ASSISTANT", null, "[\"EMAIL_ASSISTANT\"]",
-                       "MENTION", "agent-user:COMPLETION");
+                       "SCHEDULE", "agent-user:COMPLETION");
     assertThatThrownBy(McpToolUtils::getCurrentActingIdentity).isInstanceOf(IllegalStateException.class);
 
     addIdentityHeaders(bindRequest(TOOL_CONTEXT_ID, USERNAME), "AGENT", "agent-mail", "EMAIL_ASSISTANT", null, "[\"EMAIL_ASSISTANT\"]",
-                       "MENTION", "EMAIL_ASSISTANT");
+                       "SCHEDULE", "EMAIL_ASSISTANT");
     assertThatThrownBy(McpToolUtils::getCurrentActingIdentity).isInstanceOf(IllegalStateException.class);
 
     addIdentityHeaders(bindRequest(TOOL_CONTEXT_ID, USERNAME), "AGENT", "agent-mail", "EMAIL_ASSISTANT", null, "[\"EMAIL_ASSISTANT\"]",
-                       "MENTION", "agent-user:EMAIL_ASSISTANT");
+                       "SCHEDULE", "agent-user:EMAIL_ASSISTANT");
     assertThat(McpToolUtils.getCurrentActingIdentity().grantScope()).isEqualTo("agent-user:EMAIL_ASSISTANT");
 
     addIdentityHeaders(bindRequest(TOOL_CONTEXT_ID, USERNAME), "ROBOT", USERNAME, null, USERNAME, "[]", "CHAT", null);
