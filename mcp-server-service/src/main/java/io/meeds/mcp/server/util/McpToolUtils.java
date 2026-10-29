@@ -673,15 +673,34 @@ public class McpToolUtils {
                                                    toEnum(Origin.class, request.getHeader(TOOL_CONTEXT_ORIGIN_PARAM)),
                                                    request.getHeader(TOOL_CONTEXT_AGENT_NAME_ID_PARAM),
                                                    parseSpaceScope(request.getHeader(TOOL_CONTEXT_SPACE_SCOPE_PARAM)));
-      String agentAccountScope = ActingIdentity.AGENT_USER_SCOPE_PREFIX + actor.agentNameId();
-      if (actor.kind() == PrincipalKind.AGENT && !agentAccountScope.equals(identity.grantScope())) {
-        throw new IllegalArgumentException("agent '%s' announces the grant scope '%s' instead of its own".formatted(actor.agentNameId(),
-                                                                                                                   identity.grantScope()));
+      if (actor.kind() == PrincipalKind.AGENT && !announcesItsOwnAgentUserScope(identity)) {
+        throw new IllegalArgumentException("agent account '%s' announces the grant scope '%s' instead of its own".formatted(actor.username(),
+                                                                                                                           identity.grantScope()));
       }
       return identity;
     } catch (IllegalArgumentException e) {
       throw new IllegalStateException("The acting identity of the call is refused: %s".formatted(e.getMessage()), e);
     }
+  }
+
+  /**
+   * Tells whether an agent account announces the grant scope of its own
+   * account: {@value ActingIdentity#AGENT_USER_SCOPE_PREFIX} and its login,
+   * or, for a call limited to one space, that scope followed by
+   * {@value ActingIdentity#AGENT_USER_SPACE_SEPARATOR} and the id of that
+   * same space, the scope of the grants given to the account in that space.
+   * Any other scope, another account's or another space's, would make the
+   * call run under grants that aren't the account's own there.
+   *
+   * @param identity an agent account's acting identity
+   * @return true when its grant scope is one of the two forms of its own
+   */
+  private static boolean announcesItsOwnAgentUserScope(ActingIdentity identity) {
+    String accountScope = ActingIdentity.AGENT_USER_SCOPE_PREFIX + identity.actor().username();
+    String grantScope = identity.grantScope();
+    return accountScope.equals(grantScope)
+           || identity.spaceScope() != null
+              && (accountScope + ActingIdentity.AGENT_USER_SPACE_SEPARATOR + identity.spaceScope()).equals(grantScope);
   }
 
   /**
