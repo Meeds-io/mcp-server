@@ -56,6 +56,7 @@ import org.exoplatform.social.core.space.SpaceFilter;
 import org.exoplatform.social.core.space.model.Space;
 import org.exoplatform.social.core.space.spi.SpaceService;
 
+import io.meeds.mcp.server.model.ActingIdentity;
 import io.meeds.mcp.server.plugin.McpToolPlugin;
 import io.meeds.mcp.server.tool.constant.Registration;
 import io.meeds.mcp.server.tool.constant.SpaceRole;
@@ -64,6 +65,7 @@ import io.meeds.mcp.server.tool.model.SpaceMemberModel;
 import io.meeds.mcp.server.tool.model.SpaceModel;
 import io.meeds.mcp.server.tool.model.UserModel;
 import io.meeds.mcp.server.tool.util.UploadToolUtils;
+import io.meeds.mcp.server.util.McpToolUtils;
 import io.meeds.social.space.constant.SpaceRegistration;
 import io.meeds.social.space.constant.SpaceVisibility;
 import io.meeds.social.space.template.model.SpaceTemplate;
@@ -581,6 +583,21 @@ public class SpaceMcpTool implements McpToolPlugin {
                  .toList();
   }
 
+  /**
+   * Lists the sub-spaces of a space that the current user can access. A call
+   * limited to one space answers where every member of that space reads it,
+   * so it leaves out the hidden sub-spaces, which those members may not know
+   * of; the page is then shorter than {@code limit} by the hidden sub-spaces
+   * it held, and the next one still starts at {@code offset + limit}.
+   *
+   * @param parentSpaceId the parent space
+   * @param offset        the offset among the accessible sub-spaces
+   * @param limit         the page size
+   * @return the sub-spaces of the page
+   * @throws ObjectNotFoundException when the parent space doesn't exist
+   * @throws IllegalAccessException  when the parent space is hidden from the
+   *                                   current user
+   */
   @SneakyThrows
   public List<SpaceModel> listSubSpaces(long parentSpaceId,
                                         Integer offset,
@@ -594,8 +611,10 @@ public class SpaceMcpTool implements McpToolPlugin {
     filter.setParentSpaceId(parentSpaceId);
     ListAccess<Space> spacesListAccess = spaceService.getAccessibleSpacesByFilter(currentUsername, filter);
     Space[] spaces = spacesListAccess.load(getInteger(offset, DEFAULT_OFFSET), getInteger(limit, DEFAULT_LIMIT));
+    boolean limitedToASpace = getScopeSpaceId() != null;
     return spaces == null ? Collections.emptyList()
                           : Stream.of(spaces)
+                                  .filter(s -> !limitedToASpace || !Space.HIDDEN.equals(s.getVisibility()))
                                   .map(s -> toSpaceModel(spaceService, s, currentUsername))
                                   .toList();
   }
@@ -757,6 +776,15 @@ public class SpaceMcpTool implements McpToolPlugin {
       throw new IllegalStateException("Could not update the space image: " + e.getMessage());
     }
     return toSpaceModel(spaceService, space, username);
+  }
+
+  /**
+   * @return the space the current call is limited to, null when it isn't
+   * @throws IllegalStateException when the call's identity can't be read
+   */
+  protected Long getScopeSpaceId() {
+    ActingIdentity identity = McpToolUtils.getCurrentActingIdentity();
+    return identity == null ? null : identity.spaceScope();
   }
 
 }
