@@ -83,6 +83,8 @@ import io.meeds.mcp.server.model.ToolDefinitionMethods;
 import io.meeds.mcp.server.util.McpToolUtils;
 import io.meeds.social.util.JsonUtils;
 
+import io.modelcontextprotocol.spec.McpSchema.ToolAnnotations;
+
 import lombok.SneakyThrows;
 
 @ExtendWith(MockitoExtension.class)
@@ -311,6 +313,41 @@ class McpToolServerServiceTest {
     assertEquals(shippedScope, defs.get(ALPHA_TOOL).getSpaceScope());
     assertEquals("SavedDesc", defs.get(ALPHA_TOOL).getDescription());
     assertNull(defs.get(BETA_TOOL).getSpaceScope());
+  }
+
+  /**
+   * The read/write bit of a call limited to a space comes from the shipped
+   * file, as its space scope does: a tool persisted as read-only and shipped
+   * as a write is a write, and the opposite a read; the administrator's title
+   * stays. Mutant: the hint not copied from the shipped file.
+   *
+   * @param tmp a temporary folder
+   */
+  @Test
+  void getToolDefinitions_takesTheReadOnlyHintFromTheShippedFile(// NOSONAR
+                                                                @TempDir
+                                                                Path tmp) {
+    ReflectionTestUtils.setField(mcpServerToolService, FORCE_REIMPORT_PARAM, false);
+    SimpleToolDefinition shippedAlpha = tool(ALPHA_TOOL, "ParsedDesc", TYPE_OBJECT, true, false);
+    shippedAlpha.setAnnotations(new ToolAnnotations("Alpha", false, true, null, false, null));
+    SimpleToolDefinition shippedBeta = tool(BETA_TOOL, "ParsedBeta", TYPE_OBJECT, false, false);
+    shippedBeta.setAnnotations(new ToolAnnotations("Beta", true, null, null, null, null));
+
+    SimpleToolDefinition savedAlpha = tool(ALPHA_TOOL, "SavedDesc", TYPE_OBJECT, true, false);
+    savedAlpha.setAnnotations(new ToolAnnotations("Admin title", true, null, null, null, null));
+    SimpleToolDefinition savedBeta = tool(BETA_TOOL, "SavedBeta", TYPE_OBJECT, false, false);
+    savedBeta.setAnnotations(new ToolAnnotations("Beta", false, null, null, null, null));
+    String savedBase64 = McpToolUtils.toJsonStringBase64(new ToolDefinitionMethods(List.of(savedAlpha, savedBeta)));
+    when(settingService.get(any(), any(), any())).thenReturn((SettingValue) SettingValue.create(savedBase64));
+
+    mockContainerResources(writeToolDefinitionsJson(tmp, List.of(shippedAlpha, shippedBeta)));
+
+    Map<String, SimpleToolDefinition> defs = mcpServerToolService.getToolDefinitions();
+
+    assertFalse(McpToolSpaceScopeService.isReadTool(defs.get(ALPHA_TOOL)));
+    assertEquals("Admin title", defs.get(ALPHA_TOOL).getAnnotations().title());
+    assertEquals("SavedDesc", defs.get(ALPHA_TOOL).getDescription());
+    assertTrue(McpToolSpaceScopeService.isReadTool(defs.get(BETA_TOOL)));
   }
 
   @Test
