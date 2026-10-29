@@ -26,6 +26,7 @@ import static org.mockito.ArgumentMatchers.anyBoolean;
 import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.CALLS_REAL_METHODS;
 import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.mockStatic;
@@ -56,6 +57,7 @@ import io.meeds.mcp.server.plugin.McpToolPlugin;
 import io.meeds.mcp.server.tool.constant.SpaceRole;
 import io.meeds.mcp.server.tool.model.SpaceModel;
 import io.meeds.mcp.server.tool.model.SubSpacesPageModel;
+import io.meeds.mcp.server.util.McpToolUtils;
 
 /**
  * Exercises the permission gates of {@link SpaceMcpTool} in isolation (plain
@@ -240,6 +242,26 @@ class SpaceMcpToolAclTest {
 
     assertNull(tool.listSubSpaces(SPACE_ID, 0, 0).nextOffset());
     verify(subSpaces).load(0, McpToolPlugin.DEFAULT_LIMIT);
+  }
+
+  /**
+   * When the call's identity can't be read, the space scope is unknown, so
+   * the listing is refused before any sub-space is loaded rather than run as
+   * a call limited to no space, which would list the hidden ones. Mutants: the
+   * exception caught and read as no scope, which lists them; the scope read
+   * after the load.
+   */
+  @Test
+  void listSubSpacesIsRefusedWhenTheIdentityCannotBeRead() throws Exception {
+    ListAccess<Space> subSpaces = mockSubSpaces();
+    try (MockedStatic<McpToolUtils> mcpToolUtils = mockStatic(McpToolUtils.class, CALLS_REAL_METHODS)) {
+      mcpToolUtils.when(McpToolUtils::getCurrentActingIdentity).thenThrow(new IllegalStateException("refused identity"));
+
+      assertThrows(IllegalStateException.class, () -> spaceMcpTool.listSubSpaces(SPACE_ID, 0, 10));
+    }
+
+    verify(spaceService, never()).getAccessibleSpacesByFilter(anyString(), any());
+    verify(subSpaces, never()).load(anyInt(), anyInt());
   }
 
   /**
