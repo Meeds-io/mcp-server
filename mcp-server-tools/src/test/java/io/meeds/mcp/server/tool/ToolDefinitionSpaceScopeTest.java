@@ -149,9 +149,10 @@ class ToolDefinitionSpaceScopeTest {
 
   /**
    * The writes that administer the space itself: settings, members, roles,
-   * join requests, deletion, its avatar and banner, and pinning a post to
-   * its stream. Adding content (an activity, a comment) isn't, and neither is
-   * deleting a post: the social rules on the worker decide that one.
+   * join requests, deletion, its avatar and banner, pinning a post to its
+   * stream, and deleting a post, which social lets a manager do to another
+   * member's ({@code ActivityManagerImpl#isActivityDeletable}). Adding or
+   * editing content (an activity, a comment, an image) isn't.
    */
   private static final Set<String> SPACE_ADMIN_WRITES   = Set.of("update_space_settings",
                                                                  "set_space_avatar",
@@ -256,7 +257,9 @@ class ToolDefinitionSpaceScopeTest {
    * read, no content write, and none of them missing it. Deleting a post is
    * one, since social lets a space manager delete a post of another member
    * ({@code ActivityManagerImpl#isActivityDeletable}); removing an image is
-   * an edit, which social leaves to the poster. Mutants: the flag dropped
+   * an edit, which social leaves to the poster, and to the space's content
+   * writers while the post is scheduled: neither is reserved to a manager.
+   * Mutants: the flag dropped
    * from {@code delete_space}, {@code pin_activity} or
    * {@code delete_activity}; set on {@code create_activity} or
    * {@code remove_image_from_activity}.
