@@ -67,7 +67,9 @@ import lombok.NoArgsConstructor;
  * <p>
  * {@code space_admin: true} marks a write that administers the space itself
  * (its settings, its members and their roles, its join requests, its
- * deletion) rather than adding content to it. The server enforces nothing
+ * deletion) or moderates its content (pinning a post, deleting a post, which
+ * a manager may do to another member's), rather than adding content to it.
+ * The server enforces nothing
  * more for it; a caller that lets someone approve such a write reads the flag
  * to ask the approver for the right to manage the space.
  * <p>
