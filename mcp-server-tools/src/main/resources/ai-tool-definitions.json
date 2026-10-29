@@ -2238,7 +2238,7 @@
       "name": "list_sub_spaces",
       "icon": "fa-users",
       "title": "List sub-spaces",
-      "description": "List the sub-spaces (child spaces in the 7.2 hierarchy) of a given parent space that are accessible to the current user.",
+      "description": "List the sub-spaces (child spaces in the 7.2 hierarchy) of a given parent space that are accessible to the current user. Returns sub_spaces and next_offset. A page can hold fewer sub-spaces than the limit while more follow: to read the next page, call again with next_offset as offset. The list has ended only when next_offset is absent.",
       "input_schema": {
         "type": "object",
         "properties": {
@@ -2248,11 +2248,11 @@
           },
           "offset": {
             "type": "integer",
-            "description": "Offset of sub-spaces to retrieve"
+            "description": "Where the page starts: 0 for the first page, then the next_offset returned by the previous page"
           },
           "limit": {
             "type": "integer",
-            "description": "Limit of sub-spaces to retrieve"
+            "description": "Maximum number of sub-spaces in the page, a positive number"
           }
         },
         "required": [
