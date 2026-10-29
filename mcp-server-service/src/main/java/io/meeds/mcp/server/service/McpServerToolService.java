@@ -559,19 +559,45 @@ public class McpServerToolService {
   }
 
   /**
-   * Gives a persisted definition the icon and the space scope of its shipped
-   * file, keeping every value the administrator may have edited. A space scope
-   * the file no longer declares is dropped from the persisted copy too.
+   * Gives a persisted definition the icon, the space scope and the
+   * {@code readOnlyHint} of its shipped file, keeping every value the
+   * administrator may have edited. The hint tells a read from a write for a
+   * call limited to a space, which is checked against the shipped space scope,
+   * so both come from the same file. A space scope or a hint the file no
+   * longer declares is dropped from the persisted copy too.
    *
    * @param savedDefinition   the persisted definition
    * @param shippedDefinition the definition read from the add-on's file
-   * @return the persisted definition, with the shipped icon and space scope
+   * @return the persisted definition, with the shipped icon, space scope and
+   *         read-only hint
    */
   private SimpleToolDefinition withShippedAddonFields(SimpleToolDefinition savedDefinition,
                                                       SimpleToolDefinition shippedDefinition) {
     savedDefinition.setIcon(shippedDefinition.getIcon());
     savedDefinition.setSpaceScope(shippedDefinition.getSpaceScope());
+    savedDefinition.setAnnotations(withReadOnlyHint(savedDefinition.getAnnotations(),
+                                                    shippedDefinition.getAnnotations() == null ? null :
+                                                                                               shippedDefinition.getAnnotations()
+                                                                                                                .readOnlyHint()));
     return savedDefinition;
+  }
+
+  /**
+   * @param annotations  the persisted annotations, may be null
+   * @param readOnlyHint the shipped read-only hint, may be null
+   * @return the annotations with that hint, the others kept; null when there
+   *         are none and the hint is null
+   */
+  private static ToolAnnotations withReadOnlyHint(ToolAnnotations annotations, Boolean readOnlyHint) {
+    if (annotations == null) {
+      return readOnlyHint == null ? null : new ToolAnnotations(null, readOnlyHint, null, null, null, null);
+    }
+    return new ToolAnnotations(annotations.title(),
+                               readOnlyHint,
+                               annotations.destructiveHint(),
+                               annotations.idempotentHint(),
+                               annotations.openWorldHint(),
+                               annotations.returnDirect());
   }
 
   /**
