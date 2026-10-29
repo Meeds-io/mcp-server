@@ -713,7 +713,7 @@ class McpToolCallbackProviderServiceTest {
     assertTrue(output.contains("Hello Bob"), output);
     ArgumentCaptor<McpToolGrantRequest> grantRequest = ArgumentCaptor.forClass(McpToolGrantRequest.class);
     verify(mcpToolGrantService).findApplicableGrant(grantRequest.capture(), any());
-    assertEquals("agent-user:EMAIL_ASSISTANT", grantRequest.getValue().agentNameId());
+    assertEquals("agent-user:agent-mail", grantRequest.getValue().agentNameId());
     assertEquals("agent-mail", grantRequest.getValue().username());
   }
 
@@ -739,7 +739,7 @@ class McpToolCallbackProviderServiceTest {
     assertTrue(e.getMessage().contains("nobody can approve it"), e.getMessage());
     ArgumentCaptor<McpToolGrantRequest> grantRequest = ArgumentCaptor.forClass(McpToolGrantRequest.class);
     verify(mcpToolGrantService).findApplicableGrant(grantRequest.capture(), any());
-    assertEquals("agent-user:EMAIL_ASSISTANT", grantRequest.getValue().agentNameId());
+    assertEquals("agent-user:agent-mail", grantRequest.getValue().agentNameId());
     verify(mcpToolApprovalService).traceToolExecution(argThatIs(UserToolRequestType.TOOL_EXECUTION_DENIED));
     verify(mcpToolApprovalService, never()).traceToolExecution(argThatIs(UserToolRequestType.TOOL_EXECUTION_START));
     verify(mcpToolApprovalService, never()).requestApproval(any(), any(), any(), any(), any(), any(), any(), anyBoolean(), any());
@@ -836,7 +836,7 @@ class McpToolCallbackProviderServiceTest {
                        null,
                        "[\"EMAIL_ASSISTANT\"]",
                        "PROPOSAL",
-                       "agent-user:EMAIL_ASSISTANT");
+                       "agent-user:agent-mail");
   }
 
   /**
