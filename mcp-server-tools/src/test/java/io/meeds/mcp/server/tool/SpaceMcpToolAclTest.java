@@ -26,6 +26,7 @@ import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.mockStatic;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -37,15 +38,19 @@ import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
+import org.mockito.MockedStatic;
 import org.mockito.stubbing.Answer;
 import org.springframework.test.util.ReflectionTestUtils;
 
+import org.exoplatform.commons.utils.CommonsUtils;
+import org.exoplatform.commons.utils.ListAccess;
 import org.exoplatform.services.security.ConversationState;
 import org.exoplatform.services.security.Identity;
 import org.exoplatform.social.core.space.model.Space;
 import org.exoplatform.social.core.space.spi.SpaceService;
 
 import io.meeds.mcp.server.tool.constant.SpaceRole;
+import io.meeds.mcp.server.tool.model.SpaceModel;
 
 /**
  * Exercises the permission gates of {@link SpaceMcpTool} in isolation (plain
@@ -81,6 +86,41 @@ class SpaceMcpToolAclTest {
   @AfterEach
   void tearDown() {
     ConversationState.setCurrent(null);
+  }
+
+  /**
+   * A call limited to a space lists the sub-spaces the user can access but
+   * the hidden ones, which the members of the space its answer is posted in
+   * may not know of; a call limited to no space lists them all. Mutants: the
+   * hidden filter removed, which lists the hidden one under a scope; the
+   * filter applied whatever the scope, which drops it without one.
+   */
+  @Test
+  void listSubSpacesLeavesOutHiddenOnesUnderASpaceScope() throws Exception {
+    Space hidden = subSpace(21L, Space.HIDDEN);
+    Space listed = subSpace(22L, Space.PRIVATE);
+    space.setVisibility(Space.PRIVATE);
+    @SuppressWarnings("unchecked")
+    ListAccess<Space> subSpaces = mock(ListAccess.class);
+    when(subSpaces.load(0, 10)).thenReturn(new Space[] { hidden, listed });
+    when(spaceService.getAccessibleSpacesByFilter(eq(USERNAME), any())).thenReturn(subSpaces);
+    Long[] scope = { SPACE_ID };
+    SpaceMcpTool tool = new SpaceMcpTool() {
+      @Override
+      protected Long getScopeSpaceId() {
+        return scope[0];
+      }
+    };
+    ReflectionTestUtils.setField(tool, "spaceService", spaceService);
+
+    try (MockedStatic<CommonsUtils> commonsUtils = mockStatic(CommonsUtils.class)) {
+      commonsUtils.when(CommonsUtils::getCurrentDomain).thenReturn("https://meeds.io");
+
+      assertEquals(List.of(22L), tool.listSubSpaces(SPACE_ID, 0, 10).stream().map(SpaceModel::getSpaceId).toList());
+
+      scope[0] = null;
+      assertEquals(List.of(21L, 22L), tool.listSubSpaces(SPACE_ID, 0, 10).stream().map(SpaceModel::getSpaceId).toList());
+    }
   }
 
   /**
@@ -333,6 +373,23 @@ class SpaceMcpToolAclTest {
    */
   private void allowManagement() {
     when(spaceService.canManageSpace(space, USERNAME)).thenReturn(true);
+  }
+
+  /**
+   * @param id         the sub-space id
+   * @param visibility its visibility
+   * @return a sub-space of the space, with no member
+   */
+  private static Space subSpace(long id, String visibility) {
+    Space subSpace = new Space();
+    subSpace.setId(String.valueOf(id));
+    subSpace.setVisibility(visibility);
+    subSpace.setRegistration(Space.OPEN);
+    subSpace.setParentSpaceId(SPACE_ID);
+    subSpace.setTemplateId(1L);
+    subSpace.setMembers(new String[0]);
+    subSpace.setManagers(new String[0]);
+    return subSpace;
   }
 
 }
