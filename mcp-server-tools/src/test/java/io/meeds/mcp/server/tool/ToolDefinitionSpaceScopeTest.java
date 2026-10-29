@@ -158,6 +158,7 @@ class ToolDefinitionSpaceScopeTest {
                                                                  "set_space_banner",
                                                                  "pin_activity",
                                                                  "unpin_activity",
+                                                                 "delete_activity",
                                                                  "invite_users_to_space",
                                                                  "remove_users_from_space",
                                                                  "set_user_role_in_space",
@@ -252,9 +253,13 @@ class ToolDefinitionSpaceScopeTest {
 
   /**
    * Exactly the space administration writes carry {@code space_admin}: no
-   * read, no content write, and none of them missing it. Mutants: the flag
-   * dropped from {@code delete_space} or {@code pin_activity}; set on
-   * {@code create_activity} or {@code delete_activity}.
+   * read, no content write, and none of them missing it. Deleting a post is
+   * one, since social lets a space manager delete a post of another member
+   * ({@code ActivityManagerImpl#isActivityDeletable}); removing an image is
+   * an edit, which social leaves to the poster. Mutants: the flag dropped
+   * from {@code delete_space}, {@code pin_activity} or
+   * {@code delete_activity}; set on {@code create_activity} or
+   * {@code remove_image_from_activity}.
    */
   @Test
   void spaceAdminFlagIsOnTheSpaceAdministrationWritesOnly() {

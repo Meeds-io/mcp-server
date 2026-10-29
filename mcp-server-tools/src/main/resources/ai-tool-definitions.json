@@ -811,7 +811,7 @@
         "idempotentHint": true,
         "openWorldHint": false
       },
-      "space_scope": { "object_arg": "activity_id", "resolver": "activity" },
+      "space_scope": { "object_arg": "activity_id", "resolver": "activity", "space_admin": true },
       "require_approval": true
     },
     {
