@@ -149,7 +149,7 @@ class McpToolArgumentUtilsTest {
     params.put("arguments", arguments(SUMMARY, "Meeting", SPACE_ID, null));
     params.put("_meta", Map.of("progressToken", "1"));
 
-    Map<String, Object> cleaned = (Map<String, Object>) McpToolArgumentUtils.removeNullOptionalParameters(INPUT_SCHEMA, params);
+    Map<String, Object> cleaned = (Map<String, Object>) McpToolArgumentUtils.normalizeParameters(INPUT_SCHEMA, params);
 
     assertEquals(Map.of(SUMMARY, "Meeting"), cleaned.get("arguments"));
     assertEquals(TOOL_NAME, cleaned.get("name"));
@@ -165,7 +165,7 @@ class McpToolArgumentUtilsTest {
     Map<String, Object> meta = Map.of("progressToken", "token-1");
     CallToolRequest request = new CallToolRequest(TOOL_NAME, arguments(SUMMARY, "Meeting", SPACE_ID, null), meta);
 
-    CallToolRequest cleaned = (CallToolRequest) McpToolArgumentUtils.removeNullOptionalParameters(INPUT_SCHEMA, request);
+    CallToolRequest cleaned = (CallToolRequest) McpToolArgumentUtils.normalizeParameters(INPUT_SCHEMA, request);
 
     assertEquals(TOOL_NAME, cleaned.name());
     assertEquals(Map.of(SUMMARY, "Meeting"), cleaned.arguments());
