@@ -273,7 +273,9 @@ public class McpToolCallbackProviderService implements ToolCallbackProvider {
         throw e;
       } catch (UserToolDeniedException | UserToolTimeoutException e) {
         // the user's own answer, or no answer, to an approval card: not an incident
-        log.debug("Tool call not run, with input '{}'", redactBase64ForPublication(toolInput), e);
+        if (log.isDebugEnabled()) {
+          log.debug("Tool call not run, with input '{}'", redactBase64ForPublication(toolInput), e);
+        }
         throw e;
       } catch (Exception e) {
         log.warn("Error while call Tool with input '{}'", redactBase64ForPublication(toolInput), e);
@@ -377,11 +379,13 @@ public class McpToolCallbackProviderService implements ToolCallbackProvider {
                                                                   .toolOutput(toolOutput)
                                                                   .completed(true)
                                                                   .build());
-        log.debug("Call Tool '{}#{}' with input: {}. Output: {}",
-                  toolObject.getClass().getName(),
-                  toolMethod.getName(),
-                  redactBase64ForPublication(toolInput),
-                  toolOutput);
+        if (log.isDebugEnabled()) {
+          log.debug("Call Tool '{}#{}' with input: {}. Output: {}",
+                    toolObject.getClass().getName(),
+                    toolMethod.getName(),
+                    redactBase64ForPublication(toolInput),
+                    toolOutput);
+        }
         return toolOutput;
       } catch (SpaceScopeRefusedException e) {
         mcpToolApprovalService.traceToolExecution(executionBuilder.toolExecutionType(UserToolRequestType.TOOL_EXECUTION_OUT_OF_SCOPE)
