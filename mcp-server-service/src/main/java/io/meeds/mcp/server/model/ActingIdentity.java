@@ -81,8 +81,17 @@ public record ActingIdentity(PrincipalRef actor,
   /** The prefix of the grant scope of a scheduled agent run. */
   public static final String SCHEDULE_SCOPE_PREFIX   = "schedule" + SOURCE_SCOPE_SEPARATOR;
 
-  /** The prefix of the grant scope of an agent account acting as itself. */
+  /**
+   * The prefix of the grant scope of an agent account acting as itself,
+   * followed by the account's login.
+   */
   public static final String AGENT_USER_SCOPE_PREFIX = "agent-user" + SOURCE_SCOPE_SEPARATOR;
+
+  /**
+   * What follows an agent account's grant scope, then a space id, when its
+   * grants are the ones given to it in that space.
+   */
+  public static final String AGENT_USER_SPACE_SEPARATOR = SOURCE_SCOPE_SEPARATOR + "space" + SOURCE_SCOPE_SEPARATOR;
 
   /**
    * Checks the identity is complete and holds a combination some entry point
@@ -179,7 +188,7 @@ public record ActingIdentity(PrincipalRef actor,
    *                      {@link #READ_SCOPED_ORIGINS}
    * @return the agent account acting as itself, the agent alone in the chain,
    *         its grants matched by the scope {@value #AGENT_USER_SCOPE_PREFIX}
-   *         followed by its name id, with no space scope
+   *         followed by its login, with no space scope
    */
   public static ActingIdentity agent(String username, String agentNameId, Origin origin) {
     return agent(username, agentNameId, origin, null);
@@ -192,14 +201,14 @@ public record ActingIdentity(PrincipalRef actor,
    * @param spaceScope   the only space the call may reach, or null
    * @return the agent account acting as itself, the agent alone in the chain,
    *         its grants matched by the scope {@value #AGENT_USER_SCOPE_PREFIX}
-   *         followed by its name id, limited to that space
+   *         followed by its login, limited to that space
    */
   public static ActingIdentity agent(String username, String agentNameId, Origin origin, Long spaceScope) {
     return new ActingIdentity(PrincipalRef.agent(username, agentNameId),
                               null,
                               List.of(agentNameId),
                               origin,
-                              AGENT_USER_SCOPE_PREFIX + agentNameId,
+                              AGENT_USER_SCOPE_PREFIX + username,
                               spaceScope);
   }
 
