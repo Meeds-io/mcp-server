@@ -41,6 +41,7 @@ import io.meeds.mcp.server.tool.constant.Visibility;
 import io.meeds.mcp.server.tool.model.SpaceMemberModel;
 import io.meeds.mcp.server.tool.model.SpaceModel;
 import io.meeds.mcp.server.tool.model.SpaceTemplateModel;
+import io.meeds.mcp.server.tool.model.SubSpacesPageModel;
 import io.meeds.mcp.server.tool.model.UserModel;
 import io.meeds.mcp.server.tool.test.IntegrationTestBase;
 
@@ -198,7 +199,9 @@ class SpaceMcpToolTest extends IntegrationTestBase {
   void listSubSpacesIsEmptyForLeafSpace() throws Exception {
     SpaceModel space = createTestSpace();
 
-    assertNotNull(spaceMcpTool.listSubSpaces(space.getSpaceId(), 0, 10));
+    SubSpacesPageModel page = spaceMcpTool.listSubSpaces(space.getSpaceId(), 0, 10);
+    assertTrue(page.subSpaces().isEmpty());
+    assertNull(page.nextOffset());
   }
 
   @Test
