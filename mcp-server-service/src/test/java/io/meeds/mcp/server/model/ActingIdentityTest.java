@@ -74,7 +74,7 @@ class ActingIdentityTest {
     assertThat(agent.subject()).isEqualTo("agent-mail");
     assertThat(agent.chain()).containsExactly(AGENT);
     assertThat(agent.callingAgent()).isEqualTo(AGENT);
-    assertThat(agent.grantScope()).isEqualTo("agent-user:" + AGENT);
+    assertThat(agent.grantScope()).isEqualTo("agent-user:agent-mail");
     assertThat(agent.isSourceScope()).isTrue();
     assertThat(agent.origin()).isEqualTo(Origin.MENTION);
   }
@@ -124,7 +124,7 @@ class ActingIdentityTest {
     assertThat(delegated.grantScope()).isEqualTo("schedule:12");
     assertThat(delegated.chain()).containsExactly("DIGEST", AGENT);
     assertThat(ActingIdentity.agent("agent-mail", AGENT, Origin.MENTION, SPACE_ID).withHop("DOCUMENTS").grantScope())
-                                                                                                         .isEqualTo("agent-user:" + AGENT);
+                                                                                                         .isEqualTo("agent-user:agent-mail");
   }
 
   /**
