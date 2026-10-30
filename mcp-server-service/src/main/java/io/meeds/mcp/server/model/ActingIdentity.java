@@ -19,7 +19,9 @@
 package io.meeds.mcp.server.model;
 
 import java.util.ArrayList;
+import java.util.EnumSet;
 import java.util.List;
+import java.util.Set;
 
 import org.apache.commons.lang3.StringUtils;
 
@@ -36,6 +38,12 @@ import io.meeds.mcp.server.constant.PrincipalKind;
  * as itself. A call never combines two accounts' permissions. An agent account
  * acting for a person is a combination no entry point produces yet, so it is
  * refused at construction.
+ * <p>
+ * A call may be limited to the content of one space, its {@link #spaceScope()}:
+ * an answer an agent posts in a space must not carry what only the person it
+ * reads for can see elsewhere. The limit is kept by every derivation of the
+ * identity, and the origins that post their answer in a space
+ * ({@link #READ_SCOPED_ORIGINS}) can't be built without it.
  *
  * @param actor      the account that executes the call
  * @param onBehalfOf the person the work is for, null when an agent acts as
@@ -46,12 +54,26 @@ import io.meeds.mcp.server.constant.PrincipalKind;
  * @param grantScope what the standing-approval lookup matches against: an
  *                     agent name id, or a source scope holding
  *                     {@value #SOURCE_SCOPE_SEPARATOR}; null for none
+ * @param spaceScope  the id of the only space the call may reach, null when
+ *                     the call isn't limited to a space
  */
 public record ActingIdentity(PrincipalRef actor,
                              String onBehalfOf,
                              List<String> chain,
                              Origin origin,
-                             String grantScope) {
+                             String grantScope,
+                             Long spaceScope) {
+
+  /**
+   * The origins whose answer is posted in a space, read by every member of it:
+   * an identity of one of them is always limited to that space, and only
+   * reads there: {@link Origin#PROPOSAL}, an approved proposal, is the only
+   * origin a write runs under while limited to a space.
+   */
+  public static final Set<Origin> READ_SCOPED_ORIGINS     = Set.copyOf(EnumSet.of(Origin.MENTION,
+                                                                                  Origin.TASK_COMMENT,
+                                                                                  Origin.ROOM_MENTION,
+                                                                                  Origin.TASK_ASSIGNMENT));
 
   /** What a source scope holds, and an agent name id never does. */
   public static final String SOURCE_SCOPE_SEPARATOR  = ":";
@@ -59,8 +81,17 @@ public record ActingIdentity(PrincipalRef actor,
   /** The prefix of the grant scope of a scheduled agent run. */
   public static final String SCHEDULE_SCOPE_PREFIX   = "schedule" + SOURCE_SCOPE_SEPARATOR;
 
-  /** The prefix of the grant scope of an agent account acting as itself. */
+  /**
+   * The prefix of the grant scope of an agent account acting as itself,
+   * followed by the account's login.
+   */
   public static final String AGENT_USER_SCOPE_PREFIX = "agent-user" + SOURCE_SCOPE_SEPARATOR;
+
+  /**
+   * What follows an agent account's grant scope, then a space id, when its
+   * grants are the ones given to it in that space.
+   */
+  public static final String AGENT_USER_SPACE_SEPARATOR = SOURCE_SCOPE_SEPARATOR + "space" + SOURCE_SCOPE_SEPARATOR;
 
   /**
    * Checks the identity is complete and holds a combination some entry point
@@ -71,10 +102,14 @@ public record ActingIdentity(PrincipalRef actor,
    * @param chain      the agents from the entry point to the calling one
    * @param origin     what triggered the call
    * @param grantScope the standing-approval scope, or null
+   * @param spaceScope  the only space the call may reach, or null
    * @throws IllegalArgumentException when a part is missing, a chain element
    *                                    is not an agent name id, a person acts
-   *                                    for someone else, or an agent account
-   *                                    acts for a person
+   *                                    for someone else, an agent account acts
+   *                                    for a person, the space scope isn't a
+   *                                    space id, or an origin of
+   *                                    {@link #READ_SCOPED_ORIGINS} comes
+   *                                    without a space scope
    */
   public ActingIdentity {
     if (actor == null) {
@@ -88,6 +123,10 @@ public record ActingIdentity(PrincipalRef actor,
                                                                                                                               onBehalfOf));
     } else if (actor.kind() == PrincipalKind.USER && !actor.username().equals(onBehalfOf)) {
       throw new IllegalArgumentException("A person acts only for themself: '%s' for '%s'".formatted(actor.username(), onBehalfOf));
+    } else if (spaceScope != null && spaceScope <= 0) {
+      throw new IllegalArgumentException("A space scope is a space id: %s isn't one".formatted(spaceScope));
+    } else if (spaceScope == null && READ_SCOPED_ORIGINS.contains(origin)) {
+      throw new IllegalArgumentException("A call of origin %s answers in a space, so it needs the space scope of that space".formatted(origin));
     }
     for (String agentNameId : chain) {
       checkAgentNameId(agentNameId);
@@ -97,29 +136,80 @@ public record ActingIdentity(PrincipalRef actor,
   }
 
   /**
+   * Builds an identity limited to no space, whatever the identity it is
+   * derived from was limited to.
+   *
+   * @param actor      the account that executes the call
+   * @param onBehalfOf the person the work is for, or null
+   * @param chain      the agents from the entry point to the calling one
+   * @param origin     what triggered the call
+   * @param grantScope the standing-approval scope, or null
+   * @throws IllegalArgumentException as the canonical constructor does, an
+   *                                    origin of {@link #READ_SCOPED_ORIGINS}
+   *                                    included, since it needs a space scope
+   * @deprecated use the canonical constructor, which states the space scope,
+   *             or {@link #withHop(String)} / {@link #withGrantScope(String)}
+   *             to derive an identity: a copy built with this one silently
+   *             drops a space scope. Since 7.3.0, kept for the add-ons built
+   *             against the previous signature, for removal once none calls
+   *             it.
+   */
+  @Deprecated(since = "7.3.0", forRemoval = true)
+  public ActingIdentity(PrincipalRef actor, String onBehalfOf, List<String> chain, Origin origin, String grantScope) {
+    this(actor, onBehalfOf, chain, origin, grantScope, null);
+  }
+
+  /**
    * @param username the person
-   * @param origin   what triggered the call
-   * @return the person acting for themself, with no agent in the chain and no
-   *         grant scope
+   * @param origin   what triggered the call, not one of
+   *                   {@link #READ_SCOPED_ORIGINS}
+   * @return the person acting for themself, with no agent in the chain, no
+   *         grant scope and no space scope
    */
   public static ActingIdentity person(String username, Origin origin) {
-    return new ActingIdentity(PrincipalRef.user(username), username, List.of(), origin, null);
+    return person(username, origin, null);
+  }
+
+  /**
+   * @param username  the person
+   * @param origin    what triggered the call
+   * @param spaceScope the only space the call may reach, or null
+   * @return the person acting for themself, with no agent in the chain and no
+   *         grant scope, limited to that space
+   */
+  public static ActingIdentity person(String username, Origin origin, Long spaceScope) {
+    return new ActingIdentity(PrincipalRef.user(username), username, List.of(), origin, null, spaceScope);
+  }
+
+  /**
+   * @param username    the agent account's login
+   * @param agentNameId the agent it is the account of
+   * @param origin      what triggered the call, not one of
+   *                      {@link #READ_SCOPED_ORIGINS}
+   * @return the agent account acting as itself, the agent alone in the chain,
+   *         its grants matched by the scope {@value #AGENT_USER_SCOPE_PREFIX}
+   *         followed by its login, with no space scope
+   */
+  public static ActingIdentity agent(String username, String agentNameId, Origin origin) {
+    return agent(username, agentNameId, origin, null);
   }
 
   /**
    * @param username    the agent account's login
    * @param agentNameId the agent it is the account of
    * @param origin      what triggered the call
+   * @param spaceScope   the only space the call may reach, or null
    * @return the agent account acting as itself, the agent alone in the chain,
    *         its grants matched by the scope {@value #AGENT_USER_SCOPE_PREFIX}
-   *         followed by its name id
+   *         followed by its login, limited to that space
    */
-  public static ActingIdentity agent(String username, String agentNameId, Origin origin) {
+  public static ActingIdentity agent(String username, String agentNameId, Origin origin, Long spaceScope) {
     return new ActingIdentity(PrincipalRef.agent(username, agentNameId),
                               null,
                               List.of(agentNameId),
                               origin,
-                              AGENT_USER_SCOPE_PREFIX + agentNameId);
+                              AGENT_USER_SCOPE_PREFIX + username,
+                              spaceScope);
   }
 
   /**
@@ -132,7 +222,8 @@ public record ActingIdentity(PrincipalRef actor,
 
   /**
    * The only derivation of the chain: an agent appended at its end. The
-   * actor, the person the work is for and the origin are kept.
+   * actor, the person the work is for, the origin and the space scope are
+   * kept, so an agent called by a limited one is limited the same way.
    *
    * @param agentNameId the agent that now makes the calls
    * @return the identity with the agent appended, whose grant scope is that
@@ -144,7 +235,7 @@ public record ActingIdentity(PrincipalRef actor,
     checkAgentNameId(agentNameId);
     List<String> hops = new ArrayList<>(chain);
     hops.add(agentNameId);
-    return new ActingIdentity(actor, onBehalfOf, hops, origin, isSourceScope() ? grantScope : agentNameId);
+    return new ActingIdentity(actor, onBehalfOf, hops, origin, isSourceScope() ? grantScope : agentNameId, spaceScope);
   }
 
   /**
@@ -152,7 +243,7 @@ public record ActingIdentity(PrincipalRef actor,
    * the origin was: a scope starting with {@value #SCHEDULE_SCOPE_PREFIX} is a
    * scheduled run, any other scope holding {@value #SOURCE_SCOPE_SEPARATOR}
    * another unattended source, and a bare agent name id leaves the origin as
-   * it is.
+   * it is. The space scope is kept.
    *
    * @param scope the grant scope, null for none
    * @return the identity with that scope and the origin it implies
@@ -164,7 +255,7 @@ public record ActingIdentity(PrincipalRef actor,
     } else if (StringUtils.contains(scope, SOURCE_SCOPE_SEPARATOR)) {
       scopeOrigin = Origin.SOURCE;
     }
-    return new ActingIdentity(actor, onBehalfOf, chain, scopeOrigin, scope);
+    return new ActingIdentity(actor, onBehalfOf, chain, scopeOrigin, scope, spaceScope);
   }
 
   /**

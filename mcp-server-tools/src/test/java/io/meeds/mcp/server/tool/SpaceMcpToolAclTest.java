@@ -19,14 +19,19 @@
 package io.meeds.mcp.server.tool;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyBoolean;
+import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.CALLS_REAL_METHODS;
 import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.mockStatic;
 import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -37,15 +42,22 @@ import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
+import org.mockito.MockedStatic;
 import org.mockito.stubbing.Answer;
 import org.springframework.test.util.ReflectionTestUtils;
 
+import org.exoplatform.commons.utils.CommonsUtils;
+import org.exoplatform.commons.utils.ListAccess;
 import org.exoplatform.services.security.ConversationState;
 import org.exoplatform.services.security.Identity;
 import org.exoplatform.social.core.space.model.Space;
 import org.exoplatform.social.core.space.spi.SpaceService;
 
+import io.meeds.mcp.server.plugin.McpToolPlugin;
 import io.meeds.mcp.server.tool.constant.SpaceRole;
+import io.meeds.mcp.server.tool.model.SpaceModel;
+import io.meeds.mcp.server.tool.model.SubSpacesPageModel;
+import io.meeds.mcp.server.util.McpToolUtils;
 
 /**
  * Exercises the permission gates of {@link SpaceMcpTool} in isolation (plain
@@ -81,6 +93,175 @@ class SpaceMcpToolAclTest {
   @AfterEach
   void tearDown() {
     ConversationState.setCurrent(null);
+  }
+
+  /**
+   * A call limited to a space lists the sub-spaces the user can access but
+   * the hidden ones, which the members of the space its answer is posted in
+   * may not know of; a call limited to no space lists them all. Mutants: the
+   * hidden filter removed, which lists the hidden one under a scope; the
+   * filter applied whatever the scope, which drops it without one.
+   */
+  @Test
+  void listSubSpacesLeavesOutHiddenOnesUnderASpaceScope() throws Exception {
+    Space hidden = subSpace(21L, Space.HIDDEN);
+    Space listed = subSpace(22L, Space.PRIVATE);
+    space.setVisibility(Space.PRIVATE);
+    @SuppressWarnings("unchecked")
+    ListAccess<Space> subSpaces = mock(ListAccess.class);
+    when(subSpaces.load(0, 10)).thenReturn(new Space[] { hidden, listed });
+    when(spaceService.getAccessibleSpacesByFilter(eq(USERNAME), any())).thenReturn(subSpaces);
+    Long[] scope = { SPACE_ID };
+    SpaceMcpTool tool = new SpaceMcpTool() {
+      @Override
+      protected Long getScopeSpaceId() {
+        return scope[0];
+      }
+    };
+    ReflectionTestUtils.setField(tool, "spaceService", spaceService);
+
+    try (MockedStatic<CommonsUtils> commonsUtils = mockStatic(CommonsUtils.class)) {
+      commonsUtils.when(CommonsUtils::getCurrentDomain).thenReturn("https://meeds.io");
+
+      assertEquals(List.of(22L), tool.listSubSpaces(SPACE_ID, 0, 10).subSpaces().stream().map(SpaceModel::getSpaceId).toList());
+
+      scope[0] = null;
+      assertEquals(List.of(21L, 22L), tool.listSubSpaces(SPACE_ID, 0, 10).subSpaces().stream().map(SpaceModel::getSpaceId).toList());
+    }
+  }
+
+  /**
+   * Under a space scope, a page whose loaded sub-spaces were partly hidden
+   * loads on from where it stopped until it holds {@code limit} sub-spaces,
+   * and the next page starts right after the last sub-space it read, so the
+   * one after it is neither skipped nor repeated. Mutants: a single load under
+   * a scope, which returns one sub-space; the next offset set to
+   * {@code offset + limit} or to the end of the last load, which skips 25.
+   */
+  @Test
+  void listSubSpacesUnderASpaceScopeLoadsOnUntilThePageIsFull() throws Exception {
+    ListAccess<Space> subSpaces = mockSubSpaces();
+    when(subSpaces.load(0, 2)).thenReturn(new Space[] { subSpace(21L, Space.HIDDEN), subSpace(22L, Space.PRIVATE) });
+    when(subSpaces.load(2, 2)).thenReturn(new Space[] { subSpace(24L, Space.PUBLIC), subSpace(25L, Space.PRIVATE) });
+    when(subSpaces.load(3, 2)).thenReturn(new Space[] { subSpace(25L, Space.PRIVATE) });
+    SpaceMcpTool tool = toolLimitedTo(SPACE_ID);
+
+    try (MockedStatic<CommonsUtils> commonsUtils = mockCurrentDomain()) {
+      SubSpacesPageModel page = tool.listSubSpaces(SPACE_ID, 0, 2);
+      assertEquals(List.of(22L, 24L), spaceIds(page));
+      assertEquals(3, page.nextOffset());
+
+      SubSpacesPageModel nextPage = tool.listSubSpaces(SPACE_ID, page.nextOffset(), 2);
+      assertEquals(List.of(25L), spaceIds(nextPage));
+      assertNull(nextPage.nextOffset());
+    }
+  }
+
+  /**
+   * Under a space scope, a first load whose sub-spaces are all hidden doesn't
+   * end the page: the next load is read, and a load shorter than the limit
+   * ends the list, which the page says with no next offset. Mutants: a single
+   * load under a scope, which returns an empty page; the end of the list not
+   * detected, which reports a next offset.
+   */
+  @Test
+  void listSubSpacesUnderASpaceScopeReadsPastAnAllHiddenLoadToTheEnd() throws Exception {
+    ListAccess<Space> subSpaces = mockSubSpaces();
+    when(subSpaces.load(4, 2)).thenReturn(new Space[] { subSpace(21L, Space.HIDDEN), subSpace(22L, Space.HIDDEN) });
+    when(subSpaces.load(6, 2)).thenReturn(new Space[] { subSpace(23L, Space.PRIVATE) });
+    SpaceMcpTool tool = toolLimitedTo(SPACE_ID);
+
+    try (MockedStatic<CommonsUtils> commonsUtils = mockCurrentDomain()) {
+      SubSpacesPageModel page = tool.listSubSpaces(SPACE_ID, 4, 2);
+
+      assertEquals(List.of(23L), spaceIds(page));
+      assertNull(page.nextOffset());
+    }
+  }
+
+  /**
+   * Under a space scope, a parent whose sub-spaces are all hidden is read
+   * {@value SpaceMcpTool#MAX_SCOPED_SUB_SPACES_LOADS} loads at most per call;
+   * the page then comes back empty with the offset the next call resumes at,
+   * past every sub-space read. Mutants: no bound on the loads, which reads a
+   * sixth one; the next offset left at the call's offset, which makes the
+   * model read the same sub-spaces again.
+   */
+  @Test
+  void listSubSpacesUnderASpaceScopeStopsAfterItsMaximumLoads() throws Exception {
+    ListAccess<Space> subSpaces = mockSubSpaces();
+    when(subSpaces.load(anyInt(), eq(2))).thenReturn(new Space[] { subSpace(21L, Space.HIDDEN), subSpace(22L, Space.HIDDEN) });
+    SpaceMcpTool tool = toolLimitedTo(SPACE_ID);
+
+    SubSpacesPageModel page = tool.listSubSpaces(SPACE_ID, 0, 2);
+
+    assertEquals(List.of(), page.subSpaces());
+    assertEquals(2 * SpaceMcpTool.MAX_SCOPED_SUB_SPACES_LOADS, page.nextOffset());
+    verify(subSpaces, times(SpaceMcpTool.MAX_SCOPED_SUB_SPACES_LOADS)).load(anyInt(), eq(2));
+    verify(subSpaces, never()).load(2 * SpaceMcpTool.MAX_SCOPED_SUB_SPACES_LOADS, 2);
+  }
+
+  /**
+   * A call limited to no space keeps the hidden sub-spaces in a page of one
+   * load, and reports the next offset when the page is full, none when the
+   * load came back short. Mutants: the hidden ones left out without a scope;
+   * no next offset on a full page; a next offset on a short one.
+   */
+  @Test
+  void listSubSpacesWithoutScopeMakesOneLoad() throws Exception {
+    ListAccess<Space> subSpaces = mockSubSpaces();
+    when(subSpaces.load(0, 2)).thenReturn(new Space[] { subSpace(21L, Space.HIDDEN), subSpace(22L, Space.PRIVATE) });
+    when(subSpaces.load(2, 2)).thenReturn(new Space[] { subSpace(23L, Space.PRIVATE) });
+    SpaceMcpTool tool = toolLimitedTo(null);
+
+    try (MockedStatic<CommonsUtils> commonsUtils = mockCurrentDomain()) {
+      SubSpacesPageModel page = tool.listSubSpaces(SPACE_ID, 0, 2);
+      assertEquals(List.of(21L, 22L), spaceIds(page));
+      assertEquals(2, page.nextOffset());
+      verify(subSpaces, never()).load(2, 2);
+
+      SubSpacesPageModel lastPage = tool.listSubSpaces(SPACE_ID, 2, 2);
+      assertEquals(List.of(23L), spaceIds(lastPage));
+      assertNull(lastPage.nextOffset());
+    }
+  }
+
+  /**
+   * A negative limit is refused before any sub-space is loaded: such a page
+   * could never be full. A limit of 0, like none, takes the default page
+   * size. Mutants: the raw limit refused when not positive, which refuses 0;
+   * the refusal after the list is asked for.
+   */
+  @Test
+  void listSubSpacesRefusesANegativeLimitAndDefaultsAZeroOne() throws Exception {
+    ListAccess<Space> subSpaces = mockSubSpaces();
+    SpaceMcpTool tool = toolLimitedTo(SPACE_ID);
+
+    assertThrows(IllegalArgumentException.class, () -> tool.listSubSpaces(SPACE_ID, 0, -1));
+    verify(spaceService, never()).getAccessibleSpacesByFilter(anyString(), any());
+
+    assertNull(tool.listSubSpaces(SPACE_ID, 0, 0).nextOffset());
+    verify(subSpaces).load(0, McpToolPlugin.DEFAULT_LIMIT);
+  }
+
+  /**
+   * When the call's identity can't be read, the space scope is unknown, so
+   * the listing is refused before any sub-space is loaded rather than run as
+   * a call limited to no space, which would list the hidden ones. Mutants: the
+   * exception caught and read as no scope, which lists them; the scope read
+   * after the load.
+   */
+  @Test
+  void listSubSpacesIsRefusedWhenTheIdentityCannotBeRead() throws Exception {
+    ListAccess<Space> subSpaces = mockSubSpaces();
+    try (MockedStatic<McpToolUtils> mcpToolUtils = mockStatic(McpToolUtils.class, CALLS_REAL_METHODS)) {
+      mcpToolUtils.when(McpToolUtils::getCurrentActingIdentity).thenThrow(new IllegalStateException("refused identity"));
+
+      assertThrows(IllegalStateException.class, () -> spaceMcpTool.listSubSpaces(SPACE_ID, 0, 10));
+    }
+
+    verify(spaceService, never()).getAccessibleSpacesByFilter(anyString(), any());
+    verify(subSpaces, never()).load(anyInt(), anyInt());
   }
 
   /**
@@ -333,6 +514,68 @@ class SpaceMcpToolAclTest {
    */
   private void allowManagement() {
     when(spaceService.canManageSpace(space, USERNAME)).thenReturn(true);
+  }
+
+  /**
+   * @return the mocked list of the space's sub-spaces the current user can
+   *         access, returned by the space service
+   */
+  private ListAccess<Space> mockSubSpaces() {
+    space.setVisibility(Space.PRIVATE);
+    @SuppressWarnings("unchecked")
+    ListAccess<Space> subSpaces = mock(ListAccess.class);
+    when(spaceService.getAccessibleSpacesByFilter(eq(USERNAME), any())).thenReturn(subSpaces);
+    return subSpaces;
+  }
+
+  /**
+   * @param scopeSpaceId the space the calls are limited to, null for none
+   * @return a tool whose calls are limited to that space
+   */
+  private SpaceMcpTool toolLimitedTo(Long scopeSpaceId) {
+    SpaceMcpTool tool = new SpaceMcpTool() {
+      @Override
+      protected Long getScopeSpaceId() {
+        return scopeSpaceId;
+      }
+    };
+    ReflectionTestUtils.setField(tool, "spaceService", spaceService);
+    return tool;
+  }
+
+  /**
+   * @return the static mock answering the domain the space models are built
+   *         with
+   */
+  private static MockedStatic<CommonsUtils> mockCurrentDomain() {
+    MockedStatic<CommonsUtils> commonsUtils = mockStatic(CommonsUtils.class);
+    commonsUtils.when(CommonsUtils::getCurrentDomain).thenReturn("https://meeds.io");
+    return commonsUtils;
+  }
+
+  /**
+   * @param page a page of sub-spaces
+   * @return the ids of its sub-spaces
+   */
+  private static List<Long> spaceIds(SubSpacesPageModel page) {
+    return page.subSpaces().stream().map(SpaceModel::getSpaceId).toList();
+  }
+
+  /**
+   * @param id         the sub-space id
+   * @param visibility its visibility
+   * @return a sub-space of the space, with no member
+   */
+  private static Space subSpace(long id, String visibility) {
+    Space subSpace = new Space();
+    subSpace.setId(String.valueOf(id));
+    subSpace.setVisibility(visibility);
+    subSpace.setRegistration(Space.OPEN);
+    subSpace.setParentSpaceId(SPACE_ID);
+    subSpace.setTemplateId(1L);
+    subSpace.setMembers(new String[0]);
+    subSpace.setManagers(new String[0]);
+    return subSpace;
   }
 
 }

@@ -29,6 +29,7 @@ import static io.meeds.mcp.server.tool.util.UserToolUtils.toUserModel;
 import java.io.ByteArrayInputStream;
 import java.io.IOException;
 import java.io.InputStream;
+import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
 import java.util.List;
@@ -56,14 +57,17 @@ import org.exoplatform.social.core.space.SpaceFilter;
 import org.exoplatform.social.core.space.model.Space;
 import org.exoplatform.social.core.space.spi.SpaceService;
 
+import io.meeds.mcp.server.model.ActingIdentity;
 import io.meeds.mcp.server.plugin.McpToolPlugin;
 import io.meeds.mcp.server.tool.constant.Registration;
 import io.meeds.mcp.server.tool.constant.SpaceRole;
 import io.meeds.mcp.server.tool.constant.Visibility;
 import io.meeds.mcp.server.tool.model.SpaceMemberModel;
 import io.meeds.mcp.server.tool.model.SpaceModel;
+import io.meeds.mcp.server.tool.model.SubSpacesPageModel;
 import io.meeds.mcp.server.tool.model.UserModel;
 import io.meeds.mcp.server.tool.util.UploadToolUtils;
+import io.meeds.mcp.server.util.McpToolUtils;
 import io.meeds.social.space.constant.SpaceRegistration;
 import io.meeds.social.space.constant.SpaceVisibility;
 import io.meeds.social.space.template.model.SpaceTemplate;
@@ -74,6 +78,13 @@ import lombok.SneakyThrows;
 
 @Service
 public class SpaceMcpTool implements McpToolPlugin {
+
+  /**
+   * The loads a page of sub-spaces makes at most under a space scope, each of
+   * {@code limit} sub-spaces, so a parent whose sub-spaces are mostly hidden
+   * can't make one call read them all.
+   */
+  static final int                MAX_SCOPED_SUB_SPACES_LOADS = 5;
 
   private static final String     MSG_SPACE_DOESN_T_EXIST  = "Space with Id '%s' doesn't exist";
 
@@ -581,23 +592,69 @@ public class SpaceMcpTool implements McpToolPlugin {
                  .toList();
   }
 
+  /**
+   * Lists the sub-spaces of a space that the current user can access. A call
+   * limited to one space answers where every member of that space reads it,
+   * so it leaves out the hidden sub-spaces, which those members may not know
+   * of, and loads further until the page holds {@code limit} sub-spaces, the
+   * list ends, or {@value #MAX_SCOPED_SUB_SPACES_LOADS} loads of
+   * {@code limit} sub-spaces were made. The page then says where the next one
+   * starts, after the last sub-space it read: an offset among the accessible
+   * sub-spaces, hidden ones included, so no sub-space is skipped or repeated
+   * whatever the page left out.
+   *
+   * @param parentSpaceId the parent space
+   * @param offset        the offset among the accessible sub-spaces: 0, or
+   *                        the next offset of the previous page
+   * @param limit         the page size
+   * @return the sub-spaces of the page, possibly fewer than {@code limit}
+   *         while more follow, and the next page's offset, null when the list
+   *         has ended
+   * @throws ObjectNotFoundException  when the parent space doesn't exist
+   * @throws IllegalAccessException   when the parent space is hidden from the
+   *                                    current user
+   * @throws IllegalArgumentException when the limit is negative
+   * @throws IllegalStateException    when the call's identity can't be read,
+   *                                    before any sub-space is loaded
+   */
   @SneakyThrows
-  public List<SpaceModel> listSubSpaces(long parentSpaceId,
-                                        Integer offset,
-                                        Integer limit) throws ObjectNotFoundException, IllegalAccessException {
+  public SubSpacesPageModel listSubSpaces(long parentSpaceId,
+                                          Integer offset,
+                                          Integer limit) throws ObjectNotFoundException, IllegalAccessException {
     String currentUsername = getCurrentUserName();
     Space parentSpace = requireSpace(parentSpaceId);
     if (Space.HIDDEN.equals(parentSpace.getVisibility()) && !spaceService.canViewSpace(parentSpace, currentUsername)) {
       throw new IllegalAccessException("You can't view space '%s'.".formatted(parentSpaceId));
     }
+    int pageSize = getInteger(limit, DEFAULT_LIMIT);
+    if (pageSize <= 0) {
+      throw new IllegalArgumentException("The limit must be a positive number.");
+    }
+    boolean limitedToASpace = getScopeSpaceId() != null;
     SpaceFilter filter = new SpaceFilter((String) null);
     filter.setParentSpaceId(parentSpaceId);
     ListAccess<Space> spacesListAccess = spaceService.getAccessibleSpacesByFilter(currentUsername, filter);
-    Space[] spaces = spacesListAccess.load(getInteger(offset, DEFAULT_OFFSET), getInteger(limit, DEFAULT_LIMIT));
-    return spaces == null ? Collections.emptyList()
-                          : Stream.of(spaces)
-                                  .map(s -> toSpaceModel(spaceService, s, currentUsername))
-                                  .toList();
+    List<SpaceModel> subSpaces = new ArrayList<>();
+    int position = getInteger(offset, DEFAULT_OFFSET);
+    int maxLoads = limitedToASpace ? MAX_SCOPED_SUB_SPACES_LOADS : 1;
+    for (int load = 0; load < maxLoads; load++) {
+      Space[] spaces = spacesListAccess.load(position, pageSize);
+      int loaded = spaces == null ? 0 : spaces.length;
+      int read = 0;
+      while (read < loaded && subSpaces.size() < pageSize) {
+        Space space = spaces[read++];
+        position++;
+        if (!limitedToASpace || !Space.HIDDEN.equals(space.getVisibility())) {
+          subSpaces.add(toSpaceModel(spaceService, space, currentUsername));
+        }
+      }
+      if (loaded < pageSize && read == loaded) {
+        return new SubSpacesPageModel(subSpaces, null);
+      } else if (subSpaces.size() == pageSize) {
+        break;
+      }
+    }
+    return new SubSpacesPageModel(subSpaces, position);
   }
 
   /**
@@ -757,6 +814,15 @@ public class SpaceMcpTool implements McpToolPlugin {
       throw new IllegalStateException("Could not update the space image: " + e.getMessage());
     }
     return toSpaceModel(spaceService, space, username);
+  }
+
+  /**
+   * @return the space the current call is limited to, null when it isn't
+   * @throws IllegalStateException when the call's identity can't be read
+   */
+  protected Long getScopeSpaceId() {
+    ActingIdentity identity = McpToolUtils.getCurrentActingIdentity();
+    return identity == null ? null : identity.spaceScope();
   }
 
 }

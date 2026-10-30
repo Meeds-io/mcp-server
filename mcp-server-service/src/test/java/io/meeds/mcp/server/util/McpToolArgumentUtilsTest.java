@@ -149,7 +149,7 @@ class McpToolArgumentUtilsTest {
     params.put("arguments", arguments(SUMMARY, "Meeting", SPACE_ID, null));
     params.put("_meta", Map.of("progressToken", "1"));
 
-    Map<String, Object> cleaned = (Map<String, Object>) McpToolArgumentUtils.removeNullOptionalParameters(INPUT_SCHEMA, params);
+    Map<String, Object> cleaned = (Map<String, Object>) McpToolArgumentUtils.normalizeParameters(INPUT_SCHEMA, params);
 
     assertEquals(Map.of(SUMMARY, "Meeting"), cleaned.get("arguments"));
     assertEquals(TOOL_NAME, cleaned.get("name"));
@@ -165,7 +165,7 @@ class McpToolArgumentUtilsTest {
     Map<String, Object> meta = Map.of("progressToken", "token-1");
     CallToolRequest request = new CallToolRequest(TOOL_NAME, arguments(SUMMARY, "Meeting", SPACE_ID, null), meta);
 
-    CallToolRequest cleaned = (CallToolRequest) McpToolArgumentUtils.removeNullOptionalParameters(INPUT_SCHEMA, request);
+    CallToolRequest cleaned = (CallToolRequest) McpToolArgumentUtils.normalizeParameters(INPUT_SCHEMA, request);
 
     assertEquals(TOOL_NAME, cleaned.name());
     assertEquals(Map.of(SUMMARY, "Meeting"), cleaned.arguments());
@@ -180,8 +180,8 @@ class McpToolArgumentUtilsTest {
   @SuppressWarnings("unchecked")
   void wrappedHandlerReceivesNullOptionalArgumentAsAbsent() {
     AtomicReference<Object> received = new AtomicReference<>();
-    McpRequestHandler<String> handler = McpToolArgumentUtils.withoutNullOptionalArguments(recording(received),
-                                                                                          name -> Mono.just(tool(name)));
+    McpRequestHandler<String> handler = McpToolArgumentUtils.withNormalizedArguments(recording(received),
+                                                                                     name -> Mono.just(tool(name)));
 
     String result = handler.handle(null, params(arguments(SUMMARY, "Meeting", SPACE_ID, null))).block();
 
@@ -199,7 +199,7 @@ class McpToolArgumentUtilsTest {
   void wrappedHandlerSkipsResolutionWithoutNullArgument() {
     AtomicReference<Object> received = new AtomicReference<>();
     AtomicInteger resolutions = new AtomicInteger();
-    McpRequestHandler<String> handler = McpToolArgumentUtils.withoutNullOptionalArguments(recording(received), name -> {
+    McpRequestHandler<String> handler = McpToolArgumentUtils.withNormalizedArguments(recording(received), name -> {
       resolutions.incrementAndGet();
       return Mono.just(tool(name));
     });
@@ -217,8 +217,8 @@ class McpToolArgumentUtilsTest {
   @Test
   void wrappedHandlerPassesUnknownToolThrough() {
     AtomicReference<Object> received = new AtomicReference<>();
-    McpRequestHandler<String> handler = McpToolArgumentUtils.withoutNullOptionalArguments(recording(received),
-                                                                                          name -> Mono.empty());
+    McpRequestHandler<String> handler = McpToolArgumentUtils.withNormalizedArguments(recording(received),
+                                                                                     name -> Mono.empty());
     Map<String, Object> params = params(arguments(SUMMARY, "Meeting", SPACE_ID, null));
 
     handler.handle(null, params).block();
@@ -258,6 +258,87 @@ class McpToolArgumentUtilsTest {
   }
 
   /**
+   * A string of digits sent for an {@code integer} argument becomes a number,
+   * in a copy, the other arguments being kept.
+   */
+  @Test
+  void wholeNumberStringForAnIntegerArgumentBecomesANumber() {
+    Map<String, Object> arguments = arguments(SUMMARY, "Meeting", SPACE_ID, "12");
+
+    Map<String, Object> coerced = McpToolArgumentUtils.coerceWholeNumberArguments(INPUT_SCHEMA, arguments);
+
+    assertEquals(Map.of(SUMMARY, "Meeting", SPACE_ID, 12L), coerced);
+    assertEquals("12", arguments.get(SPACE_ID));
+  }
+
+  /**
+   * A string that is not a whole number, one too large for a {@link Long}, a
+   * string of digits for a {@code string} argument and an undeclared argument
+   * are all left as they are.
+   */
+  @Test
+  void otherStringsAreLeftAsTheyAre() {
+    Map<String, Object> notANumber = arguments(SUMMARY, "Meeting", SPACE_ID, "4a2");
+    Map<String, Object> tooLarge = arguments(SUMMARY, "Meeting", SPACE_ID, "99999999999999999999");
+    Map<String, Object> digitsForAString = arguments(SUMMARY, "123", UNKNOWN, "7");
+    Map<String, Object> decimal = arguments(SUMMARY, "Meeting", SPACE_ID, "1.5");
+
+    assertSame(notANumber, McpToolArgumentUtils.coerceWholeNumberArguments(INPUT_SCHEMA, notANumber));
+    assertSame(tooLarge, McpToolArgumentUtils.coerceWholeNumberArguments(INPUT_SCHEMA, tooLarge));
+    assertSame(digitsForAString, McpToolArgumentUtils.coerceWholeNumberArguments(INPUT_SCHEMA, digitsForAString));
+    assertSame(decimal, McpToolArgumentUtils.coerceWholeNumberArguments(INPUT_SCHEMA, decimal));
+  }
+
+  /**
+   * A {@code number} property takes a string of digits too, a negative one
+   * included.
+   */
+  @Test
+  void wholeNumberStringForANumberArgumentBecomesANumber() {
+    Map<String, Object> schema = Map.of("type", "object", "properties", Map.of("offset", Map.of("type", "number")));
+    Map<String, Object> arguments = new HashMap<>(Map.of("offset", "-3"));
+
+    assertEquals(Map.of("offset", -3L), McpToolArgumentUtils.coerceWholeNumberArguments(schema, arguments));
+  }
+
+  /**
+   * The wrapped handler resolves the tool for a string of digits, although no
+   * argument is {@code null}, and hands over the number.
+   */
+  @Test
+  @SuppressWarnings("unchecked")
+  void wrappedHandlerReceivesWholeNumberStringAsANumber() {
+    AtomicReference<Object> received = new AtomicReference<>();
+    McpRequestHandler<String> handler = McpToolArgumentUtils.withNormalizedArguments(recording(received),
+                                                                                     name -> Mono.just(tool(name)));
+    handler.handle(null, params(arguments(SUMMARY, "Meeting", SPACE_ID, "42"))).block();
+
+    Map<String, Object> receivedArguments = (Map<String, Object>) ((Map<String, Object>) received.get()).get("arguments");
+    assertEquals(42L, receivedArguments.get(SPACE_ID));
+    assertEquals("Meeting", receivedArguments.get(SUMMARY));
+  }
+
+  /**
+   * Strings that hold no digits only do not make the wrapper resolve the
+   * tool.
+   */
+  @Test
+  void wrappedHandlerSkipsResolutionForOrdinaryStrings() {
+    AtomicReference<Object> received = new AtomicReference<>();
+    AtomicInteger resolutions = new AtomicInteger();
+    McpRequestHandler<String> handler = McpToolArgumentUtils.withNormalizedArguments(recording(received), name -> {
+      resolutions.incrementAndGet();
+      return Mono.just(tool(name));
+    });
+    Map<String, Object> params = params(arguments(SUMMARY, "Meeting 2", SPACE_ID, 42));
+
+    handler.handle(null, params).block();
+
+    assertSame(params, received.get());
+    assertEquals(0, resolutions.get());
+  }
+
+  /**
    * Without a {@code tools/call} handler, nothing is added.
    */
   @Test
@@ -274,7 +355,7 @@ class McpToolArgumentUtilsTest {
    */
   @Test
   void missingDelegateIsNotWrapped() {
-    assertNull(McpToolArgumentUtils.withoutNullOptionalArguments(null, name -> Mono.empty()));
+    assertNull(McpToolArgumentUtils.withNormalizedArguments(null, name -> Mono.empty()));
   }
 
   /**

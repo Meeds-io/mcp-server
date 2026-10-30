@@ -31,6 +31,7 @@ import java.util.Collection;
 import java.util.Collections;
 import java.util.Date;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.TimeZone;
 import java.util.UUID;
@@ -42,6 +43,7 @@ import org.commonmark.node.Node;
 import org.commonmark.parser.Parser;
 import org.commonmark.renderer.html.HtmlRenderer;
 import org.springframework.ai.tool.method.MethodToolCallback;
+import org.springframework.ai.util.JacksonUtils;
 import org.springframework.security.core.Authentication;
 import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.security.oauth2.core.OAuth2TokenIntrospectionClaimNames;
@@ -73,6 +75,7 @@ import lombok.extern.slf4j.Slf4j;
 import tools.jackson.core.JacksonException;
 import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.json.JsonMapper;
+import tools.jackson.databind.node.ObjectNode;
 
 @Slf4j
 public class McpToolUtils {
@@ -95,6 +98,46 @@ public class McpToolUtils {
   public static final String        TOOL_CONTEXT_ID_PARAM                         = "contextId";
 
   public static final String        TOOL_CONTEXT_CONVERSATION_ID_PARAM            = "conversationId";
+
+  /**
+   * Request header of the internal MCP client carrying the chat turn that
+   * started the call. It is client-controlled and only an opaque correlation
+   * value: see {@link #getCurrentTurnId()}.
+   */
+  public static final String        TOOL_CONTEXT_TURN_ID_PARAM                    = "turnId";
+
+  /** Longest turn id echoed back to the chat; a longer one is dropped. */
+  public static final int           MAX_TURN_ID_LENGTH                            = 200;
+
+  /**
+   * Suffix of the bound name ({@link #toCamelCase(String)} of the argument
+   * name) of an argument that carries a base64 image: {@code image_base64},
+   * {@code imageBase64} and {@code image_Base64} all bind to
+   * {@code imageBase64}.
+   */
+  public static final String        BASE64_IMAGE_BOUND_NAME_SUFFIX                = "Base64";
+
+  /**
+   * Bound name of the argument that carries a base64 file, as the document
+   * tools name it.
+   */
+  public static final String        BASE64_FILE_BOUND_NAME                        = "base64";
+
+  /**
+   * Longest call input replaced by {@link #ARGUMENTS_NOT_READABLE_NOTE} when it
+   * can't be read as a JSON object; a longer one is replaced by
+   * {@link #ARGUMENTS_TOO_LARGE_NOTE}.
+   */
+  public static final int           MAX_PUBLISHED_INPUT_LENGTH                    = 65_536;
+
+  /** What a published call input becomes when it is too large to be shown. */
+  public static final String        ARGUMENTS_TOO_LARGE_NOTE                      = "{\"_note\":\"[arguments too large to show]\"}";
+
+  /**
+   * What a published call input becomes when it can't be read as a JSON
+   * object: it is never published as is, since its content can't be checked.
+   */
+  public static final String        ARGUMENTS_NOT_READABLE_NOTE                   = "{\"_note\":\"[arguments not readable]\"}";
 
   /**
    * Header naming the agent on whose behalf the internal client calls a tool,
@@ -133,6 +176,14 @@ public class McpToolUtils {
   /** Header of the internal client: the {@link Origin} of the call. */
   public static final String        TOOL_CONTEXT_ORIGIN_PARAM                     = "origin";
 
+  /**
+   * Header of the internal client: the id of the only space the call may reach
+   * ({@link ActingIdentity#spaceScope()}), absent when the call isn't limited.
+   * Read with the other acting-identity headers only, and refused on a call
+   * that sends the legacy headers alone.
+   */
+  public static final String        TOOL_CONTEXT_SPACE_SCOPE_PARAM                 = "spaceScope";
+
   public static final String        TOOL_CONTEXT_ID                               = UUID.randomUUID().toString();
 
   public static final String        TOOL_READ_SCOPE                               = "mcp.tools.read";
@@ -148,6 +199,12 @@ public class McpToolUtils {
   public static final String        AI_AGENT_TOOL_USERNAME_PARAM                  = "username";
 
   public static final String        AI_AGENT_TOOL_CONVERSATION_ID_PARAM           = "conversationId";
+
+  /**
+   * Parameter of an approval request carrying the chat turn id of the call, so
+   * that the page can match the card to the call it started.
+   */
+  public static final String        AI_AGENT_TOOL_TURN_ID_PARAM                   = "turnId";
 
   public static final String        AI_AGENT_TOOL_INPUT_PARAM                     = "toolInput";
 
@@ -207,6 +264,14 @@ public class McpToolUtils {
   private static final ObjectMapper OBJECT_MAPPER                                 = new ObjectMapper();
 
   private static final JsonMapper   CHAIN_MAPPER                                  = JsonMapper.builder().build();
+
+  /**
+   * The mapper a tool's arguments are bound with: Spring AI's
+   * {@code JsonHelper}, which {@code McpToolCallbackProviderService} uses to
+   * read a call input, wraps this instance. It accepts inputs the strict
+   * {@link #CHAIN_MAPPER} refuses, such as trailing tokens after the object.
+   */
+  private static final JsonMapper   TOOL_ARGUMENTS_MAPPER                         = JacksonUtils.getDefaultJsonMapper();
 
   /** The request attribute holding the acting identity resolved for a call. */
   private static final String       ACTING_IDENTITY_ATTRIBUTE                     = ActingIdentity.class.getName();
@@ -463,13 +528,17 @@ public class McpToolUtils {
    * any other caller the identity is the token's user acting for themself
    * through an external client, whatever headers it sends. The identity is
    * resolved once per request and kept as a request attribute, so a tool
-   * reading it during the call sees the one the server checked.
+   * reading it during the call sees the one the server checked. The space
+   * scope ({@link #TOOL_CONTEXT_SPACE_SCOPE_PARAM}) is part of the identity the
+   * internal client sends, so an external client can neither set nor lift it.
    *
    * @return the acting identity, or null when no user can be resolved
    * @throws IllegalStateException when the internal client sends an identity
    *                                 the server refuses: an incomplete or
-   *                                 malformed one, or an agent account acting
-   *                                 for a person
+   *                                 malformed one, an agent account acting
+   *                                 for a person, a space scope that isn't a
+   *                                 space id, or a space scope with the legacy
+   *                                 headers alone
    */
   public static ActingIdentity getCurrentActingIdentity() {
     RequestAttributes requestAttributes = RequestContextHolder.getRequestAttributes();
@@ -551,6 +620,10 @@ public class McpToolUtils {
       if (userName == null) {
         return null;
       } else if (request.getHeader(TOOL_CONTEXT_ACTOR_KIND_PARAM) == null) {
+        if (request.getHeader(TOOL_CONTEXT_SPACE_SCOPE_PARAM) != null) {
+          // a limit the legacy identity can't carry is refused, never dropped
+          throw new IllegalStateException("The acting identity of the call is refused: a space scope comes only with the acting identity headers");
+        }
         return legacyActingIdentity(userName, StringUtils.trimToNull(request.getHeader(TOOL_CONTEXT_AGENT_NAME_ID_PARAM)));
       } else {
         return headerActingIdentity(request);
@@ -598,15 +671,57 @@ public class McpToolUtils {
                                                    StringUtils.trimToNull(request.getHeader(TOOL_CONTEXT_ON_BEHALF_OF_PARAM)),
                                                    parseAgentChain(request.getHeader(TOOL_CONTEXT_AGENT_CHAIN_PARAM)),
                                                    toEnum(Origin.class, request.getHeader(TOOL_CONTEXT_ORIGIN_PARAM)),
-                                                   request.getHeader(TOOL_CONTEXT_AGENT_NAME_ID_PARAM));
-      String agentAccountScope = ActingIdentity.AGENT_USER_SCOPE_PREFIX + actor.agentNameId();
-      if (actor.kind() == PrincipalKind.AGENT && !agentAccountScope.equals(identity.grantScope())) {
-        throw new IllegalArgumentException("agent '%s' announces the grant scope '%s' instead of its own".formatted(actor.agentNameId(),
-                                                                                                                   identity.grantScope()));
+                                                   request.getHeader(TOOL_CONTEXT_AGENT_NAME_ID_PARAM),
+                                                   parseSpaceScope(request.getHeader(TOOL_CONTEXT_SPACE_SCOPE_PARAM)));
+      if (actor.kind() == PrincipalKind.AGENT && !announcesItsOwnAgentUserScope(identity)) {
+        throw new IllegalArgumentException("agent account '%s' announces the grant scope '%s' instead of its own".formatted(actor.username(),
+                                                                                                                           identity.grantScope()));
       }
       return identity;
     } catch (IllegalArgumentException e) {
       throw new IllegalStateException("The acting identity of the call is refused: %s".formatted(e.getMessage()), e);
+    }
+  }
+
+  /**
+   * Tells whether an agent account announces the grant scope of its own
+   * account: {@value ActingIdentity#AGENT_USER_SCOPE_PREFIX} and its login,
+   * or, for a call limited to one space, that scope followed by
+   * {@value ActingIdentity#AGENT_USER_SPACE_SEPARATOR} and the id of that
+   * same space, the scope of the grants given to the account in that space.
+   * Any other scope, another account's or another space's, would make the
+   * call run under grants that aren't the account's own there.
+   *
+   * @param identity an agent account's acting identity
+   * @return true when its grant scope is one of the two forms of its own
+   */
+  private static boolean announcesItsOwnAgentUserScope(ActingIdentity identity) {
+    String accountScope = ActingIdentity.AGENT_USER_SCOPE_PREFIX + identity.actor().username();
+    String grantScope = identity.grantScope();
+    return accountScope.equals(grantScope)
+           || identity.spaceScope() != null
+              && (accountScope + ActingIdentity.AGENT_USER_SPACE_SEPARATOR + identity.spaceScope()).equals(grantScope);
+  }
+
+  /**
+   * Parses the space scope header: absent means no limit, anything else must be
+   * a space id written in plain decimal digits.
+   *
+   * @param value the header value, may be null
+   * @return the space id, or null when the header is absent
+   * @throws IllegalArgumentException when the header is present and isn't a
+   *                                    positive decimal number
+   */
+  private static Long parseSpaceScope(String value) {
+    if (value == null) {
+      return null;
+    } else if (!value.matches("[1-9]\\d{0,18}")) {
+      throw new IllegalArgumentException("The space scope '%s' isn't a space id".formatted(value));
+    }
+    try {
+      return Long.valueOf(value);
+    } catch (NumberFormatException e) {
+      throw new IllegalArgumentException("The space scope '%s' isn't a space id".formatted(value), e);
     }
   }
 
@@ -639,6 +754,151 @@ public class McpToolUtils {
   public static String getCurrentConversationId() {
     HttpServletRequest request = getInternalToolCallRequest();
     return request == null ? null : StringUtils.trimToNull(request.getHeader(TOOL_CONTEXT_CONVERSATION_ID_PARAM));
+  }
+
+  /**
+   * Resolves the chat turn that started the current Tool call, from the
+   * {@link #TOOL_CONTEXT_TURN_ID_PARAM} header of the internal client only
+   * ({@link #getInternalToolCallRequest()}). The value is client-controlled:
+   * it is only echoed back, as an opaque correlation value, to the channel of
+   * the requesting user and on the {@code ai-agent-tool-execution} event, and
+   * never decides a grant, an approval or an identity.
+   *
+   * @return the turn id, or null when the call isn't the internal client's,
+   *         carries none or one longer than {@link #MAX_TURN_ID_LENGTH}
+   */
+  public static String getCurrentTurnId() {
+    HttpServletRequest request = getInternalToolCallRequest();
+    return request == null ? null : normalizeTurnId(request.getHeader(TOOL_CONTEXT_TURN_ID_PARAM));
+  }
+
+  /**
+   * Bounds a client-supplied turn id.
+   *
+   * @param turnId the raw value, may be null
+   * @return the trimmed value, or null when blank or longer than
+   *         {@link #MAX_TURN_ID_LENGTH}
+   */
+  public static String normalizeTurnId(String turnId) {
+    String trimmed = StringUtils.trimToNull(turnId);
+    return trimmed != null && trimmed.length() <= MAX_TURN_ID_LENGTH ? trimmed : null;
+  }
+
+  /**
+   * Prepares a call input for publication to the chat, to the platform
+   * listeners and to the logs: an argument is matched on the name the tool
+   * binds it to, {@link #toCamelCase(String)} of its name, so that every
+   * spelling a tool accepts is caught. Each top-level string argument whose
+   * bound name ends with {@value #BASE64_IMAGE_BOUND_NAME_SUFFIX} is replaced
+   * by {@code [image, <size>]}, and the one whose bound name is exactly
+   * {@value #BASE64_FILE_BOUND_NAME} by {@code [file, <size>]}, the size being
+   * the decoded one (KB below 1 MB, otherwise MB with one decimal). Every
+   * input is parsed, whatever its length, with the mapper the tool's arguments
+   * are bound with (Spring AI's default mapper), so an input the tool
+   * accepts is read the same way here, and argument names are read once
+   * parsed: a name written with a JSON escape, in another case or with
+   * underscores the binding drops is found too. An input without such an
+   * argument is returned as is, never re-serialised, when it is exactly one
+   * JSON object; one the tool reads with something after the object is
+   * returned as the object it reads, re-serialised, so the rest is never
+   * published. The publication fails closed: an input that can't be read as a
+   * JSON object is never returned as is, but replaced by
+   * {@link #ARGUMENTS_NOT_READABLE_NOTE}, or by
+   * {@link #ARGUMENTS_TOO_LARGE_NOTE} when longer than
+   * {@value #MAX_PUBLISHED_INPUT_LENGTH} characters. It is meant for what is
+   * published only: the input a tool runs on, or a grant is matched on, must
+   * not go through it.
+   *
+   * @param toolInput the call input, may be null
+   * @return the input to publish
+   */
+  public static String redactBase64ForPublication(String toolInput) {
+    if (toolInput == null) {
+      return null;
+    }
+    JsonNode node;
+    try {
+      node = TOOL_ARGUMENTS_MAPPER.readTree(toolInput);
+    } catch (JacksonException e) {
+      node = null;
+    }
+    if (node == null || !node.isObject()) {
+      return toolInput.length() > MAX_PUBLISHED_INPUT_LENGTH ? ARGUMENTS_TOO_LARGE_NOTE : ARGUMENTS_NOT_READABLE_NOTE;
+    }
+    ObjectNode object = (ObjectNode) node;
+    List<String> redacted = new ArrayList<>();
+    for (String name : object.propertyNames()) {
+      if (base64Kind(name) != null && object.get(name).isString()) {
+        redacted.add(name);
+      }
+    }
+    if (redacted.isEmpty() && isSingleJsonValue(toolInput)) {
+      return toolInput;
+    }
+    for (String name : redacted) {
+      object.put(name, "[%s, %s]".formatted(base64Kind(name), formatDecodedSize(object.get(name).stringValue())));
+    }
+    return CHAIN_MAPPER.writeValueAsString(object);
+  }
+
+  /**
+   * Tells whether a text is exactly one JSON value, with nothing after it, as
+   * the strict {@link #CHAIN_MAPPER} reads it.
+   *
+   * @param text the text to check
+   * @return true when the whole text is one JSON value
+   */
+  private static boolean isSingleJsonValue(String text) {
+    try {
+      CHAIN_MAPPER.readTree(text);
+      return true;
+    } catch (JacksonException e) {
+      return false;
+    }
+  }
+
+
+  /**
+   * Tells what base64 content an argument carries, from the name the tool
+   * binds it to ({@link #toCamelCase(String)} of the argument name).
+   *
+   * @param name the argument name, as the caller sent it
+   * @return {@code file} for the bound name {@value #BASE64_FILE_BOUND_NAME},
+   *         {@code image} for a bound name ending with
+   *         {@value #BASE64_IMAGE_BOUND_NAME_SUFFIX}, null otherwise
+   */
+  private static String base64Kind(String name) {
+    String boundName = toCamelCase(name);
+    if (BASE64_FILE_BOUND_NAME.equals(boundName)) {
+      return "file";
+    }
+    return boundName != null && boundName.endsWith(BASE64_IMAGE_BOUND_NAME_SUFFIX) ? "image" : null;
+  }
+
+  /**
+   * Approximates the decoded size of a base64 value, ignoring a {@code data:}
+   * prefix and whitespace, and renders it as {@code 12 KB} below 1 MB or as
+   * {@code 2.0 MB}.
+   *
+   * @param base64 the base64 value, a data URI accepted
+   * @return the rendered size
+   */
+  private static String formatDecodedSize(String base64) {
+    int start = base64.startsWith("data:") ? base64.indexOf(',') + 1 : 0;
+    long length = 0;
+    int padding = 0;
+    for (int i = start; i < base64.length(); i++) {
+      char c = base64.charAt(i);
+      if (!Character.isWhitespace(c)) {
+        length++;
+        padding = c == '=' ? padding + 1 : 0;
+      }
+    }
+    long bytes = Math.max(0, length * 3 / 4 - padding);
+    if (bytes < 1024L * 1024L) {
+      return "%d KB".formatted(Math.max(1, (bytes + 1023) / 1024));
+    }
+    return String.format(Locale.ROOT, "%.1f MB", bytes / (1024.0 * 1024.0));
   }
 
   /**

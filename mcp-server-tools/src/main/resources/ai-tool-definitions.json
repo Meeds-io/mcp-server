@@ -108,6 +108,7 @@
     },
     {
       "name": "update_space_settings",
+      "space_scope": { "space_arg": "space_id", "allowed_args": ["name", "description", "visibility", "registration"], "space_admin": true },
       "icon": "fa-users",
       "title": "Update a space settings",
       "description": "Update the settings of an existing Space.",
@@ -266,6 +267,7 @@
     },
     {
       "name": "get_space_by_id",
+      "space_scope": { "space_arg": "space_id", "when_absent": "use_scope" },
       "icon": "fa-users",
       "title": "Get a space",
       "description": "Retrieve full details of a Space by its unique identifier.",
@@ -290,6 +292,7 @@
     },
     {
       "name": "list_users_of_space_by_role",
+      "space_scope": { "space_arg": "space_id", "when_absent": "use_scope", "allowed_args": ["space_role", "offset", "limit"] },
       "icon": "fa-users",
       "title": "List space members",
       "description": "Retrieve the list of users in a Space by role.",
@@ -331,6 +334,7 @@
     },
     {
       "name": "invite_users_to_space",
+      "space_scope": { "space_arg": "space_id", "allowed_args": ["usernames_to_invite"], "space_admin": true },
       "icon": "fa-users",
       "title": "Invite user to space",
       "description": "Invite one or more users to join a Space as members.",
@@ -362,6 +366,7 @@
     },
     {
       "name": "remove_users_from_space",
+      "space_scope": { "space_arg": "space_id", "allowed_args": ["usernames_to_remove"], "space_admin": true },
       "icon": "fa-users",
       "title": "Remove user from space",
       "description": "Remove one or more users from a Space.",
@@ -393,6 +398,7 @@
     },
     {
       "name": "set_user_role_in_space",
+      "space_scope": { "space_arg": "space_id", "allowed_args": ["username", "space_role"], "space_admin": true },
       "icon": "fa-users",
       "title": "Promote user in space",
       "description": "Assign or promote a role for a confirmed member of a Space.",
@@ -430,6 +436,7 @@
     },
     {
       "name": "remove_user_role_in_space",
+      "space_scope": { "space_arg": "space_id", "allowed_args": ["username", "space_role"], "space_admin": true },
       "icon": "fa-users",
       "title": "Remove user role from space",
       "description": "Remove a specific role from a user in a Space.",
@@ -483,6 +490,7 @@
     },
     {
       "name": "get_user_by_username",
+      "space_scope": { "unscoped": true, "allowed_args": ["username"] },
       "icon": "fa-user",
       "title": "Get a user info",
       "description": "Provides identity and profile information of a user by username.",
@@ -552,6 +560,7 @@
     },
     {
       "name": "search_activities",
+      "space_scope": { "space_arg": "space_id", "when_absent": "use_scope", "allowed_args": ["query", "offset", "limit"], "false_only_args": ["is_favorite"] },
       "icon": "fa-stream",
       "title": "Search for activities",
       "description": "Search activities (Also Known As 'posts'), with optional filters for query text, space and favorites.",
@@ -587,6 +596,7 @@
     },
     {
       "name": "get_activities",
+      "space_scope": { "space_arg": "space_id", "when_absent": "use_scope", "allowed_args": ["offset", "limit"] },
       "icon": "fa-stream",
       "title": "Get space activities",
       "description": "Retrieve a paginated list of activities (Also Known As 'posts') in a space (or all activities if space_id is null).",
@@ -613,6 +623,7 @@
     },
     {
       "name": "get_activities_since_days",
+      "space_scope": { "space_arg": "space_id", "when_absent": "use_scope", "allowed_args": ["days"] },
       "icon": "fa-stream",
       "title": "Get activities of last days",
       "description": "Retrieve a paginated list of activities (Also Known As 'posts') in a space (or all activities if space_id is null). This will return the posted activities since the number of designated 'days'.",
@@ -668,6 +679,7 @@
     },
     {
       "name": "get_activity",
+      "space_scope": { "object_arg": "activity_id", "resolver": "activity" },
       "icon": "fa-stream",
       "title": "Get an activity",
       "description": "Get a single activity (Also Known As 'post') by its ID.",
@@ -710,10 +722,12 @@
         "destructiveHint": false,
         "idempotentHint": true,
         "openWorldHint": false
-      }
+      },
+      "space_scope": { "object_arg": "activity_comment_id", "resolver": "comment" }
     },
     {
       "name": "create_activity",
+      "space_scope": { "space_arg": "space_id", "allowed_args": ["html_content", "publication_start_time"] },
       "icon": "fa-stream",
       "title": "Post an activity",
       "description": "Create a new activity (Also Known As 'post') in a space activity stream (or personal activity stream if space_id is null). Pass publication_start_time to schedule it for later instead of posting immediately.",
@@ -772,6 +786,7 @@
         "idempotentHint": true,
         "openWorldHint": false
       },
+      "space_scope": { "object_arg": "activity_id", "resolver": "activity", "allowed_args": ["html_content", "publication_start_time"] },
       "require_approval": true
     },
     {
@@ -796,6 +811,7 @@
         "idempotentHint": true,
         "openWorldHint": false
       },
+      "space_scope": { "object_arg": "activity_id", "resolver": "activity", "space_admin": true },
       "require_approval": true
     },
     {
@@ -820,6 +836,7 @@
         "idempotentHint": true,
         "openWorldHint": false
       },
+      "space_scope": { "object_arg": "activity_id", "resolver": "activity", "space_admin": true },
       "require_approval": true
     },
     {
@@ -844,10 +861,12 @@
         "idempotentHint": true,
         "openWorldHint": false
       },
+      "space_scope": { "object_arg": "activity_id", "resolver": "activity", "space_admin": true },
       "require_approval": true
     },
     {
       "name": "get_activity_comments",
+      "space_scope": { "object_arg": "activity_id", "resolver": "activity", "allowed_args": ["offset", "limit"] },
       "icon": "fa-stream",
       "title": "Get activity comments",
       "description": "Read the discussion under an activity (Also Known As 'post'): its comments and the replies to them, as a flat paginated list in thread order. A reply carries `parent_comment_id`, the comment it answers, and follows that comment in the list; a top-level comment has no `parent_comment_id`. `offset` and `limit` (default 10) count top-level comments only: each page returns those comments together with all their replies, so lower `limit` to walk a long discussion page by page.",
@@ -877,6 +896,7 @@
     },
     {
       "name": "create_activity_comment",
+      "space_scope": { "object_arg": "activity_id", "resolver": "activity", "allowed_args": ["comment"] },
       "icon": "fa-stream",
       "title": "Post an activity comment",
       "description": "Add a new activity's comment to an activity. Pass parent_comment_id to post it as a threaded reply to an existing comment of that activity instead of a top-level comment.",
@@ -990,7 +1010,8 @@
         "destructiveHint": false,
         "idempotentHint": true,
         "openWorldHint": false
-      }
+      },
+      "space_scope": { "object_arg": "activity_id", "resolver": "activity", "allowed_args": ["offset", "limit"] }
     },
     {
       "name": "like_the_activity",
@@ -1014,6 +1035,7 @@
         "idempotentHint": true,
         "openWorldHint": false
       },
+      "space_scope": { "object_arg": "activity_id", "resolver": "activity" },
       "require_approval": true
     },
     {
@@ -1038,6 +1060,7 @@
         "idempotentHint": true,
         "openWorldHint": false
       },
+      "space_scope": { "object_arg": "activity_id", "resolver": "activity" },
       "require_approval": true
     },
     {
@@ -2113,10 +2136,12 @@
         "destructiveHint": false,
         "idempotentHint": true,
         "openWorldHint": false
-      }
+      },
+      "space_scope": { "space_arg": "space_id", "when_absent": "use_scope", "allowed_args": ["offset", "limit"], "space_admin": true }
     },
     {
       "name": "accept_space_join_request",
+      "space_scope": { "space_arg": "space_id", "allowed_args": ["username"], "space_admin": true },
       "icon": "fa-users",
       "title": "Accept a join request",
       "description": "Approve a user's pending request to join a space, adding them as a member. The current user must be a manager of the space.",
@@ -2147,6 +2172,7 @@
     },
     {
       "name": "decline_space_join_request",
+      "space_scope": { "space_arg": "space_id", "allowed_args": ["username"], "space_admin": true },
       "icon": "fa-users",
       "title": "Decline a join request",
       "description": "Reject a user's pending request to join a space. The current user must be a manager of the space.",
@@ -2177,6 +2203,7 @@
     },
     {
       "name": "get_space_members",
+      "space_scope": { "space_arg": "space_id", "when_absent": "use_scope", "allowed_args": ["offset", "limit"] },
       "icon": "fa-users",
       "title": "Get space members with roles",
       "description": "List the members of a space, each annotated with their roles in that space (MANAGER, REDACTOR, PUBLISHER, MEMBER).",
@@ -2211,7 +2238,7 @@
       "name": "list_sub_spaces",
       "icon": "fa-users",
       "title": "List sub-spaces",
-      "description": "List the sub-spaces (child spaces in the 7.2 hierarchy) of a given parent space that are accessible to the current user.",
+      "description": "List the sub-spaces (child spaces in the 7.2 hierarchy) of a given parent space that are accessible to the current user. Returns sub_spaces and next_offset. A page can hold fewer sub-spaces than the limit while more follow: to read the next page, call again with next_offset as offset. The list has ended only when next_offset is absent.",
       "input_schema": {
         "type": "object",
         "properties": {
@@ -2221,11 +2248,11 @@
           },
           "offset": {
             "type": "integer",
-            "description": "Offset of sub-spaces to retrieve"
+            "description": "Where the page starts: 0 for the first page, then the next_offset returned by the previous page"
           },
           "limit": {
             "type": "integer",
-            "description": "Limit of sub-spaces to retrieve"
+            "description": "Maximum number of sub-spaces in the page, a positive number"
           }
         },
         "required": [
@@ -2237,10 +2264,12 @@
         "destructiveHint": false,
         "idempotentHint": true,
         "openWorldHint": false
-      }
+      },
+      "space_scope": { "space_arg": "parent_space_id", "when_absent": "use_scope", "allowed_args": ["offset", "limit"] }
     },
     {
       "name": "delete_space",
+      "space_scope": { "space_arg": "space_id", "space_admin": true },
       "icon": "fa-users",
       "title": "Delete a space",
       "description": "Permanently delete a space and all its content. The current user must be allowed to delete the space, which a manager may not be. This is irreversible.",
@@ -2647,6 +2676,7 @@
         "idempotentHint": false,
         "openWorldHint": false
       },
+      "space_scope": { "space_arg": "space_id", "allowed_args": ["html_content", "image_url", "image_base64", "alt_text"] },
       "require_approval": true
     },
     {
@@ -2691,6 +2721,7 @@
         "idempotentHint": false,
         "openWorldHint": false
       },
+      "space_scope": { "object_arg": "activity_id", "resolver": "activity", "allowed_args": ["image_url", "image_base64", "alt_text"] },
       "require_approval": true
     },
     {
@@ -2739,6 +2770,7 @@
         "idempotentHint": false,
         "openWorldHint": false
       },
+      "space_scope": { "object_arg": "activity_id", "resolver": "activity", "allowed_args": ["comment", "image_url", "image_base64", "alt_text"] },
       "require_approval": true
     },
     {
@@ -2783,6 +2815,7 @@
         "idempotentHint": false,
         "openWorldHint": false
       },
+      "space_scope": { "object_arg": "comment_id", "resolver": "comment", "allowed_args": ["image_url", "image_base64", "alt_text"] },
       "require_approval": true
     },
     {
@@ -2893,6 +2926,7 @@
         "idempotentHint": false,
         "openWorldHint": false
       },
+      "space_scope": { "space_arg": "space_id", "allowed_args": ["image_url", "image_base64"], "space_admin": true },
       "require_approval": true
     },
     {
@@ -2933,6 +2967,7 @@
         "idempotentHint": false,
         "openWorldHint": false
       },
+      "space_scope": { "space_arg": "space_id", "allowed_args": ["image_url", "image_base64"], "space_admin": true },
       "require_approval": true
     },
     {
@@ -2956,7 +2991,8 @@
         "destructiveHint": false,
         "idempotentHint": true,
         "openWorldHint": false
-      }
+      },
+      "space_scope": { "object_arg": "activity_id", "resolver": "activity" }
     },
     {
       "name": "get_comment_attachments",
@@ -2979,7 +3015,8 @@
         "destructiveHint": false,
         "idempotentHint": true,
         "openWorldHint": false
-      }
+      },
+      "space_scope": { "object_arg": "comment_id", "resolver": "comment" }
     },
     {
       "name": "remove_image_from_activity",
@@ -3007,6 +3044,7 @@
         "idempotentHint": false,
         "openWorldHint": false
       },
+      "space_scope": { "object_arg": "activity_id", "resolver": "activity" },
       "require_approval": true
     },
     {
@@ -3035,6 +3073,7 @@
         "idempotentHint": false,
         "openWorldHint": false
       },
+      "space_scope": { "object_arg": "comment_id", "resolver": "comment" },
       "require_approval": true
     },
     {
@@ -3065,7 +3104,8 @@
         "destructiveHint": false,
         "idempotentHint": true,
         "openWorldHint": false
-      }
+      },
+      "space_scope": { "space_arg": "space_id", "when_absent": "use_scope", "allowed_args": ["offset", "limit"], "space_admin": true }
     },
     {
       "name": "publish_scheduled_activity_now",
@@ -3090,6 +3130,7 @@
         "idempotentHint": true,
         "openWorldHint": false
       },
+      "space_scope": { "object_arg": "activity_id", "resolver": "activity" },
       "require_approval": true
     }
   ]

@@ -77,10 +77,13 @@ import org.exoplatform.container.PortalContainer;
 import org.exoplatform.services.listener.ListenerService;
 
 import io.meeds.mcp.server.listener.ToolListener;
+import io.meeds.mcp.server.model.SpaceScopeDeclaration;
 import io.meeds.mcp.server.model.SimpleToolDefinition;
 import io.meeds.mcp.server.model.ToolDefinitionMethods;
 import io.meeds.mcp.server.util.McpToolUtils;
 import io.meeds.social.util.JsonUtils;
+
+import io.modelcontextprotocol.spec.McpSchema.ToolAnnotations;
 
 import lombok.SneakyThrows;
 
@@ -257,7 +260,7 @@ class McpToolServerServiceTest {
     Path file = tmp.resolve("ai-tool-definitions.json");
     Files.writeString(file, """
         { "tools": [ { "name": "alpha_tool", "description": "ShippedAlpha", "input_schema": {} },
-                     { "name": "beta_tool", "description": "ShippedBeta", "space_scope": true, "input_schema": {} } ] }
+                     { "name": "beta_tool", "description": "ShippedBeta", "future_tool_field": true, "input_schema": {} } ] }
         """, StandardCharsets.UTF_8);
     mockContainerResources(file.toUri().toURL());
 
@@ -276,6 +279,75 @@ class McpToolServerServiceTest {
       assertTrue(beta.isRequireApproval());
       assertTrue(beta.isDisabled());
     }
+  }
+
+  /**
+   * The space scope belongs to the add-on: a persisted definition takes the
+   * shipped file's space scope (added, changed or removed), so neither a stale
+   * copy nor an administrator's edit can widen what a call limited to a space
+   * may reach. Mutant: the space scope not copied from the shipped file.
+   *
+   * @param tmp a temporary folder
+   */
+  @Test
+  void getToolDefinitions_takesTheSpaceScopeFromTheShippedFile(// NOSONAR
+                                                              @TempDir
+                                                              Path tmp) {
+    ReflectionTestUtils.setField(mcpServerToolService, FORCE_REIMPORT_PARAM, false);
+    SpaceScopeDeclaration shippedScope = new SpaceScopeDeclaration("space_id", "use_scope", null, null, false, List.of("limit"), null, false, null);
+    SimpleToolDefinition shippedAlpha = tool(ALPHA_TOOL, "ParsedDesc", TYPE_OBJECT, false, false);
+    shippedAlpha.setSpaceScope(shippedScope);
+    SimpleToolDefinition shippedBeta = tool(BETA_TOOL, "ParsedBeta", TYPE_OBJECT, false, false);
+
+    SimpleToolDefinition savedAlpha = tool(ALPHA_TOOL, "SavedDesc", TYPE_OBJECT, false, false);
+    savedAlpha.setSpaceScope(new SpaceScopeDeclaration(null, null, null, null, true, List.of("space_id", "limit"), null, false, null));
+    SimpleToolDefinition savedBeta = tool(BETA_TOOL, "SavedBeta", TYPE_OBJECT, false, false);
+    savedBeta.setSpaceScope(new SpaceScopeDeclaration(null, null, null, null, true, null, null, false, null));
+    String savedBase64 = McpToolUtils.toJsonStringBase64(new ToolDefinitionMethods(List.of(savedAlpha, savedBeta)));
+    when(settingService.get(any(), any(), any())).thenReturn((SettingValue) SettingValue.create(savedBase64));
+
+    mockContainerResources(writeToolDefinitionsJson(tmp, List.of(shippedAlpha, shippedBeta)));
+
+    Map<String, SimpleToolDefinition> defs = mcpServerToolService.getToolDefinitions();
+
+    assertEquals(shippedScope, defs.get(ALPHA_TOOL).getSpaceScope());
+    assertEquals("SavedDesc", defs.get(ALPHA_TOOL).getDescription());
+    assertNull(defs.get(BETA_TOOL).getSpaceScope());
+  }
+
+  /**
+   * The read/write bit of a call limited to a space comes from the shipped
+   * file, as its space scope does: a tool persisted as read-only and shipped
+   * as a write is a write, and the opposite a read; the administrator's title
+   * stays. Mutant: the hint not copied from the shipped file.
+   *
+   * @param tmp a temporary folder
+   */
+  @Test
+  void getToolDefinitions_takesTheReadOnlyHintFromTheShippedFile(// NOSONAR
+                                                                @TempDir
+                                                                Path tmp) {
+    ReflectionTestUtils.setField(mcpServerToolService, FORCE_REIMPORT_PARAM, false);
+    SimpleToolDefinition shippedAlpha = tool(ALPHA_TOOL, "ParsedDesc", TYPE_OBJECT, true, false);
+    shippedAlpha.setAnnotations(new ToolAnnotations("Alpha", false, true, null, false, null));
+    SimpleToolDefinition shippedBeta = tool(BETA_TOOL, "ParsedBeta", TYPE_OBJECT, false, false);
+    shippedBeta.setAnnotations(new ToolAnnotations("Beta", true, null, null, null, null));
+
+    SimpleToolDefinition savedAlpha = tool(ALPHA_TOOL, "SavedDesc", TYPE_OBJECT, true, false);
+    savedAlpha.setAnnotations(new ToolAnnotations("Admin title", true, null, null, null, null));
+    SimpleToolDefinition savedBeta = tool(BETA_TOOL, "SavedBeta", TYPE_OBJECT, false, false);
+    savedBeta.setAnnotations(new ToolAnnotations("Beta", false, null, null, null, null));
+    String savedBase64 = McpToolUtils.toJsonStringBase64(new ToolDefinitionMethods(List.of(savedAlpha, savedBeta)));
+    when(settingService.get(any(), any(), any())).thenReturn((SettingValue) SettingValue.create(savedBase64));
+
+    mockContainerResources(writeToolDefinitionsJson(tmp, List.of(shippedAlpha, shippedBeta)));
+
+    Map<String, SimpleToolDefinition> defs = mcpServerToolService.getToolDefinitions();
+
+    assertFalse(McpToolSpaceScopeService.isReadTool(defs.get(ALPHA_TOOL)));
+    assertEquals("Admin title", defs.get(ALPHA_TOOL).getAnnotations().title());
+    assertEquals("SavedDesc", defs.get(ALPHA_TOOL).getDescription());
+    assertTrue(McpToolSpaceScopeService.isReadTool(defs.get(BETA_TOOL)));
   }
 
   @Test
