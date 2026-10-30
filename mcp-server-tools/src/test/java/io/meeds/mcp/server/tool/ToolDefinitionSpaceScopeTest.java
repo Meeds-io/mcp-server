@@ -184,13 +184,14 @@ class ToolDefinitionSpaceScopeTest {
    * Writes whose effect leaves the space they are called in: they must stay
    * undeclared, so a call limited to a space never runs them. Those of other
    * add-ons are listed too, so a copy of this test there starts from it.
+   * {@code move_note} isn't: notes declares it, its destination checked to be
+   * in the call's space ({@code NoteMcpTool#checkInScopeSpace}).
    */
   private static final Set<String> LEAVING_THE_SPACE    = Set.of("share_activity_to_space",
                                                                  "share_document",
                                                                  "create_public_link",
                                                                  "move_document",
                                                                  "copy_document",
-                                                                 "move_note",
                                                                  "invite_space_to_agenda_event",
                                                                  "add_content_to_category");
 
