@@ -2137,7 +2137,7 @@
         "idempotentHint": true,
         "openWorldHint": false
       },
-      "space_scope": { "space_arg": "space_id", "when_absent": "use_scope", "allowed_args": ["offset", "limit"] }
+      "space_scope": { "space_arg": "space_id", "when_absent": "use_scope", "allowed_args": ["offset", "limit"], "space_admin": true }
     },
     {
       "name": "accept_space_join_request",
@@ -3105,7 +3105,7 @@
         "idempotentHint": true,
         "openWorldHint": false
       },
-      "space_scope": { "space_arg": "space_id", "when_absent": "use_scope", "allowed_args": ["offset", "limit"] }
+      "space_scope": { "space_arg": "space_id", "when_absent": "use_scope", "allowed_args": ["offset", "limit"], "space_admin": true }
     },
     {
       "name": "publish_scheduled_activity_now",
