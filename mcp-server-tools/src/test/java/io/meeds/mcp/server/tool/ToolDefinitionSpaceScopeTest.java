@@ -299,6 +299,48 @@ class ToolDefinitionSpaceScopeTest {
   }
 
   /**
+   * Every write declares the role in the space a person must hold for a
+   * digital worker to make it for them (EXO-91405), as the role table of
+   * the eXIP sets it: a manager's for every {@code space_admin} write, a
+   * redactor's for posting and editing a post, a member's for commenting and
+   * liking. No read declares one. Mutants: a role dropped from a write (it
+   * then defaults to manager), another role on a post or a comment, a role
+   * other than manager on a space_admin write.
+   */
+  @Test
+  void everyWriteDeclaresItsSpaceRole() {
+    Map<String, String> expected = new java.util.HashMap<>();
+    SPACE_ADMIN_WRITES.forEach(name -> expected.put(name, SpaceScopeDeclaration.SPACE_ROLE_MANAGER));
+    Set.of("create_activity",
+           "create_activity_with_image",
+           "update_activity",
+           "attach_image_to_activity",
+           "remove_image_from_activity",
+           "publish_scheduled_activity_now")
+       .forEach(name -> expected.put(name, SpaceScopeDeclaration.SPACE_ROLE_REDACTOR));
+    Set.of("create_activity_comment",
+           "create_activity_comment_with_image",
+           "attach_image_to_comment",
+           "remove_image_from_comment",
+           "like_the_activity",
+           "unlike_the_activity")
+       .forEach(name -> expected.put(name, SpaceScopeDeclaration.SPACE_ROLE_MEMBER));
+    Map<String, SimpleToolDefinition> declared = declaredTools();
+
+    assertThat(expected.keySet()).containsExactlyInAnyOrderElementsOf(union(SPACE_WRITES, OBJECT_WRITES));
+    expected.forEach((name, role) -> {
+      SpaceScopeDeclaration scope = declared.get(name).getSpaceScope();
+      assertThat(scope.getSpaceRole()).as(name).isEqualTo(role);
+      assertThat(scope.getEffectiveSpaceRole(true)).as(name).isEqualTo(role);
+    });
+    declared.forEach((name, tool) -> {
+      if (McpToolSpaceScopeService.isReadTool(tool)) {
+        assertThat(tool.getSpaceScope().getSpaceRole()).as(name).isNull();
+      }
+    });
+  }
+
+  /**
    * A read accepts exactly the tool's schema properties: none the tool
    * doesn't take, none it takes left unchecked. A write accepts only schema
    * properties, and leaves out only reference-shaped ones and their
