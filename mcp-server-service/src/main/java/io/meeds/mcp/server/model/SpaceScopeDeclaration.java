@@ -65,13 +65,21 @@ import lombok.NoArgsConstructor;
  * resolver as sent. An {@code id_format} on another kind, or any other
  * value, makes the declaration malformed, and the tool is refused.
  * <p>
- * {@code space_admin: true} marks a write that administers the space itself
- * (its settings, its members and their roles, its join requests, its
- * deletion) or moderates its content (pinning a post, deleting a post, which
- * a manager may do to another member's), rather than adding content to it.
- * The server enforces nothing
- * more for it; a caller that lets someone approve such a write reads the flag
- * to ask the approver for the right to manage the space.
+ * {@code space_admin: true} marks a tool whose use depends on a role in the
+ * space above member, a read or a write. On a write, it administers the
+ * space itself (its settings, its members and their roles, its join
+ * requests, its deletion) or moderates its content (pinning a post,
+ * deleting a post, which a manager may do to another member's), rather than
+ * adding content to it. On a read, it returns what not every member of the
+ * space may see: what only its managers may see (its pending join
+ * requests), or a result that depends on the caller's manager, redactor or
+ * publisher role (its scheduled posts, every one of which its managers,
+ * redactors and publishers see, and each other member only their own).
+ * The server enforces nothing more for it, read or write: the declaration
+ * is checked and the call limited as without the flag. A caller reads it:
+ * one that lets someone approve such a write asks the approver for the
+ * right to manage the space; one whose run answers where every member of
+ * the space reads it keeps such a read out of the run.
  * <p>
  * Owned by the add-on that ships the tool: always read from its file, never
  * from the persisted copy an administrator edits.

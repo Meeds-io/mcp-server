@@ -169,6 +169,18 @@ class ToolDefinitionSpaceScopeTest {
                                                                  "delete_space");
 
   /**
+   * The reads that return what not every member of the space may see: its
+   * pending join requests, which {@code SpaceMcpTool#listSpaceJoinRequests}
+   * refuses to anyone {@code SpaceService#canManageSpace} denies, and its
+   * scheduled posts, every one of which social's scheduled stream shows its
+   * managers, redactors and publishers
+   * ({@code RDBMSActivityStorageImpl#getContentWriterSpaceIdentityIds}), and
+   * each other member only their own.
+   */
+  private static final Set<String> SPACE_ADMIN_READS    = Set.of("list_space_join_requests",
+                                                                 "get_scheduled_activities");
+
+  /**
    * Writes whose effect leaves the space they are called in: they must stay
    * undeclared, so a call limited to a space never runs them. Those of other
    * add-ons are listed too, so a copy of this test there starts from it.
@@ -253,8 +265,9 @@ class ToolDefinitionSpaceScopeTest {
   }
 
   /**
-   * Exactly the space administration writes carry {@code space_admin}: no
-   * read, no content write, and none of them missing it. Deleting a post is
+   * Exactly the space administration writes and the reads reserved to the
+   * managers carry {@code space_admin}: no other read, no content write, and
+   * none of them missing it. Deleting a post is
    * one, since social lets a space manager delete a post of another member
    * ({@code ActivityManagerImpl#isActivityDeletable}); removing an image is
    * an edit, which social leaves to the poster, and to the space's content
@@ -262,18 +275,26 @@ class ToolDefinitionSpaceScopeTest {
    * Mutants: the flag dropped
    * from {@code delete_space}, {@code pin_activity} or
    * {@code delete_activity}; set on {@code create_activity} or
-   * {@code remove_image_from_activity}.
+   * {@code remove_image_from_activity}; dropped from
+   * {@code list_space_join_requests} or {@code get_scheduled_activities},
+   * set on {@code get_space_members}.
    */
   @Test
-  void spaceAdminFlagIsOnTheSpaceAdministrationWritesOnly() {
+  void spaceAdminFlagIsOnTheSpaceAdministrationToolsOnly() {
     Map<String, SimpleToolDefinition> declared = declaredTools();
 
     assertThat(declared.values()
                        .stream()
                        .filter(tool -> tool.getSpaceScope().isSpaceAdmin())
-                       .map(SimpleToolDefinition::getName)).containsExactlyInAnyOrderElementsOf(SPACE_ADMIN_WRITES);
+                       .map(SimpleToolDefinition::getName)).containsExactlyInAnyOrderElementsOf(union(SPACE_ADMIN_WRITES,
+                                                                                                    SPACE_ADMIN_READS));
     assertThat(union(SPACE_WRITES, OBJECT_WRITES)).containsAll(SPACE_ADMIN_WRITES);
     SPACE_ADMIN_WRITES.forEach(name -> assertThat(McpToolSpaceScopeService.isReadTool(declared.get(name))).as(name).isFalse());
+    assertThat(SPACE_READS).containsAll(SPACE_ADMIN_READS);
+    SPACE_ADMIN_READS.forEach(name -> {
+      assertThat(McpToolSpaceScopeService.isReadTool(declared.get(name))).as(name).isTrue();
+      assertThat(declared.get(name).getSpaceScope().isWellFormedFor(false)).as(name).isTrue();
+    });
   }
 
   /**
