@@ -582,6 +582,36 @@ class McpToolSpaceScopeServiceTest {
   }
 
   /**
+   * {@code space_admin} is parsed on a read declaration as on a write, the
+   * declaration stays well formed, and the call is limited as without the
+   * flag: its own space runs, another is refused, an absent space is filled.
+   * The server enforces nothing more for it; the caller reads it. Mutants:
+   * the flag unread from the file; a flagged read made malformed or refused.
+   *
+   * @param tmp a temporary folder
+   */
+  @Test
+  void spaceAdminReadIsParsedAndLimitedAsAnyRead(@TempDir Path tmp) throws Exception {
+    Path file = tmp.resolve("ai-tool-definitions.json");
+    Files.writeString(file, """
+        { "tools": [
+          { "name": "list_space_join_requests", "input_schema": {},
+            "annotations": { "readOnlyHint": true },
+            "space_scope": { "space_arg": "space_id", "when_absent": "use_scope",
+                             "allowed_args": ["offset", "limit"], "space_admin": true } } ] }
+        """, StandardCharsets.UTF_8);
+    SimpleToolDefinition read = McpToolUtils.parseToolDefinitions(file.toUri().toURL()).get(0);
+
+    assertThat(McpToolSpaceScopeService.isReadTool(read)).isTrue();
+    assertThat(read.getSpaceScope().isSpaceAdmin()).isTrue();
+    assertThat(read.getSpaceScope().isWellFormedFor(false)).isTrue();
+    String input = "{\"space_id\":12,\"offset\":0}";
+    assertThat(service.enforce("list_space_join_requests", read, input, SCOPED)).isSameAs(input);
+    assertThat(service.enforce("list_space_join_requests", read, "{}", SCOPED)).isEqualTo("{\"space_id\":12}");
+    assertRefused(() -> service.enforce("list_space_join_requests", read, "{\"space_id\":13}", SCOPED), "space_id 12");
+  }
+
+  /**
    * {@code matrix_room} is a known id format on an object declaration only:
    * well formed there, for a read or a write, and malformed on a space
    * declaration or written in another case. Mutants: the value missing from
