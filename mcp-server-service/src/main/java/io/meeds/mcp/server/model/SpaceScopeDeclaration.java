@@ -81,6 +81,20 @@ import lombok.NoArgsConstructor;
  * right to manage the space; one whose run answers where every member of
  * the space reads it keeps such a read out of the run.
  * <p>
+ * {@code space_role} names, for a write, the role in the space that a
+ * person must hold for a digital worker to make that write on their behalf
+ * (EXO-91405): {@value #SPACE_ROLE_MEMBER}, {@value #SPACE_ROLE_REDACTOR}
+ * (who may add content: any member of a space without redactors),
+ * {@value #SPACE_ROLE_PUBLISHER} or {@value #SPACE_ROLE_MANAGER}. A write
+ * that declares none needs {@value #SPACE_ROLE_MANAGER}, and so does a
+ * {@code space_admin} one, which may declare no other role
+ * ({@link #getEffectiveSpaceRole(boolean)}). An unknown value, another role
+ * on a {@code space_admin} declaration, or a role on a declaration of the
+ * unscoped kind, makes the declaration malformed. The server enforces
+ * nothing more for it: the caller that runs a digital worker's write for a
+ * person reads it, and lets the write run only for one who holds that role,
+ * the worker remaining the author of what it does.
+ * <p>
  * Owned by the add-on that ships the tool: always read from its file, never
  * from the persisted copy an administrator edits.
  */
@@ -102,6 +116,24 @@ public class SpaceScopeDeclaration {
 
   /** The {@code id_format} value of a Matrix room id, with or without its server name. */
   public static final String ID_FORMAT_MATRIX_ROOM = "matrix_room";
+
+  /** The {@code space_role} of a write any member of the space may have made for them. */
+  public static final String SPACE_ROLE_MEMBER     = "member";
+
+  /** The {@code space_role} of a write who may add content to the space may have made for them. */
+  public static final String SPACE_ROLE_REDACTOR   = "redactor";
+
+  /** The {@code space_role} of a write who may publish in the space may have made for them. */
+  public static final String SPACE_ROLE_PUBLISHER  = "publisher";
+
+  /** The {@code space_role} of a write only who manages the space may have made for them; the default. */
+  public static final String SPACE_ROLE_MANAGER    = "manager";
+
+  /** The {@code space_role} values, the lowest role first. */
+  public static final List<String> SPACE_ROLES     = List.of(SPACE_ROLE_MEMBER,
+                                                             SPACE_ROLE_REDACTOR,
+                                                             SPACE_ROLE_PUBLISHER,
+                                                             SPACE_ROLE_MANAGER);
 
   @JsonProperty("space_arg")
   private String             spaceArg;
@@ -129,6 +161,9 @@ public class SpaceScopeDeclaration {
 
   @JsonProperty("id_format")
   private String             idFormat;
+
+  @JsonProperty("space_role")
+  private String             spaceRole;
 
   /**
    * @return true when the declaration names a space argument and nothing else
@@ -170,7 +205,35 @@ public class SpaceScopeDeclaration {
     int kinds = (isSpaceKind() ? 1 : 0) + (isObjectKind() ? 1 : 0) + (isUnscopedKind() ? 1 : 0);
     return kinds == 1
            && (!write || (!isUnscopedKind() && StringUtils.isBlank(whenAbsent)))
-           && isIdFormatWellFormed();
+           && isIdFormatWellFormed()
+           && isSpaceRoleWellFormed();
+  }
+
+  /**
+   * The role in the space a person must hold for a digital worker to make
+   * this write for them: {@value #SPACE_ROLE_MANAGER} for a
+   * {@code space_admin} declaration or one that declares no role, the
+   * declared one otherwise.
+   *
+   * @param write true when the tool isn't marked read-only
+   * @return the role, null for a read
+   */
+  @JsonIgnore
+  public String getEffectiveSpaceRole(boolean write) {
+    if (!write) {
+      return null;
+    }
+    return spaceAdmin || StringUtils.isBlank(spaceRole) ? SPACE_ROLE_MANAGER : spaceRole;
+  }
+
+  /**
+   * @return true when no {@code space_role} is given, or a known one on a
+   *         space or object declaration, {@value #SPACE_ROLE_MANAGER} alone
+   *         on a {@code space_admin} one
+   */
+  private boolean isSpaceRoleWellFormed() {
+    return spaceRole == null
+           || SPACE_ROLES.contains(spaceRole) && !isUnscopedKind() && (!spaceAdmin || SPACE_ROLE_MANAGER.equals(spaceRole));
   }
 
   /**
