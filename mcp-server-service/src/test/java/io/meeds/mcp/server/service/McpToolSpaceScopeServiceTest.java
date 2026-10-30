@@ -171,7 +171,7 @@ class McpToolSpaceScopeServiceTest {
     SimpleToolDefinition undeclared = definition("delete_space", false, null);
     SimpleToolDefinition placeless = definition("send_email",
                                                 false,
-                                                new SpaceScopeDeclaration(null, null, null, null, true, List.of("to"), null, false, null));
+                                                new SpaceScopeDeclaration(null, null, null, null, true, List.of("to"), null, false, null, null));
 
     assertRefused(() -> service.enforce("delete_space", undeclared, "{\"space_id\":12}", PROPOSAL), "isn't available");
     assertRefused(() -> service.enforce("send_email", placeless, "{\"to\":\"x\"}", PROPOSAL), "isn't available");
@@ -209,7 +209,7 @@ class McpToolSpaceScopeServiceTest {
     when(resolver.spaceOf("9")).thenReturn(null);
     SimpleToolDefinition comment = definition("create_activity_comment",
                                               false,
-                                              new SpaceScopeDeclaration(null, null, "activity_id", "activity", false, List.of("comment"), null, false, null));
+                                              new SpaceScopeDeclaration(null, null, "activity_id", "activity", false, List.of("comment"), null, false, null, null));
     String input = "{\"activity_id\":7,\"comment\":\"hi\"}";
 
     assertThat(service.enforce("create_activity_comment", comment, input, PROPOSAL)).isSameAs(input);
@@ -226,7 +226,7 @@ class McpToolSpaceScopeServiceTest {
   void malformedDeclarationIsRefused() {
     SpaceScopeDeclaration both = spaceDeclaration("use_scope");
     both.setUnscoped(true);
-    SpaceScopeDeclaration objectWithoutResolver = new SpaceScopeDeclaration(null, null, "activity_id", null, false, null, null, false, null);
+    SpaceScopeDeclaration objectWithoutResolver = new SpaceScopeDeclaration(null, null, "activity_id", null, false, null, null, false, null, null);
 
     assertRefused(() -> service.enforce("t", definition("t", true, both), "{\"space_id\":12}", SCOPED), "isn't available");
     assertRefused(() -> service.enforce("t", definition("t", true, objectWithoutResolver), "{\"activity_id\":1}", SCOPED),
@@ -319,6 +319,7 @@ class McpToolSpaceScopeServiceTest {
                                                                       List.of("query"),
                                                                       List.of("is_favorite"),
                                                                       false,
+                                                                      null,
                                                                       null));
 
     assertThat(service.enforce("search_activities", search, "{\"space_id\":12,\"is_favorite\":false}", SCOPED)).contains("false");
@@ -337,7 +338,7 @@ class McpToolSpaceScopeServiceTest {
   void unscopedDeclarationChecksNamesOnly() {
     SimpleToolDefinition directory = definition("search_users",
                                                 true,
-                                                new SpaceScopeDeclaration(null, null, null, null, true, List.of("query", "limit"), null, false, null));
+                                                new SpaceScopeDeclaration(null, null, null, null, true, List.of("query", "limit"), null, false, null, null));
     String input = "{\"query\":\"mary\",\"limit\":5}";
 
     assertThat(service.enforce("search_users", directory, input, SCOPED)).isSameAs(input);
@@ -477,7 +478,7 @@ class McpToolSpaceScopeServiceTest {
    * @return a space read declaration on {@code space_id} with offset and limit
    */
   private static SpaceScopeDeclaration spaceDeclaration(String whenAbsent) {
-    return new SpaceScopeDeclaration("space_id", whenAbsent, null, null, false, List.of("offset", "limit"), null, false, null);
+    return new SpaceScopeDeclaration("space_id", whenAbsent, null, null, false, List.of("offset", "limit"), null, false, null, null);
   }
 
   /**
@@ -485,7 +486,7 @@ class McpToolSpaceScopeServiceTest {
    *         {@code when_absent}, accepting {@code html_content}
    */
   private static SpaceScopeDeclaration spaceWriteDeclaration() {
-    return new SpaceScopeDeclaration("space_id", null, null, null, false, List.of("html_content"), null, false, null);
+    return new SpaceScopeDeclaration("space_id", null, null, null, false, List.of("html_content"), null, false, null, null);
   }
 
   /**
@@ -509,7 +510,7 @@ class McpToolSpaceScopeServiceTest {
    *         {@code document}
    */
   private static SpaceScopeDeclaration hexDeclaration(String idFormat) {
-    return new SpaceScopeDeclaration(null, null, "node_id", "document", false, null, null, false, idFormat);
+    return new SpaceScopeDeclaration(null, null, "node_id", "document", false, null, null, false, idFormat, null);
   }
 
   /**
@@ -517,7 +518,7 @@ class McpToolSpaceScopeServiceTest {
    *         {@code chat_room}, whose id is a Matrix room id
    */
   private static SpaceScopeDeclaration roomDeclaration() {
-    return new SpaceScopeDeclaration(null, null, "conversation_id", "chat_room", false, List.of("limit"), null, false, "matrix_room");
+    return new SpaceScopeDeclaration(null, null, "conversation_id", "chat_room", false, List.of("limit"), null, false, "matrix_room", null);
   }
 
   /**
@@ -533,7 +534,7 @@ class McpToolSpaceScopeServiceTest {
   private static SimpleToolDefinition objectRead() {
     return definition("get_activity",
                       true,
-                      new SpaceScopeDeclaration(null, null, "activity_id", "activity", false, List.of("offset", "limit"), null, false, null));
+                      new SpaceScopeDeclaration(null, null, "activity_id", "activity", false, List.of("offset", "limit"), null, false, null, null));
   }
 
   /**
@@ -573,7 +574,7 @@ class McpToolSpaceScopeServiceTest {
 
     SpaceScopeDeclaration onSpace = spaceDeclaration("use_scope");
     onSpace.setIdFormat("hex32");
-    SpaceScopeDeclaration onUnscoped = new SpaceScopeDeclaration(null, null, null, null, true, null, null, false, "numeric");
+    SpaceScopeDeclaration onUnscoped = new SpaceScopeDeclaration(null, null, null, null, true, null, null, false, "numeric", null);
     assertThat(onSpace.isWellFormedFor(false)).isFalse();
     assertThat(onUnscoped.isWellFormedFor(false)).isFalse();
     assertRefused(() -> service.enforce("t", definition("t", true, onSpace), "{\"space_id\":12}", SCOPED), "isn't available");
