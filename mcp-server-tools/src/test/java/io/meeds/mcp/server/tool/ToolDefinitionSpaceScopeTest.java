@@ -24,6 +24,7 @@ import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
 import java.net.URL;
+import java.util.HashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
@@ -309,7 +310,7 @@ class ToolDefinitionSpaceScopeTest {
    */
   @Test
   void everyWriteDeclaresItsSpaceRole() {
-    Map<String, String> expected = new java.util.HashMap<>();
+    Map<String, String> expected = new HashMap<>();
     SPACE_ADMIN_WRITES.forEach(name -> expected.put(name, SpaceScopeDeclaration.SPACE_ROLE_MANAGER));
     Set.of("create_activity",
            "create_activity_with_image",
