@@ -59,15 +59,15 @@ public interface SpaceScopeResolver {
    * {@code space_scope} declares {@code space_role: editor}: a digital worker
    * makes that write for the person only when the answer is true. Like
    * {@link #spaceOf(String)}, it reads as the system, and it must not throw;
-   * an exception, like null, is read as "no".
+   * an exception, like a null answer, is read as "no".
    *
    * @param objectId the object's id, as {@link #spaceOf(String)} receives it
    * @param userName the person a digital worker would make the write for
-   * @return true when the person could edit the object, false when not, null
-   *         when this resolver doesn't tell, which the caller reads as "no"
+   * @return true when the person could edit the object, false when not or
+   *         when this resolver doesn't tell, the default
    */
   default Boolean canEdit(String objectId, String userName) {
-    return null;
+    return Boolean.FALSE;
   }
 
 }
