@@ -71,6 +71,27 @@ class SpaceScopeDeclarationTest {
   }
 
   /**
+   * {@code editor} is read like the other roles and is the write's role, on a
+   * declaration of the object kind only: on a space, an unscoped or a
+   * space_admin declaration it is malformed, and space_admin still needs a
+   * manager. Mutants: editor accepted on any kind, accepted with space_admin,
+   * refused on an object declaration.
+   */
+  @Test
+  void theEditorRoleIsForAnObjectOnly() {
+    SpaceScopeDeclaration object = read("{\"object_arg\": \"event_id\", \"resolver\": \"event\", \"space_role\": \"editor\"}");
+    assertThat(object.isWellFormedFor(true)).isTrue();
+    assertThat(object.getEffectiveSpaceRole(true)).isEqualTo(SpaceScopeDeclaration.SPACE_ROLE_EDITOR);
+    assertThat(object.getEffectiveSpaceRole(false)).isNull();
+    assertThat(read("{\"space_arg\": \"space_id\", \"space_role\": \"editor\"}").isWellFormedFor(true)).isFalse();
+    assertThat(read("{\"unscoped\": true, \"space_role\": \"editor\"}").isWellFormedFor(false)).isFalse();
+    SpaceScopeDeclaration admin = read("{\"object_arg\": \"event_id\", \"resolver\": \"event\", \"space_admin\": true, \"space_role\": \"editor\"}");
+    assertThat(admin.isWellFormedFor(true)).isFalse();
+    assertThat(admin.getEffectiveSpaceRole(true)).isEqualTo(SpaceScopeDeclaration.SPACE_ROLE_MANAGER);
+    assertThat(read("{\"object_arg\": \"event_id\", \"resolver\": \"event\", \"space_role\": \"Editor\"}").isWellFormedFor(true)).isFalse();
+  }
+
+  /**
    * An unknown role, another role than a manager's on a space_admin
    * declaration, or a role on an unscoped one, makes it malformed. Mutants:
    * each of the three checks removed.
