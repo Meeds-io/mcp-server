@@ -219,6 +219,41 @@ class McpToolSpaceScopeServiceTest {
   }
 
   /**
+   * Whether a person may have a write on an object made for them is the
+   * object's resolver's answer for that person and that object, read from the
+   * arguments as the space scope reads them; anything but a "yes" is a no: a
+   * resolver that doesn't tell or fails, no single resolver, no or a badly
+   * written id, unreadable arguments, no person, a declaration that isn't of
+   * the object kind. Mutants: the answer not compared to true, the person or
+   * the id not passed, a failure read as yes.
+   */
+  @Test
+  void mayEditIsTheResolversAnswerForThePersonAndTheObject() {
+    SpaceScopeResolver resolver = resolver("event");
+    when(resolver.canEdit("7", "anna")).thenReturn(true);
+    when(resolver.canEdit("7", "paul")).thenReturn(false);
+    when(resolver.canEdit("8", "anna")).thenReturn(null);
+    when(resolver.canEdit("9", "anna")).thenThrow(new IllegalStateException("boom"));
+    SimpleToolDefinition update = definition("update_agenda_event",
+                                             false,
+                                             new SpaceScopeDeclaration(null, null, "event_id", "event", false, List.of("title"), null, false, null, "editor"));
+
+    assertThat(service.mayEdit(update, "{\"event_id\":7,\"title\":\"x\"}", "anna")).isTrue();
+    assertThat(service.mayEdit(update, "{\"event_id\":\"7\"}", "anna")).isTrue();
+    assertThat(service.mayEdit(update, "{\"event_id\":7}", "paul")).isFalse();
+    assertThat(service.mayEdit(update, "{\"event_id\":8}", "anna")).as("a resolver that doesn't tell").isFalse();
+    assertThat(service.mayEdit(update, "{\"event_id\":9}", "anna")).as("a failing resolver").isFalse();
+    assertThat(service.mayEdit(update, "{\"event_id\":0}", "anna")).isFalse();
+    assertThat(service.mayEdit(update, "{\"title\":\"x\"}", "anna")).isFalse();
+    assertThat(service.mayEdit(update, "not json", "anna")).isFalse();
+    assertThat(service.mayEdit(update, "{\"event_id\":7}", " ")).isFalse();
+    assertThat(service.mayEdit(spaceWrite(), SPACE_WRITE_INPUT, "anna")).isFalse();
+    assertThat(service.mayEdit(null, "{\"event_id\":7}", "anna")).isFalse();
+    resolver("event");
+    assertThat(service.mayEdit(update, "{\"event_id\":7}", "anna")).as("two resolvers of one name").isFalse();
+  }
+
+  /**
    * A declaration that isn't exactly one kind is refused. Mutant: the
    * well-formedness check removed, which runs the unscoped branch.
    */
