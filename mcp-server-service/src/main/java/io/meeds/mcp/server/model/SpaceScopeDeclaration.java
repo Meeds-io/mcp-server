@@ -85,12 +85,16 @@ import lombok.NoArgsConstructor;
  * person must hold for a digital worker to make that write on their behalf
  * (EXO-91405): {@value #SPACE_ROLE_MEMBER}, {@value #SPACE_ROLE_REDACTOR}
  * (who may add content: any member of a space without redactors),
- * {@value #SPACE_ROLE_PUBLISHER} or {@value #SPACE_ROLE_MANAGER}. A write
- * that declares none needs {@value #SPACE_ROLE_MANAGER}, and so does a
- * {@code space_admin} one, which may declare no other role
+ * {@value #SPACE_ROLE_PUBLISHER} or {@value #SPACE_ROLE_MANAGER}; or, on a
+ * declaration of the object kind, {@value #SPACE_ROLE_EDITOR}: the person must
+ * be able to edit the very object the call reaches, which the declaration's
+ * resolver tells ({@code SpaceScopeResolver#canEdit}). A write that declares
+ * none needs {@value #SPACE_ROLE_MANAGER}, and so does a {@code space_admin}
+ * one, which may declare no other role
  * ({@link #getEffectiveSpaceRole(boolean)}). An unknown value, another role
- * on a {@code space_admin} declaration, or a role on a declaration of the
- * unscoped kind, makes the declaration malformed. The server enforces
+ * on a {@code space_admin} declaration, a role on a declaration of the
+ * unscoped kind, or {@value #SPACE_ROLE_EDITOR} on one that isn't of the
+ * object kind, makes the declaration malformed. The server enforces
  * nothing more for it: the caller that runs a digital worker's write for a
  * person reads it, and lets the write run only for one who holds that role,
  * the worker remaining the author of what it does.
@@ -129,7 +133,13 @@ public class SpaceScopeDeclaration {
   /** The {@code space_role} of a write only who manages the space may have made for them; the default. */
   public static final String SPACE_ROLE_MANAGER    = "manager";
 
-  /** The {@code space_role} values, the lowest role first. */
+  /**
+   * The {@code space_role} of a write on an object only who could edit that
+   * object in person may have made for them, as the object's resolver tells.
+   */
+  public static final String SPACE_ROLE_EDITOR     = "editor";
+
+  /** The {@code space_role} values naming a role in the space, the lowest first. */
   public static final List<String> SPACE_ROLES     = List.of(SPACE_ROLE_MEMBER,
                                                              SPACE_ROLE_REDACTOR,
                                                              SPACE_ROLE_PUBLISHER,
@@ -227,13 +237,18 @@ public class SpaceScopeDeclaration {
   }
 
   /**
-   * @return true when no {@code space_role} is given, or a known one on a
-   *         space or object declaration, {@value #SPACE_ROLE_MANAGER} alone
-   *         on a {@code space_admin} one
+   * @return true when no {@code space_role} is given, a known one on a space
+   *         or object declaration, {@value #SPACE_ROLE_MANAGER} alone on a
+   *         {@code space_admin} one, or {@value #SPACE_ROLE_EDITOR} on an
+   *         object declaration that isn't {@code space_admin}
    */
   private boolean isSpaceRoleWellFormed() {
-    return spaceRole == null
-           || SPACE_ROLES.contains(spaceRole) && !isUnscopedKind() && (!spaceAdmin || SPACE_ROLE_MANAGER.equals(spaceRole));
+    if (spaceRole == null) {
+      return true;
+    } else if (SPACE_ROLE_EDITOR.equals(spaceRole)) {
+      return isObjectKind() && !spaceAdmin;
+    }
+    return SPACE_ROLES.contains(spaceRole) && !isUnscopedKind() && (!spaceAdmin || SPACE_ROLE_MANAGER.equals(spaceRole));
   }
 
   /**
