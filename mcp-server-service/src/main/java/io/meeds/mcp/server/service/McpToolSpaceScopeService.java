@@ -147,6 +147,49 @@ public class McpToolSpaceScopeService {
   }
 
   /**
+   * Tells whether a person could edit, in person, the object a write reaches,
+   * for a write whose {@code space_scope} declares
+   * {@code space_role: editor}: the caller that runs a digital worker's write
+   * for a person asks it before letting the write run for them. It reads the
+   * object's id from the arguments as {@link #enforce} does and asks the
+   * declaration's resolver ({@link SpaceScopeResolver#canEdit}).
+   *
+   * @param toolDefinition the tool's definition, may be null
+   * @param toolInput      the write's arguments
+   * @param userName       the person the write would be made for
+   * @return true only when the resolver says the person could edit the
+   *         object; false for a definition that isn't an object declaration,
+   *         arguments that can't be read, no id, no single resolver, a resolver
+   *         that doesn't tell or fails
+   */
+  public boolean mayEdit(SimpleToolDefinition toolDefinition, String toolInput, String userName) {
+    SpaceScopeDeclaration declaration = toolDefinition == null ? null : toolDefinition.getSpaceScope();
+    if (declaration == null || !declaration.isObjectKind() || StringUtils.isBlank(userName) || StringUtils.isBlank(toolInput)) {
+      return false;
+    }
+    String objectId;
+    try {
+      JsonNode node = ARGUMENTS_MAPPER.readTree(toolInput);
+      JsonNode value = node instanceof ObjectNode objectNode ? objectNode.get(declaration.getObjectArg()) : null;
+      objectId = value == null ? null : toObjectId(value, declaration);
+    } catch (JacksonException e) {
+      log.debug("Arguments of tool '{}' can't be read to tell whether '{}' may edit its object", toolDefinition.name(), userName, e);
+      return false;
+    }
+    SpaceScopeResolver resolver = objectId == null ? null : getResolver(declaration.getResolver());
+    if (resolver == null) {
+      return false;
+    }
+    try {
+      return Boolean.TRUE.equals(resolver.canEdit(objectId, userName));
+    } catch (RuntimeException e) {
+      log.warn("Space scope resolver '{}' failed to tell whether '{}' may edit object {}: answered no",
+               resolver.getName(), userName, objectId, e);
+      return false;
+    }
+  }
+
+  /**
    * The rule that tells a read from a write for a call limited to one space,
    * shared with the views that show it.
    *
