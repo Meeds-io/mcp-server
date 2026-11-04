@@ -70,8 +70,8 @@ public interface SpaceScopeResolver {
    * A run nobody asked for (a scheduled one) asks no role: a write a standing
    * approval of a manager covers runs at once, without this method. Any other
    * write it makes is recorded as a proposal, and the manager who approves it
-   * is asked about here, so an implementation answers true for a manager of
-   * the space wherever anyone may edit the object.
+   * is asked about here: such a write runs only on the approval of a manager
+   * who could make it in person.
    *
    * @param objectId the object's id, as {@link #spaceOf(String)} receives it
    * @param userName the person a digital worker would make the write for
