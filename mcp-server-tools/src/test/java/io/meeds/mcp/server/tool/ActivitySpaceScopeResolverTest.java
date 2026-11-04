@@ -19,6 +19,8 @@
 package io.meeds.mcp.server.tool;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
@@ -28,8 +30,11 @@ import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
+import org.exoplatform.portal.config.UserACL;
 import org.exoplatform.social.core.activity.model.ExoSocialActivity;
+import org.exoplatform.social.core.identity.model.Identity;
 import org.exoplatform.social.core.manager.ActivityManager;
+import org.exoplatform.social.core.manager.IdentityManager;
 
 import io.meeds.mcp.server.tool.plugin.ActivitySpaceScopeResolver;
 
@@ -41,6 +46,12 @@ class ActivitySpaceScopeResolverTest {
 
   @Mock
   private ActivityManager           activityManager;
+
+  @Mock
+  private IdentityManager           identityManager;
+
+  @Mock
+  private UserACL                   userAcl;
 
   @InjectMocks
   private ActivitySpaceScopeResolver resolver;
@@ -79,14 +90,69 @@ class ActivitySpaceScopeResolverTest {
   }
 
   /**
+   * A person may have a worker change an activity only when social lets that
+   * person change it, asked for that person's own ACL identity. Social
+   * answers yes for any other activity and identity, so each "no" is the
+   * resolver's own. Mutants: social's answer ignored, another person's ACL
+   * identity asked, the comment, the missing activity, the deleted, the
+   * disabled, the unknown person or the blank name guard removed, a failure
+   * read as yes.
+   */
+  @Test
+  void canEditIsSocialsEditRuleForThePerson() {
+    org.exoplatform.services.security.Identity annaAcl = mock(org.exoplatform.services.security.Identity.class);
+    org.exoplatform.services.security.Identity paulAcl = mock(org.exoplatform.services.security.Identity.class);
+    ExoSocialActivity post = activity(false, "12");
+    ExoSocialActivity comment = activity(true, "12");
+    lenient().when(activityManager.isActivityEditable(any(), any())).thenReturn(true);
+    when(activityManager.isActivityEditable(post, paulAcl)).thenReturn(false);
+    lenient().when(activityManager.getActivity("7")).thenReturn(post);
+    lenient().when(activityManager.getActivity("1")).thenReturn(comment);
+    lenient().when(activityManager.getActivity("4")).thenThrow(new IllegalStateException("database down"));
+    Identity active = person(false, true);
+    Identity deleted = person(true, true);
+    Identity disabled = person(false, false);
+    lenient().when(identityManager.getOrCreateUserIdentity(any())).thenReturn(active);
+    lenient().when(identityManager.getOrCreateUserIdentity("gone")).thenReturn(deleted);
+    lenient().when(identityManager.getOrCreateUserIdentity("off")).thenReturn(disabled);
+    lenient().when(identityManager.getOrCreateUserIdentity("ghost")).thenReturn(null);
+    lenient().when(userAcl.getUserIdentity(any())).thenReturn(annaAcl);
+    lenient().when(userAcl.getUserIdentity("paul")).thenReturn(paulAcl);
+    lenient().when(userAcl.getUserIdentity("noacl")).thenReturn(null);
+
+    assertThat(resolver.canEdit("7", "anna")).isTrue();
+    assertThat(resolver.canEdit("7", "paul")).as("social says no").isFalse();
+    assertThat(resolver.canEdit("1", "anna")).as("a comment").isFalse();
+    assertThat(resolver.canEdit("3", "anna")).as("a missing activity").isFalse();
+    assertThat(resolver.canEdit("4", "anna")).as("a failing lookup").isFalse();
+    assertThat(resolver.canEdit("7", "gone")).as("a deleted person").isFalse();
+    assertThat(resolver.canEdit("7", "off")).as("a disabled person").isFalse();
+    assertThat(resolver.canEdit("7", "ghost")).as("an unknown person").isFalse();
+    assertThat(resolver.canEdit("7", "noacl")).as("no ACL identity").isFalse();
+    assertThat(resolver.canEdit("7", " ")).as("no person").isFalse();
+  }
+
+  /**
+   * @param deleted whether the identity is deleted
+   * @param enabled whether it is enabled
+   * @return a mocked user identity
+   */
+  private static Identity person(boolean deleted, boolean enabled) {
+    Identity identity = mock(Identity.class);
+    lenient().when(identity.isDeleted()).thenReturn(deleted);
+    lenient().when(identity.isEnable()).thenReturn(enabled);
+    return identity;
+  }
+
+  /**
    * @param comment whether the activity is a comment
    * @param spaceId the id of the space whose stream holds it, null for none
    * @return a mocked activity
    */
   private static ExoSocialActivity activity(boolean comment, String spaceId) {
     ExoSocialActivity activity = mock(ExoSocialActivity.class);
-    when(activity.isComment()).thenReturn(comment);
-    org.mockito.Mockito.lenient().when(activity.getSpaceId()).thenReturn(spaceId);
+    lenient().when(activity.isComment()).thenReturn(comment);
+    lenient().when(activity.getSpaceId()).thenReturn(spaceId);
     return activity;
   }
 
