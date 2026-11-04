@@ -67,10 +67,11 @@ public interface SpaceScopeResolver {
    * an exception, like a null answer, is read as "no", and the write then
    * waits for a manager of the space to decide.
    * <p>
-   * A run nobody asked for (a scheduled one) has no person to ask about: its
-   * write runs on the approval a manager of the space gave, without this
-   * method being called. So a manager of the space must be able to edit every
-   * object of the space: an implementation answers true for one.
+   * A run nobody asked for (a scheduled one) asks no role: a write a standing
+   * approval of a manager covers runs at once, without this method. Any other
+   * write it makes is recorded as a proposal, and the manager who approves it
+   * is asked about here, so an implementation answers true for a manager of
+   * the space wherever anyone may edit the object.
    *
    * @param objectId the object's id, as {@link #spaceOf(String)} receives it
    * @param userName the person a digital worker would make the write for
