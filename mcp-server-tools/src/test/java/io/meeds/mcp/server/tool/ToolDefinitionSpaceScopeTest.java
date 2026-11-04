@@ -303,22 +303,24 @@ class ToolDefinitionSpaceScopeTest {
    * Every write declares the role in the space a person must hold for a
    * digital worker to make it for them (EXO-91405), as the role table of
    * the eXIP sets it: a manager's for every {@code space_admin} write, a
-   * redactor's for posting and editing a post, a member's for commenting and
-   * liking. No read declares one. Mutants: a role dropped from a write (it
-   * then defaults to manager), another role on a post or a comment, a role
-   * other than manager on a space_admin write.
+   * redactor's for posting, an editor's of the very post for changing an
+   * existing one, a member's for commenting and liking. No read declares one.
+   * Mutants: a role dropped from a write (it then defaults to manager),
+   * another role on a post, a change of a post or a comment, a role other than
+   * manager on a space_admin write.
    */
   @Test
   void everyWriteDeclaresItsSpaceRole() {
     Map<String, String> expected = new HashMap<>();
     SPACE_ADMIN_WRITES.forEach(name -> expected.put(name, SpaceScopeDeclaration.SPACE_ROLE_MANAGER));
     Set.of("create_activity",
-           "create_activity_with_image",
-           "update_activity",
+           "create_activity_with_image")
+       .forEach(name -> expected.put(name, SpaceScopeDeclaration.SPACE_ROLE_REDACTOR));
+    Set.of("update_activity",
            "attach_image_to_activity",
            "remove_image_from_activity",
            "publish_scheduled_activity_now")
-       .forEach(name -> expected.put(name, SpaceScopeDeclaration.SPACE_ROLE_REDACTOR));
+       .forEach(name -> expected.put(name, SpaceScopeDeclaration.SPACE_ROLE_EDITOR));
     Set.of("create_activity_comment",
            "create_activity_comment_with_image",
            "attach_image_to_comment",
