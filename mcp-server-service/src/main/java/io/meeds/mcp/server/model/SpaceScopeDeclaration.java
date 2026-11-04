@@ -97,7 +97,10 @@ import lombok.NoArgsConstructor;
  * object kind, makes the declaration malformed. The server enforces
  * nothing more for it: the caller that runs a digital worker's write for a
  * person reads it, and lets the write run only for one who holds that role,
- * the worker remaining the author of what it does.
+ * the worker remaining the author of what it does. A run with no person
+ * behind it (a scheduled one) asks no role: its write runs on the approval a
+ * manager of the space gave, so a resolver answering {@code canEdit} for a
+ * {@value #SPACE_ROLE_EDITOR} write must say yes for a manager of the space.
  * <p>
  * Owned by the add-on that ships the tool: always read from its file, never
  * from the persisted copy an administrator edits.
