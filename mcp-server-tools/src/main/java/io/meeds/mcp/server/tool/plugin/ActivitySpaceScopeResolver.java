@@ -88,8 +88,10 @@ public class ActivitySpaceScopeResolver implements SpaceScopeResolver {
   /**
    * Tells whether a person could change the activity in person, as social
    * decides it for the post's own edit, image and publish actions
-   * ({@link ActivityManager#isActivityEditable}): its poster, or, for a post
-   * scheduled for later, whoever may manage the space's content.
+   * ({@link ActivityManager#isActivityEditable}): by default its poster, or,
+   * for a post scheduled for later, whoever may manage the space's content;
+   * an activity type's own plugin, and the platform's edit setting, decide
+   * first.
    *
    * @param objectId the activity id
    * @param userName the person a digital worker would change the activity for
