@@ -22,8 +22,11 @@ import org.apache.commons.lang3.StringUtils;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 
+import org.exoplatform.portal.config.UserACL;
 import org.exoplatform.social.core.activity.model.ExoSocialActivity;
+import org.exoplatform.social.core.identity.model.Identity;
 import org.exoplatform.social.core.manager.ActivityManager;
+import org.exoplatform.social.core.manager.IdentityManager;
 
 import io.meeds.mcp.server.plugin.SpaceScopeResolver;
 
@@ -34,7 +37,9 @@ import lombok.extern.slf4j.Slf4j;
  * A shared activity is a copy posted in the stream it was shared to, so it
  * belongs to that space, and the activity it was shared from to its own. A
  * comment, an activity of a user's stream and a missing one belong to no
- * space. Read as the system, for the space scope decision only.
+ * space. Read as the system, for the space scope decision only. For a write
+ * declaring {@code space_role: editor}, it also tells whether a person could
+ * edit the activity in person, by social's own rule.
  */
 @Service("activitySpaceScopeResolver")
 @Slf4j
@@ -45,6 +50,12 @@ public class ActivitySpaceScopeResolver implements SpaceScopeResolver {
 
   @Autowired
   private ActivityManager    activityManager;
+
+  @Autowired
+  private IdentityManager    identityManager;
+
+  @Autowired
+  private UserACL            userAcl;
 
   /**
    * @return {@value #NAME}
@@ -71,6 +82,40 @@ public class ActivitySpaceScopeResolver implements SpaceScopeResolver {
     } catch (RuntimeException e) {
       log.debug("The space of activity '{}' couldn't be read", objectId, e);
       return null;
+    }
+  }
+
+  /**
+   * Tells whether a person could change the activity in person, as social
+   * decides it for the post's own edit, image and publish actions
+   * ({@link ActivityManager#isActivityEditable}): its poster, or, for a post
+   * scheduled for later, whoever may manage the space's content.
+   *
+   * @param objectId the activity id
+   * @param userName the person a digital worker would change the activity for
+   * @return true when the person could change it; false for a comment, a
+   *         missing activity, a deleted or disabled person, or a lookup that
+   *         fails
+   */
+  @Override
+  public Boolean canEdit(String objectId, String userName) {
+    if (StringUtils.isBlank(userName)) {
+      return false;
+    }
+    try {
+      ExoSocialActivity activity = activityManager.getActivity(objectId);
+      if (activity == null || activity.isComment()) {
+        return false;
+      }
+      Identity person = identityManager.getOrCreateUserIdentity(userName);
+      if (person == null || person.isDeleted() || !person.isEnable()) {
+        return false;
+      }
+      org.exoplatform.services.security.Identity aclIdentity = userAcl.getUserIdentity(userName);
+      return aclIdentity != null && activityManager.isActivityEditable(activity, aclIdentity);
+    } catch (RuntimeException e) {
+      log.debug("Whether '{}' may change activity '{}' couldn't be told", userName, objectId, e);
+      return false;
     }
   }
 
