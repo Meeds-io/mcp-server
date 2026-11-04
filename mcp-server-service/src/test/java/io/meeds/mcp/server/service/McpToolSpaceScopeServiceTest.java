@@ -20,6 +20,7 @@ package io.meeds.mcp.server.service;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.mock;
@@ -232,7 +233,7 @@ class McpToolSpaceScopeServiceTest {
   @Test
   void mayEditIsTheResolversAnswerForThePersonAndTheObject() {
     SpaceScopeResolver resolver = resolver("event");
-    lenient().when(resolver.canEdit(anyString(), anyString())).thenReturn(true);
+    lenient().when(resolver.canEdit(any(), any())).thenReturn(true);
     when(resolver.canEdit("7", "anna")).thenReturn(true);
     when(resolver.canEdit("7", "paul")).thenReturn(false);
     when(resolver.canEdit("8", "anna")).thenReturn(null);
