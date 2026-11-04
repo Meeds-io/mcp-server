@@ -786,7 +786,7 @@
         "idempotentHint": true,
         "openWorldHint": false
       },
-      "space_scope": { "object_arg": "activity_id", "resolver": "activity", "allowed_args": ["html_content", "publication_start_time"], "space_role": "redactor" },
+      "space_scope": { "object_arg": "activity_id", "resolver": "activity", "allowed_args": ["html_content", "publication_start_time"], "space_role": "editor" },
       "require_approval": true
     },
     {
@@ -2721,7 +2721,7 @@
         "idempotentHint": false,
         "openWorldHint": false
       },
-      "space_scope": { "object_arg": "activity_id", "resolver": "activity", "allowed_args": ["image_url", "image_base64", "alt_text"], "space_role": "redactor" },
+      "space_scope": { "object_arg": "activity_id", "resolver": "activity", "allowed_args": ["image_url", "image_base64", "alt_text"], "space_role": "editor" },
       "require_approval": true
     },
     {
@@ -3044,7 +3044,7 @@
         "idempotentHint": false,
         "openWorldHint": false
       },
-      "space_scope": { "object_arg": "activity_id", "resolver": "activity", "space_role": "redactor" },
+      "space_scope": { "object_arg": "activity_id", "resolver": "activity", "space_role": "editor" },
       "require_approval": true
     },
     {
@@ -3130,7 +3130,7 @@
         "idempotentHint": true,
         "openWorldHint": false
       },
-      "space_scope": { "object_arg": "activity_id", "resolver": "activity", "space_role": "redactor" },
+      "space_scope": { "object_arg": "activity_id", "resolver": "activity", "space_role": "editor" },
       "require_approval": true
     }
   ]
