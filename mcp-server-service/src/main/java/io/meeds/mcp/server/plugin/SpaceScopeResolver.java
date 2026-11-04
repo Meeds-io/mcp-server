@@ -22,12 +22,17 @@ package io.meeds.mcp.server.plugin;
  * Tells which space an object belongs to, for the tools that reach one by its
  * id while their call is limited to a space: a tool definition whose
  * {@code space_scope} names this resolver ({@code resolver}) is called only
- * when the object it reaches belongs to the call's space.
+ * when the object it reaches belongs to the call's space. For a write that
+ * declares {@code space_role: editor}, it also tells whether a person could
+ * edit the object ({@link #canEdit(String, String)}).
  * <p>
- * The answer is used for that decision only and never reaches the model, so a
- * resolver reads as the system: a missing object, an object of no space, an
- * object in another space and an object it can't read all lead to the same
- * refusal. It must not throw; an exception is read as "no space".
+ * The {@link #spaceOf(String)} answer is used for the space decision only and
+ * never reaches the model, so a resolver reads as the system: a missing
+ * object, an object of no space, an object in another space and an object it
+ * can't read all lead to the same refusal. The {@link #canEdit(String, String)}
+ * answer decides whether a digital worker makes the write for a person or
+ * asks the space's managers, which the model is told. Neither method may
+ * throw; an exception is read as "no space" and "no".
  * <p>
  * A contributor is a Spring {@code @Service} with a unique bean name,
  * non-final (the Kernel/Spring bridge exports it to the MCP server as a proxy
@@ -59,7 +64,13 @@ public interface SpaceScopeResolver {
    * {@code space_scope} declares {@code space_role: editor}: a digital worker
    * makes that write for the person only when the answer is true. Like
    * {@link #spaceOf(String)}, it reads as the system, and it must not throw;
-   * an exception, like a null answer, is read as "no".
+   * an exception, like a null answer, is read as "no", and the write then
+   * waits for a manager of the space to decide.
+   * <p>
+   * A run nobody asked for (a scheduled one) has no person to ask about: its
+   * write runs on the approval a manager of the space gave, without this
+   * method being called. So a manager of the space must be able to edit every
+   * object of the space: an implementation answers true for one.
    *
    * @param objectId the object's id, as {@link #spaceOf(String)} receives it
    * @param userName the person a digital worker would make the write for

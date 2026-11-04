@@ -224,12 +224,15 @@ class McpToolSpaceScopeServiceTest {
    * arguments as the space scope reads them; anything but a "yes" is a no: a
    * resolver that doesn't tell or fails, no single resolver, no or a badly
    * written id, unreadable arguments, no person, a declaration that isn't of
-   * the object kind. Mutants: the answer not compared to true, the person or
-   * the id not passed, a failure read as yes.
+   * the object kind. The resolver answers yes for any other object and person,
+   * so each "no" is {@code mayEdit}'s own. Mutants: the answer not compared to
+   * true, the person or the id not passed, a failure read as yes, the blank
+   * person, the object-kind or the id guard removed.
    */
   @Test
   void mayEditIsTheResolversAnswerForThePersonAndTheObject() {
     SpaceScopeResolver resolver = resolver("event");
+    lenient().when(resolver.canEdit(anyString(), anyString())).thenReturn(true);
     when(resolver.canEdit("7", "anna")).thenReturn(true);
     when(resolver.canEdit("7", "paul")).thenReturn(false);
     when(resolver.canEdit("8", "anna")).thenReturn(null);
@@ -248,9 +251,41 @@ class McpToolSpaceScopeServiceTest {
     assertThat(service.mayEdit(update, "not json", "anna")).isFalse();
     assertThat(service.mayEdit(update, "{\"event_id\":7}", " ")).isFalse();
     assertThat(service.mayEdit(spaceWrite(), SPACE_WRITE_INPUT, "anna")).isFalse();
+    SimpleToolDefinition notObjectKind = definition("update_agenda_event",
+                                                    false,
+                                                    new SpaceScopeDeclaration("space_id", null, "event_id", "event", false, List.of("title"), null, false, null, "editor"));
+    assertThat(service.mayEdit(notObjectKind, "{\"space_id\":12,\"event_id\":7}", "anna")).as("a declaration that isn't of the object kind").isFalse();
     assertThat(service.mayEdit(null, "{\"event_id\":7}", "anna")).isFalse();
     resolver("event");
     assertThat(service.mayEdit(update, "{\"event_id\":7}", "anna")).as("two resolvers of one name").isFalse();
+  }
+
+  /**
+   * A resolver that only tells an object's space, as an add-on's that
+   * predates {@code canEdit} does, answers no for every person, and so does
+   * {@code mayEdit} through it. Mutant: the default answering
+   * {@code Boolean.TRUE}, which would let an {@code editor} write run for anyone.
+   */
+  @Test
+  void aResolverThatDoesNotTellAnswersNo() {
+    SpaceScopeResolver spaceOnly = new SpaceScopeResolver() {
+      @Override
+      public String getName() {
+        return "event";
+      }
+
+      @Override
+      public Long spaceOf(String objectId) {
+        return SPACE_ID;
+      }
+    };
+    resolvers.add(spaceOnly);
+    SimpleToolDefinition update = definition("update_agenda_event",
+                                             false,
+                                             new SpaceScopeDeclaration(null, null, "event_id", "event", false, List.of("title"), null, false, null, "editor"));
+
+    assertThat(spaceOnly.canEdit("7", "anna")).isFalse();
+    assertThat(service.mayEdit(update, "{\"event_id\":7}", "anna")).isFalse();
   }
 
   /**
