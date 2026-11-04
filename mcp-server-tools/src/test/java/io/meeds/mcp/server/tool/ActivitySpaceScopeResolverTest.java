@@ -94,9 +94,10 @@ class ActivitySpaceScopeResolverTest {
    * person change it, asked for that person's own ACL identity. Social
    * answers yes for any other activity and identity, so each "no" is the
    * resolver's own. Mutants: social's answer ignored, another person's ACL
-   * identity asked, the comment, the missing activity, the deleted, the
-   * disabled, the unknown person or the blank name guard removed, a failure
-   * read as yes.
+   * identity asked, the comment, the deleted, the disabled, the no-ACL-identity
+   * or the blank name guard removed, a failure read as yes. Without the
+   * missing-activity or the unknown-person guard the null throws and the catch
+   * answers no, so those two are pinned by the catch.
    */
   @Test
   void canEditIsSocialsEditRuleForThePerson() {
