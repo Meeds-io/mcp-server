@@ -157,8 +157,9 @@ public class McpToolSpaceScopeService {
    * The answer has two values: a case where nobody can tell (no single
    * resolver, arguments that can't be read, a resolver that doesn't tell or
    * fails) is a no, like a refusal, so the write never runs for a person on a
-   * right nobody checked. The caller treats every no alike: it records the
-   * write as a proposal for the space's managers to decide.
+   * right nobody checked. The caller records the write as a proposal for the
+   * space's managers to decide, who can approve it only once the cause of the
+   * no is gone, since the approving manager is asked again.
    *
    * @param toolDefinition the tool's definition, may be null
    * @param toolInput      the write's arguments
