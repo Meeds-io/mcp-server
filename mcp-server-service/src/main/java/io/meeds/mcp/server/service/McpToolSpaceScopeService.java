@@ -153,6 +153,12 @@ public class McpToolSpaceScopeService {
    * for a person asks it before letting the write run for them. It reads the
    * object's id from the arguments as {@link #enforce} does and asks the
    * declaration's resolver ({@link SpaceScopeResolver#canEdit}).
+   * <p>
+   * The answer has two values: a case where nobody can tell (no single
+   * resolver, arguments that can't be read, a resolver that doesn't tell or
+   * fails) is a no, like a refusal, so the write never runs for a person on a
+   * right nobody checked. The caller treats every no alike: it records the
+   * write as a proposal for the space's managers to decide.
    *
    * @param toolDefinition the tool's definition, may be null
    * @param toolInput      the write's arguments
@@ -184,7 +190,7 @@ public class McpToolSpaceScopeService {
       return Boolean.TRUE.equals(resolver.canEdit(objectId, userName));
     } catch (RuntimeException e) {
       log.warn("Space scope resolver '{}' failed to tell whether '{}' may edit object {}: answered no",
-               resolver.getName(), userName, objectId, e);
+               declaration.getResolver(), userName, objectId, e);
       return false;
     }
   }
@@ -358,21 +364,22 @@ public class McpToolSpaceScopeService {
     if (resolver == null) {
       throw refuse(NOT_AVAILABLE.formatted(toolName, spaceScope));
     }
-    if (!spaceScope.equals(spaceOf(resolver, objectId))) {
+    if (!spaceScope.equals(spaceOf(resolver, declaration.getResolver(), objectId))) {
       throw refuse(OUT_OF_SPACE_OBJECT.formatted(spaceScope, toolName, objectArg, objectId));
     }
   }
 
   /**
-   * @param resolver the object's resolver
-   * @param objectId the object's id
+   * @param resolver     the object's resolver
+   * @param resolverName the resolver's name, as the declaration gives it
+   * @param objectId     the object's id
    * @return the object's space, null when the resolver says none or fails
    */
-  private Long spaceOf(SpaceScopeResolver resolver, String objectId) {
+  private Long spaceOf(SpaceScopeResolver resolver, String resolverName, String objectId) {
     try {
       return resolver.spaceOf(objectId);
     } catch (RuntimeException e) {
-      log.warn("Space scope resolver '{}' failed on object {}: the call is refused", resolver.getName(), objectId, e);
+      log.warn("Space scope resolver '{}' failed on object {}: the call is refused", resolverName, objectId, e);
       return null;
     }
   }
