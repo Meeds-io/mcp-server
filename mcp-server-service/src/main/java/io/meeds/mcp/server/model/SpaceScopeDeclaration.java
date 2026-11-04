@@ -100,9 +100,8 @@ import lombok.NoArgsConstructor;
  * the worker remaining the author of what it does. A run with no person
  * behind it (a scheduled one) asks no role: a write a manager's standing
  * approval covers runs at once, and any other is a proposal whose approving
- * manager must hold the role, so a resolver answering {@code canEdit} for a
- * {@value #SPACE_ROLE_EDITOR} write says yes for a manager of the space
- * wherever anyone may edit the object.
+ * manager must hold the role: for a {@value #SPACE_ROLE_EDITOR} write, be
+ * able to edit the object in person.
  * <p>
  * Owned by the add-on that ships the tool: always read from its file, never
  * from the persisted copy an administrator edits.
