@@ -200,7 +200,7 @@
           },
           "limit": {
             "type": "integer",
-            "description": "Maximum number of spaces to return, 10 by default, at most 50"
+            "description": "Maximum number of spaces to return, 10 by default, at most 50. Only the 50 best matches are ranked: when the space is not among the hits, search again with more of its words"
           }
         },
         "required": [
@@ -2272,7 +2272,7 @@
       "name": "list_sub_spaces",
       "icon": "fa-users",
       "title": "List sub-spaces",
-      "description": "List the sub-spaces (child spaces in the 7.2 hierarchy) of a given parent space that are accessible to the current user. Returns sub_spaces, next_offset and has_more. A page can hold fewer sub-spaces than the limit while more follow: to read the next page, call again with next_offset as offset. The list has ended only when next_offset is absent and has_more is false.",
+      "description": "List the sub-spaces (child spaces in the 7.2 hierarchy) of a given parent space that are accessible to the current user. Returns sub_spaces, next_offset and has_more. A page can hold fewer sub-spaces than the limit while more follow: to read the next page, call again with next_offset as offset. The list has ended only when next_offset is absent and has_more is false; has_more can still be true on the last page, and the next call then returns no sub-space.",
       "input_schema": {
         "type": "object",
         "properties": {
@@ -3040,7 +3040,7 @@
       "name": "start_upload",
       "icon": "fa-file-alt",
       "title": "Open an upload link",
-      "description": "Open a one-time upload link to send a file that is on your machine to the platform without passing its bytes through the conversation. Returns upload_id and a ready curl_command: run it in a shell on the machine that holds the file, with <path-to-file> replaced by the file's path, then pass upload_id to the tool that should receive the file (for an image: set_my_avatar, set_my_banner, set_space_avatar, set_space_banner, create_activity_with_image, attach_image_to_activity, create_activity_comment_with_image, attach_image_to_comment). The link works once, within a few minutes (expires_in_seconds); an uploaded file no tool consumes is dropped after about half an hour. Not needed when the platform can already read the file (an attachment or a public URL). If curl cannot reach the platform or you have no shell, only a small image can still go as image_base64.",
+      "description": "Open a one-time upload link to send a file that is on your machine to the platform without passing its bytes through the conversation. Returns upload_id and a ready curl_command: run it in a shell on the machine that holds the file, with <path-to-file> replaced by the file's path, then pass upload_id to the tool that should receive the file: any tool that takes an upload_id, such as an image tool (set_my_avatar, set_my_banner, set_space_avatar, set_space_banner, create_activity_with_image, attach_image_to_activity, create_activity_comment_with_image, attach_image_to_comment) or an add-on's file tool (a document, a note cover, an article illustration). The link works once, within a few minutes (expires_in_seconds); an uploaded file no tool consumes is dropped after about half an hour. Not needed when the platform can already read the file (an attachment or a public URL). If curl cannot reach the platform or you have no shell, only a small file can still go inline, as image_base64 to an image tool or as base64 to a document tool.",
       "input_schema": {
         "type": "object",
         "properties": {
