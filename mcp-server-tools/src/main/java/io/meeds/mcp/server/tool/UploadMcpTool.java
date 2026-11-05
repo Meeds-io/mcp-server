@@ -74,9 +74,10 @@ public class UploadMcpTool implements McpToolPlugin {
   public static final String  NEXT_STEP                = """
       Run curl_command in a shell on the machine that holds the file, with <path-to-file> replaced by the file's path. \
       It answers {"status":"uploaded","size":N} once the file is received. Then pass upload_id to the tool that should \
-      receive the file (for an image: set_my_avatar, set_my_banner, set_space_avatar, set_space_banner, \
-      create_activity_with_image, attach_image_to_activity, create_activity_comment_with_image or \
-      attach_image_to_comment), which consumes it. The link works once, within a few minutes (expires_in_seconds \
+      receive the file, which consumes it: any tool that takes an upload_id, such as an image tool (set_my_avatar, \
+      set_my_banner, set_space_avatar, set_space_banner, create_activity_with_image, attach_image_to_activity, \
+      create_activity_comment_with_image, attach_image_to_comment) or an add-on's file tool (a document, a note \
+      cover, an article illustration). The link works once, within a few minutes (expires_in_seconds \
       is the platform default validity), and only on the server that issued it: send it with curl_command as \
       given, whose cookie, on a cluster, routes it to that server. HTTP 401: the \
       link expired or was already used; 409: the upload_id is taken; 413: the file is larger than the declared size; \
@@ -87,8 +88,9 @@ public class UploadMcpTool implements McpToolPlugin {
   /** What remains when the link cannot be used. */
   public static final String  FALLBACK                 = """
       If curl cannot reach the platform (for example a proxy answering 403 to the connection) or no shell is \
-      available, the file cannot be sent by link from this environment: a small image can still be passed to the \
-      image tools as image_base64, at the cost of every byte going through the conversation.""";
+      available, the file cannot be sent by link from this environment: a small file can still be passed inline to \
+      a tool that takes it, as image_base64 for the image tools or as base64 for a document, at the cost of every \
+      byte going through the conversation.""";
 
   /** Characters a file name may not hold: path separators, quotes and control characters. */
   private static final Pattern FORBIDDEN_NAME_CHARS   = Pattern.compile("[/\\\\'\"\\p{Cntrl}]");
