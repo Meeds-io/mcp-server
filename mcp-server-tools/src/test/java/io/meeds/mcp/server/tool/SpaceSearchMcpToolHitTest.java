@@ -231,8 +231,6 @@ class SpaceSearchMcpToolHitTest {
     assertTrue(hit.myRoles().contains(SpaceRole.MANAGER));
     assertNotNull(hit.lastActivityDate());
     assertTrue(hit.lastActivityDate().startsWith("2025-10-09T08:53:20"), hit.lastActivityDate());
-    verify(identityManager, never()).getOrCreateSpaceIdentity(anyString());
-    verify(identityManager, never()).getOrCreateIdentity(anyString(), anyString());
   }
 
   /**
@@ -262,7 +260,7 @@ class SpaceSearchMcpToolHitTest {
     Space space = space(1, "Client SCHIEVER");
     when(spacesAccess.load(0, SpaceSearchMcpTool.MAX_LIMIT)).thenReturn(new Space[] { space });
     when(spaceService.canViewSpace(space, USERNAME)).thenReturn(true);
-    when(identityManager.getIdentity("space", "client_schiever", false)).thenThrow(new IllegalStateException("boom"));
+    when(identityManager.getOrCreateSpaceIdentity("client_schiever")).thenThrow(new IllegalStateException("boom"));
 
     List<SpaceSearchHitModel> hits = tool.searchSpaces("schiever", null);
 
@@ -279,7 +277,7 @@ class SpaceSearchMcpToolHitTest {
     when(spacesAccess.load(0, SpaceSearchMcpTool.MAX_LIMIT)).thenReturn(new Space[] { space });
     when(spaceService.canViewSpace(space, USERNAME)).thenReturn(true);
     Identity spaceIdentity = new Identity("space", "client_schiever");
-    when(identityManager.getIdentity("space", "client_schiever", false)).thenReturn(spaceIdentity);
+    when(identityManager.getOrCreateSpaceIdentity("client_schiever")).thenReturn(spaceIdentity);
     @SuppressWarnings("unchecked")
     RealtimeListAccess<ExoSocialActivity> stream = mock(RealtimeListAccess.class);
     when(stream.loadAsList(0, 1)).thenReturn(List.of());
@@ -328,7 +326,7 @@ class SpaceSearchMcpToolHitTest {
    */
   private void stubLatestActivity() {
     Identity spaceIdentity = new Identity("space", "client_schiever");
-    when(identityManager.getIdentity("space", "client_schiever", false)).thenReturn(spaceIdentity);
+    when(identityManager.getOrCreateSpaceIdentity("client_schiever")).thenReturn(spaceIdentity);
     ExoSocialActivity latest = mock(ExoSocialActivity.class);
     when(latest.getUpdated()).thenReturn(new Date(1_760_000_000_000L));
     @SuppressWarnings("unchecked")
