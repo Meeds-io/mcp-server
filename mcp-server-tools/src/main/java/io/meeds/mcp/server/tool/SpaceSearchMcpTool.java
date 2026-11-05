@@ -40,7 +40,6 @@ import org.springframework.stereotype.Service;
 import org.exoplatform.commons.utils.CommonsUtils;
 import org.exoplatform.social.core.activity.model.ExoSocialActivity;
 import org.exoplatform.social.core.identity.model.Identity;
-import org.exoplatform.social.core.identity.provider.SpaceIdentityProvider;
 import org.exoplatform.social.core.manager.ActivityManager;
 import org.exoplatform.social.core.manager.IdentityManager;
 import org.exoplatform.social.core.space.SpaceFilter;
@@ -216,7 +215,7 @@ public class SpaceSearchMcpTool implements McpToolPlugin {
       return null;
     }
     try {
-      Identity spaceIdentity = identityManager.getIdentity(SpaceIdentityProvider.NAME, space.getPrettyName(), false);
+      Identity spaceIdentity = identityManager.getOrCreateSpaceIdentity(space.getPrettyName());
       if (spaceIdentity == null) {
         return null;
       }
