@@ -24,12 +24,14 @@ import java.lang.reflect.Field;
 import java.net.URL;
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
+import java.security.NoSuchAlgorithmException;
 import java.util.ArrayList;
 import java.util.Base64;
 import java.util.Calendar;
 import java.util.Collection;
 import java.util.Collections;
 import java.util.Date;
+import java.util.HexFormat;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
@@ -68,6 +70,8 @@ import io.meeds.mcp.server.model.ActingIdentity;
 import io.meeds.mcp.server.model.PrincipalRef;
 import io.meeds.mcp.server.model.SimpleToolDefinition;
 import io.meeds.mcp.server.model.ToolDefinitionMethods;
+import io.meeds.mcp.server.model.ToolDefinitionUpgrade;
+import io.meeds.mcp.server.model.ToolDefinitionUpgrades;
 
 import jakarta.servlet.http.HttpServletRequest;
 import lombok.SneakyThrows;
@@ -75,6 +79,7 @@ import lombok.extern.slf4j.Slf4j;
 import tools.jackson.core.JacksonException;
 import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.json.JsonMapper;
+import tools.jackson.databind.node.ArrayNode;
 import tools.jackson.databind.node.ObjectNode;
 
 @Slf4j
@@ -397,6 +402,85 @@ public class McpToolUtils {
                                                       .toList();
     tools.forEach(t -> t.setInputSchema(new String(Base64.getEncoder().encode(t.getInputSchema().getBytes()))));
     return OBJECT_MAPPER.writeValueAsString(new ToolDefinitionMethods(tools));
+  }
+
+  /**
+   * Parses one {@code ai-tool-definition-upgrades.json} resource. A file that
+   * cannot be read or parsed is ignored with a WARN, so a broken upgrade list
+   * never keeps the server from starting: the saved definitions are then kept,
+   * as on a server that does not read these files.
+   *
+   * @param url the resource to read
+   * @return the upgrade entries it declares, empty when it cannot be read or
+   *         declares none
+   */
+  public static List<ToolDefinitionUpgrade> parseToolDefinitionUpgrades(URL url) {
+    try (InputStream inputStream = url.openStream()) {
+      ToolDefinitionUpgrades upgrades = CHAIN_MAPPER.readValue(inputStream, ToolDefinitionUpgrades.class);
+      return upgrades == null || upgrades.tools() == null ? Collections.emptyList() : upgrades.tools();
+    } catch (IOException | JacksonException e) {
+      log.warn("The tool definition upgrades of {} are ignored: the file can't be read ({})", url, e.getMessage());
+      log.debug("Tool definition upgrades read failure", e);
+      return Collections.emptyList();
+    }
+  }
+
+  /**
+   * Computes the digest that identifies a tool definition's text in an
+   * {@code ai-tool-definition-upgrades.json} file: the lowercase hexadecimal
+   * SHA-256 of the UTF-8 bytes of the compact JSON object
+   * {@code {"description": <description>, "input_schema": <input schema>}},
+   * with the keys of every object, at every level, in sorted order. Whitespace
+   * and the order of keys in the add-on's file therefore don't change it. It
+   * is the digest of what {@code jq -jcS '{description, input_schema}'} prints
+   * for the tool's entry of an {@code ai-tool-definitions.json} file, for
+   * schemas made of strings, integers, booleans, nulls, arrays and objects; a
+   * decimal number or a control character other than {@code \b \f \n \r \t}
+   * may be written differently by the two.
+   *
+   * @param description the tool's description, may be null
+   * @param inputSchema the tool's input schema as a JSON string, may be null
+   * @return the digest, 64 lowercase hexadecimal characters
+   * @throws IllegalArgumentException when the input schema is not JSON
+   */
+  public static String definitionDigest(String description, String inputSchema) {
+    JsonNode schemaNode;
+    try {
+      schemaNode = inputSchema == null ? CHAIN_MAPPER.nullNode() : CHAIN_MAPPER.readTree(inputSchema);
+    } catch (JacksonException e) {
+      throw new IllegalArgumentException("The input schema is not JSON", e);
+    }
+    ObjectNode definition = CHAIN_MAPPER.createObjectNode();
+    definition.put("description", description);
+    definition.set("input_schema", schemaNode == null ? CHAIN_MAPPER.nullNode() : schemaNode);
+    String canonicalJson = CHAIN_MAPPER.writeValueAsString(withSortedKeys(definition));
+    try {
+      byte[] hash = MessageDigest.getInstance("SHA-256").digest(canonicalJson.getBytes(StandardCharsets.UTF_8));
+      return HexFormat.of().formatHex(hash);
+    } catch (NoSuchAlgorithmException e) {
+      throw new IllegalStateException("SHA-256 is not available", e);
+    }
+  }
+
+  /**
+   * @param node a JSON tree
+   * @return a copy of the tree whose objects, at every level, list their keys
+   *         in sorted order
+   */
+  private static JsonNode withSortedKeys(JsonNode node) {
+    if (node.isObject()) {
+      ObjectNode sorted = CHAIN_MAPPER.createObjectNode();
+      List<Map.Entry<String, JsonNode>> properties = new ArrayList<>(node.properties());
+      properties.sort(Map.Entry.comparingByKey());
+      properties.forEach(property -> sorted.set(property.getKey(), withSortedKeys(property.getValue())));
+      return sorted;
+    } else if (node.isArray()) {
+      ArrayNode array = CHAIN_MAPPER.createArrayNode();
+      node.values().forEach(value -> array.add(withSortedKeys(value)));
+      return array;
+    } else {
+      return node;
+    }
   }
 
   /**

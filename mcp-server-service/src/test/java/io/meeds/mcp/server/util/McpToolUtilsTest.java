@@ -23,6 +23,7 @@ import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertSame;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static io.meeds.mcp.server.util.McpToolUtils.ARGUMENTS_NOT_READABLE_NOTE;
 import static io.meeds.mcp.server.util.McpToolUtils.ARGUMENTS_TOO_LARGE_NOTE;
@@ -62,6 +63,7 @@ import org.exoplatform.services.security.ConversationState;
 import org.exoplatform.services.security.Identity;
 
 import io.meeds.mcp.server.model.SimpleToolDefinition;
+import io.meeds.mcp.server.model.ToolDefinitionUpgrade;
 import io.meeds.mcp.server.model.ToolDefinitionMethods;
 
 class McpToolUtilsTest {
@@ -715,6 +717,56 @@ class McpToolUtilsTest {
     assertEquals(ARGUMENTS_TOO_LARGE_NOTE, redactBase64ForPublication(longBroken));
     assertEquals(ARGUMENTS_TOO_LARGE_NOTE, redactBase64ForPublication(longArray));
     assertEquals("{\"_note\":\"[arguments too large to show]\"}", ARGUMENTS_TOO_LARGE_NOTE);
+  }
+
+  /**
+   * The digest of a definition is the one the forms author computes from git
+   * history with {@code jq -jcS '{description, input_schema}' | shasum -a 256}:
+   * the literal was computed that way (jq 1.7.1), on an entry whose schema
+   * lists its keys out of order, nested, with a non-ASCII description holding
+   * quotes and a line break. Mutant: the keys left in the file's order.
+   */
+  @Test
+  void definitionDigest_isTheDigestOfTheSortedCompactJsonJqPrints() {// NOSONAR
+    String schema = "{\"type\":\"object\",\"properties\":{\"b\":{\"type\":\"string\"},"
+        + "\"a\":{\"enum\":[\"x\",\"y\"],\"type\":\"integer\",\"minimum\":1}},\"required\":[\"b\"]}";
+    assertEquals("3c7ee9a085496241bb866c0a22f899e9c4b0417fca4c2ffcf65a4e213aaba215",
+                 McpToolUtils.definitionDigest("Finds the files \u2014 \u00e9 \"quoted\"\nline two", schema));
+    assertEquals("303dfa54d6812f883bcf81f9f290605acf25df946cd254764ce647052e545b73",
+                 McpToolUtils.definitionDigest("OldDesc", "{ \"type\" : \"object\" }"));
+  }
+
+  /**
+   * Whitespace and key order don't change the digest; the description and
+   * the schema do. A schema that is not JSON is refused.
+   */
+  @Test
+  void definitionDigest_ignoresLayoutButNotContent() {// NOSONAR
+    String digest = McpToolUtils.definitionDigest("Desc", "{\"type\":\"object\",\"required\":[\"a\",\"b\"]}");
+    assertEquals(digest, McpToolUtils.definitionDigest("Desc", "{ \"required\" : [\"a\", \"b\"],\n  \"type\":\"object\"}"));
+    assertFalse(digest.equals(McpToolUtils.definitionDigest("Desc ", "{\"type\":\"object\",\"required\":[\"a\",\"b\"]}")));
+    assertFalse(digest.equals(McpToolUtils.definitionDigest("Desc", "{\"type\":\"object\",\"required\":[\"b\",\"a\"]}")));
+    assertThrows(IllegalArgumentException.class, () -> McpToolUtils.definitionDigest("Desc", "{not json"));
+  }
+
+  /**
+   * An upgrades file is read with its unknown keys ignored; a file that can't
+   * be parsed gives no entry rather than an error.
+   *
+   * @param tmp a temporary folder
+   */
+  @Test
+  void parseToolDefinitionUpgrades_readsTheEntries_ignoresABrokenFile(@TempDir Path tmp) throws Exception {// NOSONAR
+    Path file = tmp.resolve("ai-tool-definition-upgrades.json");
+    Files.writeString(file, """
+        { "version": 2, "tools": [ { "name": "alpha_tool", "replaced_definitions": ["aa", "bb"], "note": "x" } ] }
+        """, StandardCharsets.UTF_8);
+    List<ToolDefinitionUpgrade> upgrades = McpToolUtils.parseToolDefinitionUpgrades(file.toUri().toURL());
+    assertEquals(List.of(new ToolDefinitionUpgrade(TOOL_NAME, List.of("aa", "bb"))), upgrades);
+
+    Path broken = tmp.resolve("broken.json");
+    Files.writeString(broken, "{ \"tools\": [", StandardCharsets.UTF_8);
+    assertTrue(McpToolUtils.parseToolDefinitionUpgrades(broken.toUri().toURL()).isEmpty());
   }
 
 }
