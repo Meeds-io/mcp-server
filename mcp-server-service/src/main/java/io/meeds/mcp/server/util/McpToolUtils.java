@@ -297,7 +297,10 @@ public class McpToolUtils {
   }
 
   /**
-   * Parses one {@code ai-tool-definitions.json} resource. A tool that declares
+   * Parses one {@code ai-tool-definitions.json} resource. A {@code null} entry
+   * of its {@code tools} list, or an entry with no name or no
+   * {@code input_schema}, is skipped, with a WARN, and the file's other tools
+   * load. A tool that declares
    * no icon takes the file's default icon, when the file declares one. A key
    * the file declares at its root and this server does not know is ignored. A
    * tool entry carrying a key this server does not know is left out, with a
@@ -331,6 +334,7 @@ public class McpToolUtils {
       }
       List<SimpleToolDefinition> tools = definitionMethods.tools()
                                                           .stream()
+                                                          .filter(tool -> isToolEntry(url, tool))
                                                           .filter(tool -> hasOnlyKnownProperties(url, tool, leftOutToolNames))
                                                           .toList();
       if (StringUtils.isNotBlank(definitionMethods.icon())) {
@@ -485,6 +489,27 @@ public class McpToolUtils {
       return array;
     } else {
       return node;
+    }
+  }
+
+  /**
+   * @param url  the file the entry is declared in
+   * @param tool an entry of that file's {@code tools} list
+   * @return true when the entry is a tool, with a name and an input schema;
+   *         false when it is {@code null} or lacks either, after a WARN naming
+   *         the file and, when it has one, the tool
+   */
+  private static boolean isToolEntry(URL url, SimpleToolDefinition tool) {
+    if (tool == null) {
+      log.warn("A null tool entry of {} is skipped: the file's other tools are loaded", url);
+      return false;
+    } else if (StringUtils.isBlank(tool.getName()) || tool.getInputSchema() == null) {
+      log.warn("Tool entry '{}' of {} is skipped: it declares no name or no input_schema. The file's other tools are loaded",
+               tool.getName(),
+               url);
+      return false;
+    } else {
+      return true;
     }
   }
 
