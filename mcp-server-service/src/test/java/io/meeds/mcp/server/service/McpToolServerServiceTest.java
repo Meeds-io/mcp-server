@@ -45,11 +45,13 @@ import java.net.URL;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
 import java.util.Enumeration;
 import java.util.List;
 import java.util.Map;
+import java.util.function.Supplier;
 import java.util.stream.Collectors;
 
 import org.junit.jupiter.api.BeforeEach;
@@ -64,6 +66,7 @@ import org.mockito.Spy;
 import org.mockito.junit.jupiter.MockitoExtension;
 import java.time.Instant;
 
+import org.slf4j.LoggerFactory;
 import org.springframework.security.core.Authentication;
 import org.springframework.security.core.authority.SimpleGrantedAuthority;
 import org.springframework.security.oauth2.core.DefaultOAuth2AuthenticatedPrincipal;
@@ -85,6 +88,10 @@ import io.meeds.mcp.server.model.ToolDefinitionMethods;
 import io.meeds.mcp.server.util.McpToolUtils;
 import io.meeds.social.util.JsonUtils;
 
+import ch.qos.logback.classic.Level;
+import ch.qos.logback.classic.Logger;
+import ch.qos.logback.classic.spi.ILoggingEvent;
+import ch.qos.logback.core.read.ListAppender;
 import io.modelcontextprotocol.spec.McpSchema.ToolAnnotations;
 import lombok.SneakyThrows;
 
@@ -396,17 +403,20 @@ class McpToolServerServiceTest {
                                { "tools": [ { "name": "alpha_tool", "replaced_definitions": [ "%s" ] } ] }
                                """.formatted(OLD_DIGEST)));
 
-    SimpleToolDefinition alpha = mcpServerToolService.getToolDefinitions().get(ALPHA_TOOL);
+    List<String> warnings = new ArrayList<>();
+    SimpleToolDefinition alpha = withWarnings(warnings, () -> mcpServerToolService.getToolDefinitions().get(ALPHA_TOOL));
 
     assertEquals("Edited by the administrator", alpha.getDescription());
     assertEquals(TYPE_OBJECT, alpha.getInputSchema());
+    assertEquals(1, warnings.stream().filter(w -> w.contains("'alpha_tool'")).count());
   }
 
   /**
    * A digest replaces the text of the tool it is listed for only: another
-   * tool, of another add-on, holding the same text keeps it; so does every
-   * tool when no upgrade file is shipped. Mutant: the digests looked up
-   * across every tool.
+   * tool, of another add-on, holding the same text keeps it, and is not
+   * reported as edited, since its add-on ships no upgrade for it. Mutants:
+   * the digests looked up across every tool; the WARN given to every tool
+   * whose saved text differs from the shipped one.
    *
    * @param tmp a temporary folder
    */
@@ -424,16 +434,20 @@ class McpToolServerServiceTest {
                                { "tools": [ { "name": "alpha_tool", "replaced_definitions": [ "%s" ] } ] }
                                """.formatted(OLD_DIGEST)));
 
-    SimpleToolDefinition beta = mcpServerToolService.getToolDefinitions().get(BETA_TOOL);
+    List<String> warnings = new ArrayList<>();
+    SimpleToolDefinition beta = withWarnings(warnings, () -> mcpServerToolService.getToolDefinitions().get(BETA_TOOL));
 
     assertEquals(OLD_DESCRIPTION, beta.getDescription());
     assertEquals(TYPE_OBJECT, beta.getInputSchema());
+    assertTrue(warnings.isEmpty(), "A tool no upgrade file lists is not reported: " + warnings);
   }
 
   /**
    * A saved text equal to the shipped one, whatever its layout, is left as it
-   * is; a saved schema that is not JSON is kept as an administrator's edit
-   * and does not fail the registry build; a broken upgrade file is ignored.
+   * is, silently; a saved schema that is not JSON is kept as an
+   * administrator's edit, with a WARN, and does not fail the registry build.
+   * Mutant: the equality branch removed, which reports the equal text as an
+   * edit.
    *
    * @param tmp a temporary folder
    */
@@ -455,9 +469,12 @@ class McpToolServerServiceTest {
                                             { "name": "beta_tool", "replaced_definitions": [ "%1$s" ] } ] }
                                """.formatted(OLD_DIGEST)));
 
-    Map<String, SimpleToolDefinition> defs = mcpServerToolService.getToolDefinitions();
+    List<String> warnings = new ArrayList<>();
+    Map<String, SimpleToolDefinition> defs = withWarnings(warnings, mcpServerToolService::getToolDefinitions);
 
     assertEquals(sameSchemaOtherLayout, defs.get(ALPHA_TOOL).getInputSchema());
+    assertTrue(warnings.stream().noneMatch(w -> w.contains("'alpha_tool'")), "An equal text is left silently: " + warnings);
+    assertEquals(1, warnings.stream().filter(w -> w.contains("'beta_tool'")).count());
     assertEquals(OLD_DESCRIPTION, defs.get(BETA_TOOL).getDescription());
     assertEquals("{not json", defs.get(BETA_TOOL).getInputSchema());
   }
@@ -829,6 +846,31 @@ class McpToolServerServiceTest {
     when(cl.getResources("ai-tool-definitions.json")).thenReturn(enumeration);
     lenient().when(cl.getResources(UPGRADES_FILE))
              .thenReturn(Collections.enumeration(upgradesUrl == null ? List.of() : List.of(upgradesUrl)));
+  }
+
+  /**
+   * Runs an action and collects the WARN messages {@link McpServerToolService}
+   * logs meanwhile.
+   *
+   * @param warnings receives the formatted WARN messages
+   * @param action   the action to run
+   * @param <T>      the action's result type
+   * @return the action's result
+   */
+  private <T> T withWarnings(List<String> warnings, Supplier<T> action) {
+    Logger logger = (Logger) LoggerFactory.getLogger(McpServerToolService.class);
+    ListAppender<ILoggingEvent> appender = new ListAppender<>();
+    appender.start();
+    logger.addAppender(appender);
+    try {
+      return action.get();
+    } finally {
+      logger.detachAppender(appender);
+      appender.list.stream()
+                   .filter(event -> event.getLevel() == Level.WARN)
+                   .map(ILoggingEvent::getFormattedMessage)
+                   .forEach(warnings::add);
+    }
   }
 
   /**
