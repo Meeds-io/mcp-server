@@ -524,6 +524,42 @@ class McpToolServerServiceTest {
     assertEquals(NEW_DESCRIPTION, mcpServerToolService.getToolDefinitions().get(ALPHA_TOOL).getDescription());
   }
 
+  /**
+   * A {@code null} entry of an add-on's tool definitions file is skipped, and
+   * so is an entry with no name or no {@code input_schema}: the registry
+   * builds, which the server's start depends on, and the file's other tools
+   * load. A nameless definition an earlier build saved matches no shipped
+   * tool. Mutants: the {@code null} entries kept; the entries without an
+   * input schema kept; the saved definition's name dereferenced in the
+   * match. Each fails the build with a NullPointerException.
+   *
+   * @param tmp a temporary folder
+   */
+  @Test
+  void getToolDefinitions_skipsANullOrIncompleteToolEntry(// NOSONAR
+                                             @TempDir
+                                             Path tmp) throws Exception {
+    ReflectionTestUtils.setField(mcpServerToolService, FORCE_REIMPORT_PARAM, false);
+    Path file = tmp.resolve("ai-tool-definitions.json");
+    Files.writeString(file, """
+        { "tools": [ null,
+                     { "name": "alpha_tool", "description": "ShippedAlpha", "input_schema": {} },
+                     { "name": "beta_tool", "description": "No schema" },
+                     { "name": "gamma_tool", "description": "Null schema", "input_schema": null },
+                     { "description": "No name", "input_schema": {} } ] }
+        """, StandardCharsets.UTF_8);
+    mockContainerResources(file.toUri().toURL());
+    SimpleToolDefinition savedNameless = tool(null, "Saved by an earlier build", TYPE_OBJECT, false, false);
+    SimpleToolDefinition savedAlpha = tool(ALPHA_TOOL, "SavedAlpha", TYPE_OBJECT, true, false);
+    String savedBase64 = McpToolUtils.toJsonStringBase64(new ToolDefinitionMethods(List.of(savedNameless, savedAlpha)));
+    when(settingService.get(any(), any(), any())).thenReturn((SettingValue) SettingValue.create(savedBase64));
+
+    Map<String, SimpleToolDefinition> defs = mcpServerToolService.getToolDefinitions();
+
+    assertEquals(List.of(ALPHA_TOOL), List.copyOf(defs.keySet()));
+    assertEquals("SavedAlpha", defs.get(ALPHA_TOOL).getDescription());
+  }
+
   @Test
   void isRequireApproval_usesSnakeCaseMethodNameLookup() {// NOSONAR
     SimpleToolDefinition tool = tool("my_tool", "desc", "{}", true, false);
