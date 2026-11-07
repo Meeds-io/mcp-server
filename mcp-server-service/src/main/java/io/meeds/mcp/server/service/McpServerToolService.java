@@ -25,13 +25,16 @@ import static io.meeds.mcp.server.util.McpToolUtils.TOOL_WRITE_APPROVE_SCOPE;
 import static io.meeds.mcp.server.util.McpToolUtils.TOOL_WRITE_SCOPE;
 import static io.meeds.mcp.server.util.McpToolUtils.toSnakeCase;
 
+import java.io.IOException;
 import java.net.URL;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Collections;
 import java.util.Enumeration;
+import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
 import java.util.function.Function;
@@ -79,6 +82,12 @@ public class McpServerToolService {
   public static final String                WRITE_APPROVE_SCOPE_AUTHORITY = SCOPE_PATTERN.formatted(TOOL_WRITE_APPROVE_SCOPE);
 
   private static final String               AI_TOOLS_JSON_PATH            = "ai-tool-definitions.json";
+
+  /**
+   * The file an add-on ships beside its {@code ai-tool-definitions.json} to
+   * list, per tool, the digests of the definitions its shipped one replaces.
+   */
+  private static final String               AI_TOOL_UPGRADES_JSON_PATH    = "ai-tool-definition-upgrades.json";
 
   private static final Context              AI_AGENT_CONTEXT              = Context.GLOBAL.id("AI_AGENT");
 
@@ -511,7 +520,10 @@ public class McpServerToolService {
    * its next restart. A tool its file declares with a key this server does not
    * know is left out of the registry, and its saved definition is persisted
    * back unchanged, so the administrator's values return with the tool once
-   * the key is known.
+   * the key is known. A persisted description and input schema are replaced by
+   * the shipped ones only when the add-on lists the persisted text as one it
+   * shipped before, in an {@code ai-tool-definition-upgrades.json} file: an
+   * administrator's edit is kept.
    */
   @SneakyThrows
   private void retrieveToolDefinitions() {
@@ -528,6 +540,7 @@ public class McpServerToolService {
       forceReimport = false;
     }
     Enumeration<URL> toolDefinitionResources = container.getPortalClassLoader().getResources(AI_TOOLS_JSON_PATH);
+    Map<String, Set<String>> replacedDefinitions = readReplacedDefinitions();
     Set<String> leftOutToolNames = new HashSet<>();
     List<SimpleToolDefinition> toolDefinitionList = Collections.list(toolDefinitionResources)
                                                                .stream()
@@ -539,6 +552,9 @@ public class McpServerToolService {
                                                                                                       .findFirst()
                                                                                                       .map(saved -> withShippedAddonFields(saved,
                                                                                                                                            toolDefinition))
+                                                                                                      .map(saved -> withUpgradedText(saved,
+                                                                                                                                     toolDefinition,
+                                                                                                                                     replacedDefinitions))
                                                                                                       .orElse(toolDefinition))
                                                                .toList();
     Set<String> loadedToolNames = toolDefinitionList.stream().map(SimpleToolDefinition::getName).collect(Collectors.toSet());
@@ -578,6 +594,75 @@ public class McpServerToolService {
                                                       SimpleToolDefinition shippedDefinition) {
     savedDefinition.setIcon(shippedDefinition.getIcon());
     savedDefinition.setSpaceScope(shippedDefinition.getSpaceScope());
+    return savedDefinition;
+  }
+
+  /**
+   * Reads every {@code ai-tool-definition-upgrades.json} on the portal
+   * classpath.
+   *
+   * @return by tool name, the digests of the definitions that its shipped
+   *         definition replaces, merged across files
+   * @throws IOException when the classpath can't be listed
+   */
+  private Map<String, Set<String>> readReplacedDefinitions() throws IOException {
+    Map<String, Set<String>> replacedDefinitions = new HashMap<>();
+    Collections.list(container.getPortalClassLoader().getResources(AI_TOOL_UPGRADES_JSON_PATH))
+               .stream()
+               .map(McpToolUtils::parseToolDefinitionUpgrades)
+               .flatMap(Collection::stream)
+               .filter(upgrade -> StringUtils.isNotBlank(upgrade.name()) && upgrade.replacedDefinitions() != null)
+               .forEach(upgrade -> upgrade.replacedDefinitions()
+                                          .stream()
+                                          .filter(StringUtils::isNotBlank)
+                                          .map(digest -> digest.trim().toLowerCase(Locale.ROOT))
+                                          .forEach(digest -> replacedDefinitions.computeIfAbsent(upgrade.name(),
+                                                                                                 name -> new HashSet<>())
+                                                                                .add(digest)));
+    return replacedDefinitions;
+  }
+
+  /**
+   * Gives a persisted definition the shipped description and input schema
+   * when its own text is one that an earlier version of the add-on shipped,
+   * as listed in the add-on's {@code ai-tool-definition-upgrades.json}: nobody
+   * edited it, so the add-on's newer text replaces it. Every other value is
+   * kept: title, approval, disabled flag and annotations. A text listed
+   * nowhere is an administrator's edit, kept, with a WARN naming the tool. A
+   * tool that no upgrade file lists keeps its persisted definition, silently.
+   *
+   * @param savedDefinition     the persisted definition
+   * @param shippedDefinition   the definition read from the add-on's file
+   * @param replacedDefinitions by tool name, the digests of the replaced
+   *                              definitions
+   * @return the persisted definition, with the shipped text when it replaces
+   *         the persisted one
+   */
+  private SimpleToolDefinition withUpgradedText(SimpleToolDefinition savedDefinition,
+                                                SimpleToolDefinition shippedDefinition,
+                                                Map<String, Set<String>> replacedDefinitions) {
+    Set<String> replacedDigests = replacedDefinitions.get(savedDefinition.getName());
+    if (replacedDigests == null) {
+      return savedDefinition;
+    }
+    String savedDigest;
+    try {
+      savedDigest = McpToolUtils.definitionDigest(savedDefinition.getDescription(), savedDefinition.getInputSchema());
+    } catch (IllegalArgumentException e) {
+      savedDigest = null;
+    }
+    if (savedDigest != null
+        && savedDigest.equals(McpToolUtils.definitionDigest(shippedDefinition.getDescription(),
+                                                            shippedDefinition.getInputSchema()))) {
+      return savedDefinition;
+    } else if (savedDigest != null && replacedDigests.contains(savedDigest)) {
+      log.info("The definition of tool '{}' takes the description and input schema its add-on ships", savedDefinition.getName());
+      savedDefinition.setDescription(shippedDefinition.getDescription());
+      savedDefinition.setInputSchema(shippedDefinition.getInputSchema());
+    } else {
+      log.warn("The definition of tool '{}' was edited by an administrator: it is kept, and the description and input schema "
+          + "its add-on ships are not applied", savedDefinition.getName());
+    }
     return savedDefinition;
   }
 
