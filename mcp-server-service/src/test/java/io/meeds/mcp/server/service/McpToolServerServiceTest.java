@@ -499,6 +499,31 @@ class McpToolServerServiceTest {
     assertEquals(OLD_DESCRIPTION, mcpServerToolService.getToolDefinitions().get(ALPHA_TOOL).getDescription());
   }
 
+  /**
+   * A {@code null} entry of an upgrade file is skipped: the registry builds,
+   * which the server's start depends on, and the file's other entries apply.
+   * Mutant: the {@code null} entries kept, which fails the build with a
+   * NullPointerException.
+   *
+   * @param tmp a temporary folder
+   */
+  @Test
+  void getToolDefinitions_skipsANullUpgradeEntry(// NOSONAR
+                                                @TempDir
+                                                Path tmp) {
+    ReflectionTestUtils.setField(mcpServerToolService, FORCE_REIMPORT_PARAM, false);
+    SimpleToolDefinition shippedAlpha = tool(ALPHA_TOOL, NEW_DESCRIPTION, NEW_SCHEMA, false, false);
+    SimpleToolDefinition savedAlpha = tool(ALPHA_TOOL, OLD_DESCRIPTION, TYPE_OBJECT, false, false);
+    String savedBase64 = McpToolUtils.toJsonStringBase64(new ToolDefinitionMethods(List.of(savedAlpha)));
+    when(settingService.get(any(), any(), any())).thenReturn((SettingValue) SettingValue.create(savedBase64));
+    mockContainerResources(writeShippedDefinitions(tmp, shippedAlpha),
+                           writeUpgradesJson(tmp, """
+                               { "tools": [ null, { "name": "alpha_tool", "replaced_definitions": [ "%s" ] } ] }
+                               """.formatted(OLD_DIGEST)));
+
+    assertEquals(NEW_DESCRIPTION, mcpServerToolService.getToolDefinitions().get(ALPHA_TOOL).getDescription());
+  }
+
   @Test
   void isRequireApproval_usesSnakeCaseMethodNameLookup() {// NOSONAR
     SimpleToolDefinition tool = tool("my_tool", "desc", "{}", true, false);
