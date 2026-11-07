@@ -45,10 +45,12 @@ import java.net.URL;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.Arrays;
 import java.util.Collections;
 import java.util.Enumeration;
 import java.util.List;
 import java.util.Map;
+import java.util.stream.Collectors;
 
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
@@ -83,6 +85,7 @@ import io.meeds.mcp.server.model.ToolDefinitionMethods;
 import io.meeds.mcp.server.util.McpToolUtils;
 import io.meeds.social.util.JsonUtils;
 
+import io.modelcontextprotocol.spec.McpSchema.ToolAnnotations;
 import lombok.SneakyThrows;
 
 @ExtendWith(MockitoExtension.class)
@@ -104,6 +107,18 @@ class McpToolServerServiceTest {
   private static final String           BETA_TOOL            = "beta_tool";
 
   private static final String           ALPHA_TOOL           = "alpha_tool";
+
+  private static final String           UPGRADES_FILE        = "ai-tool-definition-upgrades.json";
+
+  private static final String           OLD_DESCRIPTION      = "OldDesc";
+
+  private static final String           NEW_SCHEMA           = "{\"type\":\"object\",\"properties\":{\"q\":{\"type\":\"string\"}}}";
+
+  /**
+   * The digest of {@code {"description":"OldDesc","input_schema":{"type":"object"}}},
+   * computed with {@code jq -jcS '{description, input_schema}' | shasum -a 256}.
+   */
+  private static final String           OLD_DIGEST           = "303dfa54d6812f883bcf81f9f290605acf25df946cd254764ce647052e545b73";
 
   @Mock
   private PortalContainer               container;
@@ -311,6 +326,160 @@ class McpToolServerServiceTest {
     assertEquals(shippedScope, defs.get(ALPHA_TOOL).getSpaceScope());
     assertEquals("SavedDesc", defs.get(ALPHA_TOOL).getDescription());
     assertNull(defs.get(BETA_TOOL).getSpaceScope());
+  }
+
+  /**
+   * A saved definition whose text its add-on lists as shipped before takes
+   * the shipped description and input schema, and keeps every other saved
+   * value: title, approval, disabled flag and annotations. The persisted copy
+   * carries the new text. Mutants: the replacement removed; the membership
+   * check inverted.
+   *
+   * @param tmp a temporary folder
+   */
+  @Test
+  void getToolDefinitions_replacesAnUneditedSavedText_keepsEveryOtherSavedValue(// NOSONAR
+                                                                               @TempDir
+                                                                               Path tmp) {
+    ReflectionTestUtils.setField(mcpServerToolService, FORCE_REIMPORT_PARAM, false);
+    SimpleToolDefinition shippedAlpha = tool(ALPHA_TOOL, NEW_DESCRIPTION, NEW_SCHEMA, false, false);
+    SimpleToolDefinition savedAlpha = tool(ALPHA_TOOL, OLD_DESCRIPTION, TYPE_OBJECT, true, true);
+    savedAlpha.setTitle("Saved title");
+    ToolAnnotations savedAnnotations = new ToolAnnotations("Saved title", false, true, null, null, null);
+    savedAlpha.setAnnotations(savedAnnotations);
+    String savedBase64 = McpToolUtils.toJsonStringBase64(new ToolDefinitionMethods(List.of(savedAlpha)));
+    when(settingService.get(any(), any(), any())).thenReturn((SettingValue) SettingValue.create(savedBase64));
+    mockContainerResources(writeShippedDefinitions(tmp, shippedAlpha),
+                           writeUpgradesJson(tmp, """
+                               { "tools": [ { "name": "alpha_tool", "replaced_definitions": [ "%s" ] } ] }
+                               """.formatted(OLD_DIGEST.toUpperCase())));
+
+    SimpleToolDefinition alpha = mcpServerToolService.getToolDefinitions().get(ALPHA_TOOL);
+
+    assertEquals(NEW_DESCRIPTION, alpha.getDescription());
+    assertEquals(McpToolUtils.definitionDigest(NEW_DESCRIPTION, NEW_SCHEMA),
+                 McpToolUtils.definitionDigest(alpha.getDescription(), alpha.getInputSchema()));
+    assertEquals("Saved title", alpha.getTitle());
+    assertTrue(alpha.isRequireApproval());
+    assertTrue(alpha.isDisabled());
+    assertEquals(savedAnnotations, alpha.getAnnotations());
+
+    ArgumentCaptor<SettingValue<?>> persisted = ArgumentCaptor.forClass(SettingValue.class);
+    verify(settingService).set(any(), any(), any(), persisted.capture());
+    SimpleToolDefinition persistedAlpha = McpToolUtils.fromJsonStringBase64(persisted.getValue().getValue().toString())
+                                                      .tools()
+                                                      .get(0);
+    assertEquals(NEW_DESCRIPTION, persistedAlpha.getDescription());
+    assertTrue(persistedAlpha.getInputSchema().contains("\"q\""));
+    assertTrue(persistedAlpha.isRequireApproval());
+  }
+
+  /**
+   * A saved text its add-on does not list is an administrator's edit: kept,
+   * description and input schema alike, though the add-on ships a new one.
+   * Mutant: the membership check inverted, or the shipped text applied
+   * whatever the saved one.
+   *
+   * @param tmp a temporary folder
+   */
+  @Test
+  void getToolDefinitions_keepsAnAdministratorsEdit(// NOSONAR
+                                                   @TempDir
+                                                   Path tmp) {
+    ReflectionTestUtils.setField(mcpServerToolService, FORCE_REIMPORT_PARAM, false);
+    SimpleToolDefinition shippedAlpha = tool(ALPHA_TOOL, NEW_DESCRIPTION, NEW_SCHEMA, false, false);
+    SimpleToolDefinition savedAlpha = tool(ALPHA_TOOL, "Edited by the administrator", TYPE_OBJECT, false, false);
+    String savedBase64 = McpToolUtils.toJsonStringBase64(new ToolDefinitionMethods(List.of(savedAlpha)));
+    when(settingService.get(any(), any(), any())).thenReturn((SettingValue) SettingValue.create(savedBase64));
+    mockContainerResources(writeShippedDefinitions(tmp, shippedAlpha),
+                           writeUpgradesJson(tmp, """
+                               { "tools": [ { "name": "alpha_tool", "replaced_definitions": [ "%s" ] } ] }
+                               """.formatted(OLD_DIGEST)));
+
+    SimpleToolDefinition alpha = mcpServerToolService.getToolDefinitions().get(ALPHA_TOOL);
+
+    assertEquals("Edited by the administrator", alpha.getDescription());
+    assertEquals(TYPE_OBJECT, alpha.getInputSchema());
+  }
+
+  /**
+   * A digest replaces the text of the tool it is listed for only: another
+   * tool, of another add-on, holding the same text keeps it; so does every
+   * tool when no upgrade file is shipped. Mutant: the digests looked up
+   * across every tool.
+   *
+   * @param tmp a temporary folder
+   */
+  @Test
+  void getToolDefinitions_upgradesOnlyTheToolTheDigestIsListedFor(// NOSONAR
+                                                                 @TempDir
+                                                                 Path tmp) {
+    ReflectionTestUtils.setField(mcpServerToolService, FORCE_REIMPORT_PARAM, false);
+    SimpleToolDefinition shippedBeta = tool(BETA_TOOL, NEW_DESCRIPTION, NEW_SCHEMA, false, false);
+    SimpleToolDefinition savedBeta = tool(BETA_TOOL, OLD_DESCRIPTION, TYPE_OBJECT, false, false);
+    String savedBase64 = McpToolUtils.toJsonStringBase64(new ToolDefinitionMethods(List.of(savedBeta)));
+    when(settingService.get(any(), any(), any())).thenReturn((SettingValue) SettingValue.create(savedBase64));
+    mockContainerResources(writeShippedDefinitions(tmp, shippedBeta),
+                           writeUpgradesJson(tmp, """
+                               { "tools": [ { "name": "alpha_tool", "replaced_definitions": [ "%s" ] } ] }
+                               """.formatted(OLD_DIGEST)));
+
+    SimpleToolDefinition beta = mcpServerToolService.getToolDefinitions().get(BETA_TOOL);
+
+    assertEquals(OLD_DESCRIPTION, beta.getDescription());
+    assertEquals(TYPE_OBJECT, beta.getInputSchema());
+  }
+
+  /**
+   * A saved text equal to the shipped one, whatever its layout, is left as it
+   * is; a saved schema that is not JSON is kept as an administrator's edit
+   * and does not fail the registry build; a broken upgrade file is ignored.
+   *
+   * @param tmp a temporary folder
+   */
+  @Test
+  void getToolDefinitions_keepsAnEqualOrUnreadableSavedText(// NOSONAR
+                                                           @TempDir
+                                                           Path tmp) {
+    ReflectionTestUtils.setField(mcpServerToolService, FORCE_REIMPORT_PARAM, false);
+    SimpleToolDefinition shippedAlpha = tool(ALPHA_TOOL, NEW_DESCRIPTION, NEW_SCHEMA, false, false);
+    SimpleToolDefinition shippedBeta = tool(BETA_TOOL, NEW_DESCRIPTION, NEW_SCHEMA, false, false);
+    String sameSchemaOtherLayout = "{ \"properties\": {\"q\": {\"type\": \"string\"}}, \"type\": \"object\" }";
+    SimpleToolDefinition savedAlpha = tool(ALPHA_TOOL, NEW_DESCRIPTION, sameSchemaOtherLayout, false, false);
+    SimpleToolDefinition savedBeta = tool(BETA_TOOL, OLD_DESCRIPTION, "{not json", false, false);
+    String savedBase64 = McpToolUtils.toJsonStringBase64(new ToolDefinitionMethods(List.of(savedAlpha, savedBeta)));
+    when(settingService.get(any(), any(), any())).thenReturn((SettingValue) SettingValue.create(savedBase64));
+    mockContainerResources(writeShippedDefinitions(tmp, shippedAlpha, shippedBeta),
+                           writeUpgradesJson(tmp, """
+                               { "tools": [ { "name": "alpha_tool", "replaced_definitions": [ "%1$s" ] },
+                                            { "name": "beta_tool", "replaced_definitions": [ "%1$s" ] } ] }
+                               """.formatted(OLD_DIGEST)));
+
+    Map<String, SimpleToolDefinition> defs = mcpServerToolService.getToolDefinitions();
+
+    assertEquals(sameSchemaOtherLayout, defs.get(ALPHA_TOOL).getInputSchema());
+    assertEquals(OLD_DESCRIPTION, defs.get(BETA_TOOL).getDescription());
+    assertEquals("{not json", defs.get(BETA_TOOL).getInputSchema());
+  }
+
+  /**
+   * An upgrade file that can't be parsed is ignored: the registry builds, and
+   * the saved definitions are kept.
+   *
+   * @param tmp a temporary folder
+   */
+  @Test
+  void getToolDefinitions_ignoresABrokenUpgradeFile(// NOSONAR
+                                                   @TempDir
+                                                   Path tmp) {
+    ReflectionTestUtils.setField(mcpServerToolService, FORCE_REIMPORT_PARAM, false);
+    SimpleToolDefinition shippedAlpha = tool(ALPHA_TOOL, NEW_DESCRIPTION, NEW_SCHEMA, false, false);
+    SimpleToolDefinition savedAlpha = tool(ALPHA_TOOL, OLD_DESCRIPTION, TYPE_OBJECT, false, false);
+    String savedBase64 = McpToolUtils.toJsonStringBase64(new ToolDefinitionMethods(List.of(savedAlpha)));
+    when(settingService.get(any(), any(), any())).thenReturn((SettingValue) SettingValue.create(savedBase64));
+    mockContainerResources(writeShippedDefinitions(tmp, shippedAlpha), writeUpgradesJson(tmp, "{ \"tools\": ["));
+
+    assertEquals(OLD_DESCRIPTION, mcpServerToolService.getToolDefinitions().get(ALPHA_TOOL).getDescription());
   }
 
   @Test
@@ -643,11 +812,50 @@ class McpToolServerServiceTest {
 
   @SneakyThrows
   private void mockContainerResources(URL url) {
+    mockContainerResources(url, null);
+  }
+
+  /**
+   * @param url         the {@code ai-tool-definitions.json} the classpath holds
+   * @param upgradesUrl the {@code ai-tool-definition-upgrades.json} it holds,
+   *                      or null for none
+   */
+  @SneakyThrows
+  private void mockContainerResources(URL url, URL upgradesUrl) {
     ClassLoader cl = mock(ClassLoader.class);
     Enumeration<URL> enumeration = Collections.enumeration(List.of(url));
 
-    when(container.getPortalClassLoader()).thenReturn(cl);
+    lenient().when(container.getPortalClassLoader()).thenReturn(cl);
     when(cl.getResources("ai-tool-definitions.json")).thenReturn(enumeration);
+    lenient().when(cl.getResources(UPGRADES_FILE))
+             .thenReturn(Collections.enumeration(upgradesUrl == null ? List.of() : List.of(upgradesUrl)));
+  }
+
+  /**
+   * Writes an {@code ai-tool-definitions.json} as an add-on ships it, each
+   * input schema a JSON object, not a string.
+   *
+   * @param tmp   a temporary folder
+   * @param tools the tools, with plain ASCII descriptions
+   * @return the file's URL
+   */
+  @SneakyThrows
+  private URL writeShippedDefinitions(Path tmp, SimpleToolDefinition... tools) {
+    String entries = Arrays.stream(tools)
+                                     .map(t -> "{\"name\":\"%s\",\"description\":\"%s\",\"input_schema\":%s}".formatted(t.getName(),
+                                                                                                                     t.getDescription(),
+                                                                                                                     t.getInputSchema()))
+                                     .collect(Collectors.joining(","));
+    Path file = tmp.resolve("ai-tool-definitions.json");
+    Files.writeString(file, "{\"tools\":[" + entries + "]}", StandardCharsets.UTF_8);
+    return file.toUri().toURL();
+  }
+
+  @SneakyThrows
+  private URL writeUpgradesJson(Path tmp, String json) {
+    Path file = tmp.resolve(UPGRADES_FILE);
+    Files.writeString(file, json, StandardCharsets.UTF_8);
+    return file.toUri().toURL();
   }
 
   @SneakyThrows
