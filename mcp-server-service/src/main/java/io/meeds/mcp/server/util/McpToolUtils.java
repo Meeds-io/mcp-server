@@ -35,6 +35,7 @@ import java.util.HexFormat;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.Objects;
 import java.util.TimeZone;
 import java.util.UUID;
 
@@ -408,16 +409,18 @@ public class McpToolUtils {
    * Parses one {@code ai-tool-definition-upgrades.json} resource. A file that
    * cannot be read or parsed is ignored with a WARN, so a broken upgrade list
    * never keeps the server from starting: the saved definitions are then kept,
-   * as on a server that does not read these files.
+   * as on a server that does not read these files. A {@code null} entry of
+   * its {@code tools} list is skipped.
    *
    * @param url the resource to read
-   * @return the upgrade entries it declares, empty when it cannot be read or
-   *         declares none
+   * @return the upgrade entries it declares, never null, empty when it cannot
+   *         be read or declares none
    */
   public static List<ToolDefinitionUpgrade> parseToolDefinitionUpgrades(URL url) {
     try (InputStream inputStream = url.openStream()) {
       ToolDefinitionUpgrades upgrades = CHAIN_MAPPER.readValue(inputStream, ToolDefinitionUpgrades.class);
-      return upgrades == null || upgrades.tools() == null ? Collections.emptyList() : upgrades.tools();
+      return upgrades == null || upgrades.tools() == null ? Collections.emptyList() :
+                                                          upgrades.tools().stream().filter(Objects::nonNull).toList();
     } catch (IOException | JacksonException e) {
       log.warn("The tool definition upgrades of {} are ignored: the file can't be read ({})", url, e.getMessage());
       log.debug("Tool definition upgrades read failure", e);
@@ -434,9 +437,11 @@ public class McpToolUtils {
    * and the order of keys in the add-on's file therefore don't change it. It
    * is the digest of what {@code jq -jcS '{description, input_schema}'} prints
    * for the tool's entry of an {@code ai-tool-definitions.json} file, for
-   * schemas made of strings, integers, booleans, nulls, arrays and objects; a
-   * decimal number or a control character other than {@code \b \f \n \r \t}
-   * may be written differently by the two.
+   * schemas made of strings, integers, booleans, nulls, arrays and objects;
+   * any number other than an integer (a decimal, an exponent), a control
+   * character other than {@code \b \f \n \r \t}, or U+007F may be written
+   * differently by the two. A digest that does not match leaves the saved
+   * definition as it is.
    *
    * @param description the tool's description, may be null
    * @param inputSchema the tool's input schema as a JSON string, may be null
