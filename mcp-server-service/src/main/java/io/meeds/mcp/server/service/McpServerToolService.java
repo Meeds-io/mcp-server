@@ -547,8 +547,8 @@ public class McpServerToolService {
                                                                .map(url -> McpToolUtils.parseToolDefinitions(url, leftOutToolNames))
                                                                .flatMap(Collection::stream)
                                                                .map(toolDefinition -> savedDefinitions.stream()
-                                                                                                      .filter(t -> t.getName()
-                                                                                                                    .equals(toolDefinition.getName()))
+                                                                                                      .filter(t -> toolDefinition.getName()
+                                                                                                                    .equals(t.getName()))
                                                                                                       .findFirst()
                                                                                                       .map(saved -> withShippedAddonFields(saved,
                                                                                                                                            toolDefinition))
