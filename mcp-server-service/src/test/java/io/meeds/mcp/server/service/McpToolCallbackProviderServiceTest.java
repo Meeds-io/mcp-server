@@ -872,7 +872,8 @@ class McpToolCallbackProviderServiceTest {
   @Test
   void call_agentGatedToolWithGrant_precheckRefusesBeforeTheGrant() {// NOSONAR
     bindAgentAccount();
-    when(mcpServerToolService.isRequireApproval(eq(TOOL_METHOD), any())).thenReturn(false);
+    // the agent path's setup, which a refused call never reads
+    lenient().when(mcpServerToolService.isRequireApproval(eq(TOOL_METHOD), any())).thenReturn(false);
     lenient().when(mcpServerToolService.isApprovalGatedTool(TOOL_METHOD)).thenReturn(true);
     MockHttpServletRequest request = new MockHttpServletRequest();
     request.addHeader(TOOL_CONTEXT_ID_PARAM, TOOL_CONTEXT_ID);
