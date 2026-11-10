@@ -41,7 +41,8 @@ import java.util.Map;
  * A precheck throws only refusals it wrote for the model: any other failure,
  * a storage or engine {@link IllegalArgumentException} included, is mapped to
  * a fixed text of its own, or let out as another exception, which refuses the
- * call with the generic message. An engine's text never reaches the model.
+ * call with the generic message. The server passes an
+ * {@link IllegalArgumentException}'s message to the model as it is.
  * <p>
  * A contributor is a dedicated Spring {@code @Service} with an explicit,
  * unique bean name, non-final (the Kernel/Spring bridge exports it to the MCP
