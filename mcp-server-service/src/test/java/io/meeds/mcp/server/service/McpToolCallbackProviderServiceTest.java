@@ -43,7 +43,9 @@ import static org.mockito.ArgumentMatchers.anyBoolean;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.ArgumentMatchers.isNull;
+import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.lenient;
+import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
@@ -99,6 +101,7 @@ import io.meeds.mcp.server.model.SimpleToolDefinition;
 import io.meeds.mcp.server.model.UserToolExecution;
 import io.meeds.mcp.server.model.UserToolRefusedException;
 import io.meeds.mcp.server.model.UserToolDeniedException;
+import io.meeds.mcp.server.plugin.McpToolCallPrecheck;
 import io.meeds.mcp.server.plugin.McpToolPlugin;
 import io.meeds.mcp.server.plugin.SpaceScopeResolver;
 
@@ -140,6 +143,9 @@ class McpToolCallbackProviderServiceTest {
   @Mock
   private ObjectProvider<SpaceScopeResolver> spaceScopeResolvers;
 
+  @Mock
+  private ObjectProvider<McpToolCallPrecheck> prechecks;
+
   private McpToolCallbackProviderService service;
 
   private ToolCallback                  toolCallback;
@@ -159,8 +165,10 @@ class McpToolCallbackProviderServiceTest {
                                                  userAcl,
                                                  List.of(new GreetingToolPlugin()),
                                                  mcpToolGrantService,
-                                                 new McpToolSpaceScopeService(spaceScopeResolvers));
+                                                 new McpToolSpaceScopeService(spaceScopeResolvers),
+                                                 new McpToolPrecheckService(prechecks));
     lenient().when(spaceScopeResolvers.orderedStream()).thenAnswer(invocation -> Stream.empty());
+    lenient().when(prechecks.orderedStream()).thenAnswer(invocation -> Stream.empty());
     toolCallback = service.getToolCallbacks()[0];
 
     // The internal call is a bearer token OWNED by the internal client: the
@@ -247,6 +255,67 @@ class McpToolCallbackProviderServiceTest {
   }
 
   /**
+   * A call its add-on's precheck refuses shows no card and doesn't run: the
+   * model reads the precheck's own message, and the call is traced as the
+   * tool's refusal, never as an approval request (EXO-93796).
+   */
+  @Test
+  void call_precheckRefusal_showsNoCardAndDoesNotRun() {// NOSONAR
+    bindRequest(TOOL_CONTEXT_ID, CONVERSATION_ID);
+    McpToolCallPrecheck precheck = mock(McpToolCallPrecheck.class);
+    when(precheck.supports(TOOL_METHOD)).thenReturn(true);
+    doThrow(new IllegalArgumentException("forms.plan.mismatch: preview it first")).when(precheck)
+                                                                                 .check(eq(TOOL_METHOD), any(), eq(USERNAME));
+    when(prechecks.orderedStream()).thenAnswer(invocation -> Stream.of(precheck));
+
+    IllegalArgumentException e = assertThrows(IllegalArgumentException.class, () -> toolCallback.call(TOOL_INPUT));
+
+    assertEquals("forms.plan.mismatch: preview it first", e.getMessage());
+    verify(mcpToolApprovalService, never()).requestApproval(any(), any(), any(), any(), any(), any(), any(), anyBoolean(), any());
+    verify(mcpToolApprovalService, never()).traceToolExecution(argThatIs(UserToolRequestType.APPROVAL_REQUEST));
+    verify(mcpToolApprovalService, never()).traceToolExecution(argThatIs(UserToolRequestType.TOOL_EXECUTION_START));
+    verify(mcpToolApprovalService).traceToolExecution(argThatIs(UserToolRequestType.TOOL_EXECUTION_ERROR));
+  }
+
+  /**
+   * A call its precheck lets through is asked for approval as before, and the
+   * precheck reads the arguments as the tool method receives them.
+   */
+  @Test
+  void call_precheckPassing_stillAsksApproval() {// NOSONAR
+    bindRequest(TOOL_CONTEXT_ID, CONVERSATION_ID);
+    McpToolCallPrecheck precheck = mock(McpToolCallPrecheck.class);
+    when(precheck.supports(TOOL_METHOD)).thenReturn(true);
+    when(prechecks.orderedStream()).thenAnswer(invocation -> Stream.of(precheck));
+    when(mcpToolApprovalService.requestApproval(any(), any(), any(), any(), any(), any(), any(), anyBoolean(), any())).thenReturn(true);
+
+    String output = toolCallback.call(TOOL_INPUT);
+
+    assertTrue(output.contains("Hello Bob"), output);
+    verify(precheck).check(TOOL_METHOD, Map.of("name", "Bob"), USERNAME);
+    verify(mcpToolApprovalService).requestApproval(any(), any(), any(), any(), any(), any(), any(), anyBoolean(), any());
+  }
+
+  /**
+   * A precheck that fails refuses the call rather than letting it reach its
+   * card.
+   */
+  @Test
+  void call_precheckFailure_refusesTheCall() {// NOSONAR
+    bindRequest(TOOL_CONTEXT_ID, CONVERSATION_ID);
+    McpToolCallPrecheck precheck = mock(McpToolCallPrecheck.class);
+    when(precheck.supports(TOOL_METHOD)).thenReturn(true);
+    doThrow(new IllegalStateException("database down")).when(precheck).check(any(), any(), any());
+    when(prechecks.orderedStream()).thenAnswer(invocation -> Stream.of(precheck));
+
+    IllegalArgumentException e = assertThrows(IllegalArgumentException.class, () -> toolCallback.call(TOOL_INPUT));
+
+    assertTrue(e.getMessage().contains("could not be checked"), e.getMessage());
+    assertFalse(e.getMessage().contains("database down"), e.getMessage());
+    verify(mcpToolApprovalService, never()).requestApproval(any(), any(), any(), any(), any(), any(), any(), anyBoolean(), any());
+  }
+
+  /**
    * A standing approval covering the call lets it run without a card: the run
    * is traced as granted with the grant id and owner type, and its use is
    * recorded.
@@ -320,7 +389,8 @@ class McpToolCallbackProviderServiceTest {
                                                                      userAcl,
                                                                      List.of(new UploadToolPlugin()),
                                                                      mcpToolGrantService,
-                                                                     new McpToolSpaceScopeService(spaceScopeResolvers)).getToolCallbacks()[0];
+                                                                     new McpToolSpaceScopeService(spaceScopeResolvers),
+                                                                     new McpToolPrecheckService(prechecks)).getToolCallbacks()[0];
     bindRequest(TOOL_CONTEXT_ID, CONVERSATION_ID);
     when(mcpToolApprovalService.requestApproval(any(), any(), any(), any(), any(), any(), any(), anyBoolean(), any())).thenReturn(true);
 
@@ -953,7 +1023,8 @@ class McpToolCallbackProviderServiceTest {
                                               userAcl,
                                               List.of(plugin),
                                               mcpToolGrantService,
-                                              new McpToolSpaceScopeService(spaceScopeResolvers)).getToolCallbacks()[0];
+                                              new McpToolSpaceScopeService(spaceScopeResolvers),
+                                              new McpToolPrecheckService(prechecks)).getToolCallbacks()[0];
   }
 
   /**
