@@ -23,8 +23,9 @@ import java.util.Map;
 /**
  * Checks a call of one add-on's tools before the server asks the user to
  * approve it, so that a call the tool would refuse anyway never shows an
- * approval card. It runs for every call of a tool it supports, before the
- * standing approvals and the card, whatever the caller's scopes.
+ * approval card. It runs for every call of a tool it supports once the call
+ * passed the scope and space scope checks, before the standing approvals and
+ * the card, whether or not the caller can be shown a card.
  * <p>
  * A precheck only refuses: it never lets a call skip its card or a grant, and
  * it never replaces the tool's own checks, which still run when the call is
