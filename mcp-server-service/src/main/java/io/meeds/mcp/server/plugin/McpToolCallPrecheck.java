@@ -24,8 +24,8 @@ import java.util.Map;
  * Checks a call of one add-on's tools before the server asks the user to
  * approve it, so that a call the tool would refuse anyway never shows an
  * approval card. It runs for every call of a tool it supports once the call
- * passed the scope and space scope checks, before the standing approvals and
- * the card, whether or not the caller can be shown a card.
+ * passed the scope, space scope and "always ask" checks, before the standing
+ * approvals and the card.
  * <p>
  * A precheck only refuses: it never lets a call skip its card or a grant, and
  * it never replaces the tool's own checks, which still run when the call is
@@ -37,6 +37,11 @@ import java.util.Map;
  * The arguments arrive exactly as the tool method receives them (camel-case
  * keys, values as parsed from the call input); a key may map to {@code null},
  * which reads as an omitted argument.
+ * <p>
+ * A precheck throws only refusals it wrote for the model: any other failure,
+ * a storage or engine {@link IllegalArgumentException} included, is mapped to
+ * a fixed text of its own, or let out as another exception, which refuses the
+ * call with the generic message. An engine's text never reaches the model.
  * <p>
  * A contributor is a dedicated Spring {@code @Service} with an explicit,
  * unique bean name, non-final (the Kernel/Spring bridge exports it to the MCP
