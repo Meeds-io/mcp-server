@@ -431,6 +431,7 @@ class McpServerUtilsTest {
                                                                                null,
                                                                                null,
                                                                                null,
+                                                                               null,
                                                                                methodToolCallback));
     doReturn(toolDefinition).when(toolCallback).getToolDefinition();
     doReturn(result).when(toolCallback).call(anyString(), any(ToolContext.class));

@@ -36,6 +36,7 @@ import io.meeds.mcp.server.service.McpServerToolService;
 import io.meeds.mcp.server.service.McpToolApprovalService;
 import io.meeds.mcp.server.service.McpToolCallbackProviderService;
 import io.meeds.mcp.server.service.McpToolGrantService;
+import io.meeds.mcp.server.service.McpToolPrecheckService;
 import io.meeds.mcp.server.service.McpToolSpaceScopeService;
 
 import lombok.extern.slf4j.Slf4j;
@@ -51,7 +52,8 @@ public class McpServerToolCallbackConfiguration {
 
   /**
    * Builds the provider turning every {@code McpToolPlugin} method into a tool
-   * callback guarded by the scope check, the space scope check, the standing
+   * callback guarded by the scope check, the space scope check, the add-ons'
+   * prechecks, the standing
    * approvals and the approval cards.
    *
    * @param applicationContext     the context, to reach the MCP server bean
@@ -59,6 +61,7 @@ public class McpServerToolCallbackConfiguration {
    * @param mcpToolApprovalService the approval cards
    * @param mcpToolGrantService    the standing approvals
    * @param mcpToolSpaceScopeService the space scope check
+   * @param mcpToolPrecheckService the add-ons' checks before an approval
    * @param userAcl                the platform ACL
    * @param tools                  the contributed tool plugins
    * @return the provider
@@ -69,6 +72,7 @@ public class McpServerToolCallbackConfiguration {
                                                       McpToolApprovalService mcpToolApprovalService,
                                                       McpToolGrantService mcpToolGrantService,
                                                       McpToolSpaceScopeService mcpToolSpaceScopeService,
+                                                      McpToolPrecheckService mcpToolPrecheckService,
                                                       UserACL userAcl,
                                                       List<McpToolPlugin> tools) {
     McpToolCallbackProviderService toolCallbackProvider = new McpToolCallbackProviderService(applicationContext,
@@ -77,7 +81,8 @@ public class McpServerToolCallbackConfiguration {
                                                                                              userAcl,
                                                                                              tools,
                                                                                              mcpToolGrantService,
-                                                                                             mcpToolSpaceScopeService);
+                                                                                             mcpToolSpaceScopeService,
+                                                                                             mcpToolPrecheckService);
     mcpServerToolService.addToolUpdateListener(toolCallbackProvider::updateToolDefinition);
     return toolCallbackProvider;
   }
