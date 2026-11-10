@@ -76,6 +76,7 @@ import io.meeds.mcp.server.model.ActingIdentity;
 import io.meeds.mcp.server.model.McpToolGrant;
 import io.meeds.mcp.server.model.McpToolGrantConstraint;
 import io.meeds.mcp.server.model.McpToolGrantRequest;
+import io.meeds.mcp.server.model.McpToolPrecheckRefusedException;
 import io.meeds.mcp.server.model.SpaceScopeRefusedException;
 import io.meeds.mcp.server.model.UserToolDeniedException;
 import io.meeds.mcp.server.model.UserToolExecution;
@@ -111,6 +112,8 @@ public class McpToolCallbackProviderService implements ToolCallbackProvider {
   private McpToolGrantService     mcpToolGrantService;
 
   private McpToolSpaceScopeService mcpToolSpaceScopeService;
+
+  private McpToolPrecheckService  mcpToolPrecheckService;
 
   @Override
   public ToolCallback[] getToolCallbacks() {
@@ -186,6 +189,7 @@ public class McpToolCallbackProviderService implements ToolCallbackProvider {
                                            mcpToolApprovalService,
                                            mcpToolGrantService,
                                            mcpToolSpaceScopeService,
+                                           mcpToolPrecheckService,
                                            userAcl,
                                            toolCallback);
     }
@@ -226,6 +230,8 @@ public class McpToolCallbackProviderService implements ToolCallbackProvider {
 
     private final McpToolSpaceScopeService mcpToolSpaceScopeService;
 
+    private final McpToolPrecheckService mcpToolPrecheckService;
+
     private final UserACL                userAcl;
 
     private final MethodToolCallback     toolCallback;
@@ -241,6 +247,9 @@ public class McpToolCallbackProviderService implements ToolCallbackProvider {
      *                                 grant ever applies)
      * @param mcpToolSpaceScopeService the space scope check, may be null (every
      *                                  call limited to a space is then refused)
+     * @param mcpToolPrecheckService the add-ons' checks before an approval, may
+     *                                 be null (no call is checked before its
+     *                                 card)
      * @param userAcl                the platform ACL
      * @param toolCallback           the wrapped tool method
      */
@@ -249,12 +258,14 @@ public class McpToolCallbackProviderService implements ToolCallbackProvider {
                                      McpToolApprovalService mcpToolApprovalService,
                                      McpToolGrantService mcpToolGrantService,
                                      McpToolSpaceScopeService mcpToolSpaceScopeService,
+                                     McpToolPrecheckService mcpToolPrecheckService,
                                      UserACL userAcl,
                                      MethodToolCallback toolCallback) {
       this.mcpServerToolService = mcpServerToolService;
       this.mcpToolApprovalService = mcpToolApprovalService;
       this.mcpToolGrantService = mcpToolGrantService;
       this.mcpToolSpaceScopeService = mcpToolSpaceScopeService;
+      this.mcpToolPrecheckService = mcpToolPrecheckService;
       this.userAcl = userAcl;
       this.toolCallback = toolCallback;
       this.toolObject = getMethodToolFieldValue(toolCallback, "toolObject");
@@ -268,8 +279,9 @@ public class McpToolCallbackProviderService implements ToolCallbackProvider {
         String username = getCurrentUserName();
         Identity userIdentity = userAcl.getUserIdentity(username);
         return call(toolInput, toolContext, userIdentity);
-      } catch (SpaceScopeRefusedException e) {
-        // a call outside the run's space is an expected refusal, not an incident
+      } catch (SpaceScopeRefusedException | McpToolPrecheckRefusedException e) {
+        // a call outside the run's space, or one its tool refuses before its
+        // approval, is an expected refusal, not an incident
         throw e;
       } catch (UserToolDeniedException | UserToolTimeoutException e) {
         // the user's own answer, or no answer, to an approval card: not an incident
@@ -299,8 +311,8 @@ public class McpToolCallbackProviderService implements ToolCallbackProvider {
     /**
      * Runs one tool call as the user: the acting identity check, the scope
      * check, the space scope check of a call limited to one space (which may
-     * fill the space argument the tool then runs with), then for an
-     * approval-gated or "always ask" tool the standing
+     * fill the space argument the tool then runs with), the add-ons' prechecks
+     * of the call, then for an approval-gated or "always ask" tool the standing
      * approval or the card, then the tool itself, each step traced to the
      * user's chat with who acted, for whom and through which agents.
      * <p>
@@ -345,6 +357,7 @@ public class McpToolCallbackProviderService implements ToolCallbackProvider {
           // hold) is refused rather than run unasked
           throw new IllegalAccessException(LLM_ALWAYS_ASK_EXPLANATION.formatted(toolMethod.getName()));
         }
+        precheck(toolName, toolInput, userIdentity.getUserId());
         McpToolGrantRequest grantRequest = new McpToolGrantRequest(id,
                                                                    userIdentity.getUserId(),
                                                                    toolName,
@@ -388,6 +401,15 @@ public class McpToolCallbackProviderService implements ToolCallbackProvider {
                                                                   .completed(true)
                                                                   .build());
         throw e;
+      } catch (McpToolPrecheckRefusedException e) {
+        // refused before its card, as the tool itself would refuse it: traced
+        // as the tool's refusal, logged as an expected one
+        mcpToolApprovalService.traceToolExecution(executionBuilder.toolExecutionType(UserToolRequestType.TOOL_EXECUTION_ERROR)
+                                                                  .toolOutput("Error: %s".formatted(e.getMessage()))
+                                                                  .completed(true)
+                                                                  .build());
+        log.debug("Tool '{}#{}' refused before its approval", toolObject.getClass().getName(), toolMethod.getName(), e);
+        throw e;
       } catch (UserToolDeniedException | UserToolRefusedException e) {
         mcpToolApprovalService.traceToolExecution(executionBuilder.toolExecutionType(UserToolRequestType.TOOL_EXECUTION_DENIED)
                                                                   .completed(true)
@@ -425,6 +447,21 @@ public class McpToolCallbackProviderService implements ToolCallbackProvider {
         }
       } finally {
         ConversationState.setCurrent(null);
+      }
+    }
+
+    /**
+     * Runs the add-ons' prechecks of the call before its approval, on the
+     * arguments as the tool method will receive them.
+     *
+     * @param toolName  the MCP tool name
+     * @param toolInput the call input
+     * @param username  the user the call runs as
+     * @throws McpToolPrecheckRefusedException when a precheck refuses the call
+     */
+    private void precheck(String toolName, String toolInput, String username) {
+      if (mcpToolPrecheckService != null) {
+        mcpToolPrecheckService.check(toolName, grantArguments(toolInput), username);
       }
     }
 
@@ -608,7 +645,7 @@ public class McpToolCallbackProviderService implements ToolCallbackProvider {
 
     /**
      * Reads the call arguments the way the tool method will receive them, for
-     * the argument limits of standing approvals.
+     * the argument limits of standing approvals and the prechecks.
      *
      * @param toolInput the call input
      * @return the arguments with camel-case keys, or null when the input isn't
