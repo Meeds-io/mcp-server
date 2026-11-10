@@ -338,6 +338,28 @@ class McpToolCallbackProviderServiceTest {
   }
 
   /**
+   * A call a standing approval would cover is still prechecked first: a
+   * refusing precheck stops it before any grant is looked up or used, and the
+   * tool never starts (EXO-93796). Mutant: the precheck moved into the card
+   * branch, after the grant lookup, which ran the call under the grant.
+   */
+  @Test
+  void call_coveredByGrant_precheckRefusesBeforeTheGrant() {// NOSONAR
+    bindRequest(TOOL_CONTEXT_ID, CONVERSATION_ID);
+    McpToolGrant grant = McpToolGrant.builder().id(7L).ownerType(McpToolGrantOwnerType.PLATFORM).build();
+    lenient().when(mcpToolGrantService.findApplicableGrant(any(), any())).thenReturn(grant);
+    refusingPrecheck();
+
+    IllegalArgumentException e = assertThrows(IllegalArgumentException.class, () -> toolCallback.call(TOOL_INPUT));
+
+    assertEquals("forms.plan.mismatch", e.getMessage());
+    verify(mcpToolGrantService, never()).findApplicableGrant(any(), any());
+    verify(mcpToolGrantService, never()).recordUse(any(), any());
+    verify(mcpToolApprovalService, never()).traceToolExecution(argThatIs(UserToolRequestType.TOOL_EXECUTION_GRANTED));
+    verify(mcpToolApprovalService, never()).traceToolExecution(argThatIs(UserToolRequestType.TOOL_EXECUTION_START));
+  }
+
+  /**
    * The grant decision gets the call as the server resolved it: user, snake
    * case tool name, trusted agent and conversation headers, the client, the
    * retry flag, and the arguments as the tool receives them.
@@ -842,6 +864,33 @@ class McpToolCallbackProviderServiceTest {
   }
 
   /**
+   * An agent account's write that its own grant would cover is prechecked
+   * first too: a refusing precheck stops it before the agent's grant is looked
+   * up, and the tool never starts (EXO-93796). Mutant: the precheck only on
+   * the approval branch, which ran the agent's write under its grant.
+   */
+  @Test
+  void call_agentGatedToolWithGrant_precheckRefusesBeforeTheGrant() {// NOSONAR
+    bindAgentAccount();
+    when(mcpServerToolService.isRequireApproval(eq(TOOL_METHOD), any())).thenReturn(false);
+    lenient().when(mcpServerToolService.isApprovalGatedTool(TOOL_METHOD)).thenReturn(true);
+    MockHttpServletRequest request = new MockHttpServletRequest();
+    request.addHeader(TOOL_CONTEXT_ID_PARAM, TOOL_CONTEXT_ID);
+    RequestContextHolder.setRequestAttributes(new ServletRequestAttributes(request));
+    addAgentAccountHeaders(request);
+    McpToolGrant grant = McpToolGrant.builder().id(9L).ownerType(McpToolGrantOwnerType.USER).build();
+    lenient().when(mcpToolGrantService.findApplicableGrant(any(), any())).thenReturn(grant);
+    refusingPrecheck();
+
+    IllegalArgumentException e = assertThrows(IllegalArgumentException.class, () -> toolCallback.call(TOOL_INPUT));
+
+    assertEquals("forms.plan.mismatch", e.getMessage());
+    verify(mcpToolGrantService, never()).findApplicableGrant(any(), any());
+    verify(mcpToolGrantService, never()).recordUse(any(), any());
+    verify(mcpToolApprovalService, never()).traceToolExecution(argThatIs(UserToolRequestType.TOOL_EXECUTION_START));
+  }
+
+  /**
    * An agent account's call to a tool that asks for no approval, an ungated
    * write such as setting a category, runs as a person's would: no grant is
    * looked up. Mutant: every agent call gated.
@@ -1185,6 +1234,17 @@ class McpToolCallbackProviderServiceTest {
     verify(mcpToolApprovalService).traceToolExecution(argThatIs(UserToolRequestType.TOOL_EXECUTION_OUT_OF_SCOPE));
     verify(mcpToolApprovalService, never()).traceToolExecution(argThatIs(UserToolRequestType.TOOL_EXECUTION_START));
     verify(mcpToolApprovalService, never()).traceToolExecution(argThatIs(UserToolRequestType.TOOL_EXECUTION_GRANTED));
+  }
+
+  /**
+   * Installs a precheck that refuses every call of the test tool with
+   * {@code forms.plan.mismatch}.
+   */
+  private void refusingPrecheck() {
+    McpToolCallPrecheck precheck = mock(McpToolCallPrecheck.class);
+    when(precheck.supports(TOOL_METHOD)).thenReturn(true);
+    doThrow(new IllegalArgumentException("forms.plan.mismatch")).when(precheck).check(eq(TOOL_METHOD), any(), any());
+    when(prechecks.orderedStream()).thenAnswer(invocation -> Stream.of(precheck));
   }
 
   /**
