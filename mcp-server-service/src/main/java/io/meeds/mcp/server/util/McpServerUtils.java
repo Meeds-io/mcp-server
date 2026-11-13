@@ -20,14 +20,17 @@ package io.meeds.mcp.server.util;
 
 import static org.springframework.ai.mcp.McpToolUtils.TOOL_CONTEXT_MCP_EXCHANGE_KEY;
 
+import java.lang.reflect.AnnotatedElement;
 import java.lang.reflect.Field;
 import java.lang.reflect.GenericArrayType;
 import java.lang.reflect.Method;
+import java.lang.reflect.Modifier;
 import java.lang.reflect.ParameterizedType;
 import java.lang.reflect.Type;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collection;
+import java.util.Iterator;
 import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
@@ -37,7 +40,9 @@ import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.function.BiFunction;
+import java.util.stream.BaseStream;
 import java.util.stream.Collectors;
+import java.util.stream.Stream;
 
 import org.apache.commons.collections4.CollectionUtils;
 import org.apache.commons.lang3.StringUtils;
@@ -45,14 +50,17 @@ import org.springframework.ai.chat.model.ToolContext;
 import org.springframework.ai.tool.ToolCallback;
 import org.springframework.ai.tool.ToolCallbackProvider;
 import org.springframework.ai.tool.definition.ToolDefinition;
+import org.springframework.ai.util.JacksonUtils;
 import org.springframework.ai.util.JsonHelper;
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.core.ParameterizedTypeReference;
 import org.springframework.util.ClassUtils;
 import org.springframework.util.MimeType;
 
+import com.fasterxml.jackson.annotation.JsonAnyGetter;
 import com.fasterxml.jackson.annotation.JsonProperty;
 
+import io.meeds.mcp.server.model.ListItemKeys;
 import io.meeds.mcp.server.model.SimpleToolDefinition;
 
 import io.modelcontextprotocol.server.McpServerFeatures;
@@ -65,10 +73,14 @@ import lombok.extern.slf4j.Slf4j;
 import reactor.core.publisher.Mono;
 import reactor.core.scheduler.Schedulers;
 import tools.jackson.core.JacksonException;
+import tools.jackson.databind.BeanProperty;
 import tools.jackson.databind.DeserializationFeature;
+import tools.jackson.databind.JavaType;
 import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.cfg.JsonNodeFeature;
 import tools.jackson.databind.json.JsonMapper;
+import tools.jackson.databind.jsonFormatVisitors.JsonFormatVisitorWrapper;
+import tools.jackson.databind.jsonFormatVisitors.JsonObjectFormatVisitor;
 import tools.jackson.databind.node.ArrayNode;
 import tools.jackson.databind.node.ObjectNode;
 
@@ -78,18 +90,34 @@ public class McpServerUtils {
   private static final Map<String, String> TOOL_RESPONSE_MIME_TYPE = new ConcurrentHashMap<>();
 
   /**
-   * The optional argument every tool answering a list takes
-   * ({@link #returnsList(ToolCallback)}), unless it declares one of its own
-   * with that name: the comma-separated top-level keys to keep in each item of
-   * a list result.
+   * The optional argument every tool answering a list whose item keys are
+   * known takes ({@link #itemKeys(ToolCallback)}), unless it declares one of
+   * its own with that name: the comma-separated top-level keys to keep in each
+   * item of a list result. A key the items don't have is refused
+   * ({@link #FIELDS_UNKNOWN_MESSAGE}).
    */
   public static final String               FIELDS_ARGUMENT         = "fields";
 
   /**
    * The description of the {@link #FIELDS_ARGUMENT} argument, as clients list
-   * it.
+   * it, followed by the keys of the tool's items
+   * ({@link #FIELDS_KEYS_DESCRIPTION}).
    */
-  public static final String               FIELDS_DESCRIPTION      = "Comma-separated keys to keep in each item; omit for all.";
+  public static final String               FIELDS_DESCRIPTION      = "Comma-separated top-level keys to keep in each item; omit for all.";
+
+  /**
+   * The part of the {@link #FIELDS_ARGUMENT} description that names the keys
+   * of the tool's items, comma-separated, in the order they are serialized.
+   */
+  public static final String               FIELDS_KEYS_DESCRIPTION = " Keys: %s.";
+
+  /**
+   * The error a tool call answers when its {@link #FIELDS_ARGUMENT} names a
+   * key the tool's items don't have: the unknown names, then the valid keys,
+   * each list comma-separated. The tool doesn't run.
+   */
+  public static final String               FIELDS_UNKNOWN_MESSAGE  =
+                                                          "Unknown fields: %s. Valid keys: %s. Call again with valid keys only, or without fields to get every key.";
 
   /**
    * The keys of which at least one marks a JSON object as a list envelope,
@@ -118,6 +146,13 @@ public class McpServerUtils {
   private static final String              PROPERTIES_KEY          = "properties";
 
   private static final JsonHelper          JSON_HELPER             = new JsonHelper();
+
+  /**
+   * The mapper Spring AI's default tool result converter serializes the tool
+   * results with, through {@link JsonHelper}: the keys of a tool's items are
+   * read with it, so that they are the ones its results carry.
+   */
+  private static final JsonMapper          RESULT_MAPPER           = JacksonUtils.getDefaultJsonMapper();
 
   private static final JsonMapper          JSON_MAPPER             = JsonMapper.builder()
                                                                                .enable(DeserializationFeature.USE_BIG_DECIMAL_FOR_FLOATS)
@@ -235,13 +270,17 @@ public class McpServerUtils {
     Map<String, Object> inputSchema = JSON_HELPER.fromJson(toolDefinition.inputSchema(),
                                                            new ParameterizedTypeReference<Map<String, Object>>() {
                                                            });
-    // Only a tool answering a list is offered 'fields'. A tool declaring its
-    // own 'fields' argument receives it as is, and its result is not projected
-    boolean projectable = inputSchema != null
-        && returnsList(toolCallback)
-        && !declaresProperty(inputSchema, FIELDS_ARGUMENT);
+    // Only a tool answering a list whose item keys are known is offered
+    // 'fields'. A tool declaring its own 'fields' argument receives it as is,
+    // and its result is not projected
+    ListItemKeys listItemKeys = inputSchema == null || declaresProperty(inputSchema, FIELDS_ARGUMENT) ? ListItemKeys.NONE
+                                                                                                      : itemKeys(toolCallback);
+    boolean projectable = !listItemKeys.isEmpty();
+    List<String> itemKeys = listItemKeys.keys();
+    Set<String> validKeys = Set.copyOf(itemKeys);
     McpSchema.Tool.Builder toolBuilder = McpSchema.Tool.builder(toolDefinition.name(),
-                                                                projectable ? withFieldsProperty(inputSchema) : inputSchema)
+                                                                projectable ? withFieldsProperty(inputSchema, itemKeys)
+                                                                            : inputSchema)
                                                        .description(toolDefinition.description());
     if (toolDefinition instanceof SimpleToolDefinition simpleToolDefinition) {
       // Title and annotations (readOnlyHint, destructiveHint...) drive the MCP
@@ -273,6 +312,21 @@ public class McpServerUtils {
         Set<String> fields = Set.of();
         if (projectable && arguments != null) {
           fields = parseFields(arguments.get(FIELDS_ARGUMENT));
+          List<String> unknownFields = fields.stream().filter(field -> !validKeys.contains(field)).toList();
+          if (!unknownFields.isEmpty()) {
+            // Refused before the tool runs, as an input schema refusal is: a
+            // list shortened to the known keys would be read as the whole
+            // answer. The tool's trace never sees the refused call
+            log.debug("Tool '{}' called with unknown fields {}", toolDefinition.name(), unknownFields);
+            return McpSchema.CallToolResult.builder()
+                                           .content(List.of(McpSchema.TextContent.builder(FIELDS_UNKNOWN_MESSAGE.formatted(String.join(", ",
+                                                                                                                                       unknownFields),
+                                                                                                                           String.join(", ",
+                                                                                                                                       itemKeys)))
+                                                                                 .build()))
+                                           .isError(true)
+                                           .build();
+          }
         }
         // The tool, its approval, grant and space scope checks and its trace
         // see the arguments without 'fields', which only shapes the answer
@@ -290,7 +344,9 @@ public class McpServerUtils {
                                          .build();
         }
         return McpSchema.CallToolResult.builder()
-                                       .content(List.of(McpSchema.TextContent.builder(projectFields(callResult, fields))
+                                       .content(List.of(McpSchema.TextContent.builder(projectFields(callResult,
+                                                                                                         fields,
+                                                                                                         listItemKeys.listProperty()))
                                                                              .build()))
                                        .isError(false)
                                        .build();
@@ -306,13 +362,15 @@ public class McpServerUtils {
 
   /**
    * Adds the optional {@link #FIELDS_ARGUMENT} string property to a tool's
-   * input schema, without changing the schema it was given nor its required
-   * properties.
+   * input schema, described with the keys of the tool's items, without
+   * changing the schema it was given nor its required properties.
    *
    * @param inputSchema the tool's input schema
+   * @param itemKeys    the keys of the tool's items
+   *                      ({@link #itemKeys(Type)})
    * @return a copy of the schema declaring the property
    */
-  static Map<String, Object> withFieldsProperty(Map<String, Object> inputSchema) {
+  static Map<String, Object> withFieldsProperty(Map<String, Object> inputSchema, List<String> itemKeys) {
     Map<String, Object> schema = new LinkedHashMap<>(inputSchema);
     Map<String, Object> properties = new LinkedHashMap<>();
     if (schema.get(PROPERTIES_KEY) instanceof Map<?, ?> declaredProperties) {
@@ -320,24 +378,193 @@ public class McpServerUtils {
     }
     Map<String, Object> fieldsProperty = new LinkedHashMap<>();
     fieldsProperty.put("type", "string");
-    fieldsProperty.put("description", FIELDS_DESCRIPTION);
+    fieldsProperty.put("description", FIELDS_DESCRIPTION + FIELDS_KEYS_DESCRIPTION.formatted(String.join(", ", itemKeys)));
     properties.put(FIELDS_ARGUMENT, fieldsProperty);
     schema.put(PROPERTIES_KEY, properties);
     return schema;
   }
 
   /**
-   * Tells whether a tool answers a list, from the return type of its method:
-   * an array or an {@link Iterable} of objects, or a list envelope, a type
-   * declaring one of {@link #LIST_ENVELOPE_KEYS} as a JSON property. A tool
-   * whose method is not known answers no list.
+   * Reads the keys of the items of the lists a tool answers, from the return
+   * type of its method ({@link #itemKeys(Type)}). A tool whose method is not
+   * known has none.
    *
    * @param toolCallback the tool callback
-   * @return true when the tool's results are lists
+   * @return the keys of its items and where its results hold them,
+   *         {@link ListItemKeys#NONE} when it answers no list or when they are
+   *         not known
    */
-  static boolean returnsList(ToolCallback toolCallback) {
+  static ListItemKeys itemKeys(ToolCallback toolCallback) {
     Method toolMethod = getToolMethod(toolCallback);
-    return toolMethod != null && isListType(toolMethod.getGenericReturnType());
+    return toolMethod == null ? ListItemKeys.NONE : itemKeys(toolMethod.getGenericReturnType());
+  }
+
+  /**
+   * Reads the keys of the items of a list type ({@link #isListType(Type)}), as
+   * {@link #RESULT_MAPPER} serializes them, in that order: those of the
+   * element type of an array or an {@link Iterable}, a top-level JSON array of
+   * the results, or, for a list envelope, those of the element type of its one
+   * array or collection property holding objects, its arrays of plain values
+   * ({@link #isSimpleValueType}) left out, along with the property's name: only
+   * that property's items are projected ({@link #projectFields}). The keys are
+   * not known when an item type is not a concrete class with a fixed set of
+   * properties (a map, a raw or a wildcard type, {@link Object}, an abstract
+   * class or an interface, a JSON node, a type serialized by a custom
+   * serializer or adding keys through a {@link JsonAnyGetter}), or when an
+   * envelope holds any other property that may be written as an array of
+   * objects ({@link #mayBeObjectArray}), since the items to project are then
+   * not known. The keys are read from the declared item type: a concrete item
+   * type whose subclasses add properties is not told apart, a key only a
+   * subclass carries being refused.
+   *
+   * @param listType a tool method's return type
+   * @return the keys of the type's items and where its results hold them,
+   *         {@link ListItemKeys#NONE} when it is not a list type or when they
+   *         are not known
+   */
+  static ListItemKeys itemKeys(Type listType) {
+    if (!isListType(listType)) {
+      return ListItemKeys.NONE;
+    }
+    Class<?> type = rawClass(listType);
+    if (type.isArray() || Iterable.class.isAssignableFrom(type)) {
+      Type elementType = elementType(listType);
+      return elementType == null ? ListItemKeys.NONE
+                                 : new ListItemKeys(null, objectKeys(RESULT_MAPPER.constructType(elementType)));
+    }
+    Map<String, JavaType> envelopeProperties = objectProperties(RESULT_MAPPER.constructType(listType));
+    if (envelopeProperties == null) {
+      return ListItemKeys.NONE;
+    }
+    List<Map.Entry<String, JavaType>> objectArrays = envelopeProperties.entrySet()
+                                                                       .stream()
+                                                                       .filter(property -> mayBeObjectArray(property.getValue()))
+                                                                       .toList();
+    if (objectArrays.size() != 1) {
+      return ListItemKeys.NONE;
+    }
+    JavaType arrayType = objectArrays.get(0).getValue();
+    if (!arrayType.isArrayType() && !arrayType.isCollectionLikeType()) {
+      return ListItemKeys.NONE;
+    }
+    List<String> keys = objectKeys(arrayType.getContentType());
+    return keys.isEmpty() ? ListItemKeys.NONE : new ListItemKeys(objectArrays.get(0).getKey(), keys);
+  }
+
+  /**
+   * @param type the type of a list envelope's property
+   * @return true when {@link #RESULT_MAPPER} may write the property as a JSON
+   *         array whose elements are not plain values
+   *         ({@link #isSimpleValueType}): an array or a collection of such
+   *         elements or of unknown ones, and, whatever their elements, an
+   *         {@link Iterable}, a JSON node included, an {@link Iterator}, a
+   *         {@link BaseStream} or an {@link Object}, also when an
+   *         {@link java.util.Optional} or another reference type holds it
+   */
+  private static boolean mayBeObjectArray(JavaType type) {
+    if (type.isReferenceType()) {
+      return mayBeObjectArray(type.getReferencedType());
+    }
+    if (type.isArrayType() || type.isCollectionLikeType()) {
+      JavaType contentType = type.getContentType();
+      return contentType == null || !ClassUtils.isSimpleValueType(contentType.getRawClass());
+    }
+    Class<?> rawType = type.getRawClass();
+    return rawType == Object.class
+        || Iterable.class.isAssignableFrom(rawType)
+        || Iterator.class.isAssignableFrom(rawType)
+        || BaseStream.class.isAssignableFrom(rawType);
+  }
+
+  /**
+   * @param type an item type, may be null
+   * @return the keys {@link #RESULT_MAPPER} serializes the type with, empty
+   *         when it is not a concrete class with a fixed set of properties
+   *         ({@link #itemKeys(Type)})
+   */
+  private static List<String> objectKeys(JavaType type) {
+    if (type == null
+        || type.getRawClass().isInterface()
+        || Modifier.isAbstract(type.getRawClass().getModifiers())
+        || hasAnyGetter(type.getRawClass())) {
+      return List.of();
+    }
+    Map<String, JavaType> properties = objectProperties(type);
+    return properties == null ? List.of() : List.copyOf(properties.keySet());
+  }
+
+  /**
+   * Lists the properties {@link #RESULT_MAPPER} serializes a type with,
+   * through its JSON format visitor, which honours the JSON names, the ignored
+   * and the included properties as the serialization does.
+   *
+   * @param type a type
+   * @return by JSON name, in the order they are serialized, the type of each
+   *         property, null when the type isn't serialized as a JSON object
+   *         with properties, as a map, a collection, {@link Object}, a JSON
+   *         node or a custom serializer are not
+   */
+  private static Map<String, JavaType> objectProperties(JavaType type) {
+    Map<String, JavaType> properties = new LinkedHashMap<>();
+    AtomicBoolean isObject = new AtomicBoolean();
+    try {
+      RESULT_MAPPER.acceptJsonFormatVisitor(type, new JsonFormatVisitorWrapper.Base() {
+        /**
+         * Marks the type as written as a JSON object and collects its
+         * properties.
+         *
+         * @param objectType the type visited
+         * @return the visitor of its properties
+         */
+        @Override
+        public JsonObjectFormatVisitor expectObjectFormat(JavaType objectType) {
+          isObject.set(true);
+          return new JsonObjectFormatVisitor.Base(getContext()) {
+            /**
+             * Collects a required property.
+             *
+             * @param property the property
+             */
+            @Override
+            public void property(BeanProperty property) {
+              properties.put(property.getName(), property.getType());
+            }
+
+            /**
+             * Collects an optional property.
+             *
+             * @param property the property
+             */
+            @Override
+            public void optionalProperty(BeanProperty property) {
+              properties.put(property.getName(), property.getType());
+            }
+          };
+        }
+      });
+    } catch (RuntimeException e) {
+      log.debug("Can't read the properties of type {}: the tools answering it are offered no '{}' argument",
+                type,
+                FIELDS_ARGUMENT,
+                e);
+      return null; // NOSONAR null tells a type that is no object
+    }
+    return isObject.get() && !properties.isEmpty() ? properties : null; // NOSONAR
+  }
+
+  /**
+   * @param type a class, may be null
+   * @return true when the class or a superclass declares a field or a method
+   *         annotated with {@link JsonAnyGetter}, whose keys vary per instance
+   */
+  private static boolean hasAnyGetter(Class<?> type) {
+    for (Class<?> current = type; current != null && current != Object.class; current = current.getSuperclass()) {
+      if (Stream.<AnnotatedElement>concat(Stream.of(current.getDeclaredFields()), Stream.of(current.getDeclaredMethods()))
+                .anyMatch(member -> member.isAnnotationPresent(JsonAnyGetter.class))) {
+        return true;
+      }
+    }
+    return false;
   }
 
   /**
@@ -516,19 +743,23 @@ public class McpServerUtils {
   }
 
   /**
-   * Keeps only the requested keys in each item of a JSON list result. In a
-   * top-level JSON array, its elements are projected. In a list envelope, a
-   * JSON object carrying at least one of {@link #LIST_ENVELOPE_KEYS}, each
-   * element of every top-level array is projected and every other top-level
-   * key is kept. A requested key an item lacks stays absent. Any other JSON
+   * Keeps only the requested keys in each item of a JSON list result. Without
+   * a list property, the elements of a top-level JSON array are projected.
+   * With one, in a list envelope, a JSON object carrying at least one of
+   * {@link #LIST_ENVELOPE_KEYS}, each element of the array that property holds
+   * is projected and every other top-level key is kept as it is, other arrays
+   * included. A requested key an item lacks stays absent. Any other JSON
    * object is a single item and is returned whole, its arrays included, as is
    * any other result, a non-JSON text or one that doesn't parse included.
    *
-   * @param result the tool's result
-   * @param fields the keys to keep, empty to keep every key
+   * @param result       the tool's result
+   * @param fields       the keys to keep, empty to keep every key
+   * @param listProperty the envelope property holding the items, null when
+   *                       they are a top-level JSON array
+   *                       ({@link ListItemKeys#listProperty()})
    * @return the projected result, the same instance when nothing was projected
    */
-  static String projectFields(String result, Set<String> fields) {
+  static String projectFields(String result, Set<String> fields, String listProperty) {
     if (fields == null || fields.isEmpty() || StringUtils.isBlank(result)) {
       return result;
     }
@@ -539,14 +770,12 @@ public class McpServerUtils {
       return result;
     }
     boolean projected = false;
-    if (node instanceof ArrayNode items) {
+    if (listProperty == null) {
+      projected = node instanceof ArrayNode items && projectItems(items, fields);
+    } else if (node instanceof ObjectNode envelope
+        && isListEnvelope(envelope)
+        && envelope.get(listProperty) instanceof ArrayNode items) {
       projected = projectItems(items, fields);
-    } else if (node instanceof ObjectNode envelope && isListEnvelope(envelope)) {
-      for (JsonNode value : envelope.values()) {
-        if (value instanceof ArrayNode items) {
-          projected = projectItems(items, fields) || projected;
-        }
-      }
     }
     return projected ? JSON_MAPPER.writeValueAsString(node) : result;
   }
