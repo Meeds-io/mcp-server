@@ -26,14 +26,17 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.doReturn;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.spy;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 import java.lang.reflect.Method;
+import java.util.Iterator;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.Set;
 import java.util.stream.Stream;
 
@@ -45,8 +48,10 @@ import org.springframework.ai.tool.ToolCallback;
 import org.springframework.ai.tool.definition.DefaultToolDefinition;
 import org.springframework.ai.tool.definition.ToolDefinition;
 import org.springframework.ai.tool.method.MethodToolCallback;
+import org.springframework.ai.util.JacksonUtils;
 import org.springframework.util.MimeType;
 
+import com.fasterxml.jackson.annotation.JsonAnyGetter;
 import com.fasterxml.jackson.annotation.JsonProperty;
 
 import ch.qos.logback.classic.Level;
@@ -74,13 +79,14 @@ class McpServerUtilsTest {
       {"type":"object","properties":{"query":{"type":"string"},"limit":{"type":"integer"}},"required":["query"]}""";
 
   private static final String     ENVELOPE      = """
-      {"things":[{"id":1,"title":"a","description":"long"},{"id":2,"title":"b","description":"longer"}],      "count":2,"used_offset":0,"used_limit":2,"has_more":true,"next_offset":2,"score":1.10}""";
+      {"things":[{"id":1,"count":3,"parts":["long"]},{"id":2,"count":4,"parts":["longer"]}],      "count":2,"used_offset":0,"used_limit":2,"has_more":true,"next_offset":2,"score":1.10}""";
 
   private static final JsonMapper JSON_MAPPER   = JsonMapper.builder().build();
 
   /**
    * A tool that declares no {@code fields} argument is listed with an optional
-   * string one, and keeps its own properties and required ones.
+   * string one, described with the keys of its items in the order its results
+   * carry them, and keeps its own properties and required ones.
    */
   @Test
   void listsAToolWithAnOptionalFieldsArgument() {
@@ -91,7 +97,8 @@ class McpServerUtilsTest {
     assertEquals(Set.of("query", "limit", "fields"), properties.keySet());
     Map<?, ?> fields = (Map<?, ?>) properties.get("fields");
     assertEquals("string", fields.get("type"));
-    assertEquals(McpServerUtils.FIELDS_DESCRIPTION, fields.get("description"));
+    assertEquals(McpServerUtils.FIELDS_DESCRIPTION + " Keys: " + String.join(", ", serializedThingKeys()) + ".",
+                 fields.get("description"));
     assertEquals(List.of("query"), inputSchema.get("required"));
   }
 
@@ -138,7 +145,7 @@ class McpServerUtilsTest {
     Map<String, Object> arguments = new LinkedHashMap<>();
     arguments.put("query", "q");
     arguments.put("limit", 5);
-    arguments.put("fields", "id,title");
+    arguments.put("fields", "id,count");
 
     call(specification, arguments);
 
@@ -156,7 +163,7 @@ class McpServerUtilsTest {
   void projectsTheItemsAndKeepsTheEnvelope() {
     SyncToolSpecification specification = McpServerUtils.toSyncToolSpecification(toolCallback(SCHEMA, ENVELOPE), null);
 
-    CallToolResult result = call(specification, Map.of("query", "q", "fields", " id , title,unknown"));
+    CallToolResult result = call(specification, Map.of("query", "q", "fields", " id , count"));
 
     assertFalse(result.isError());
     String text = ((TextContent) result.content().get(0)).text();
@@ -169,7 +176,7 @@ class McpServerUtilsTest {
     assertEquals(2, projected.get("next_offset").asInt());
     assertEquals(2, projected.get("things").size());
     for (JsonNode item : projected.get("things")) {
-      assertEquals(Set.of("id", "title"), Set.copyOf(item.propertyNames()));
+      assertEquals(Set.of("id", "count"), Set.copyOf(item.propertyNames()));
     }
   }
 
@@ -185,10 +192,10 @@ class McpServerUtilsTest {
         "allowed_label_list":[{"id":3,"color":"red"}],"managers":["root"]}""";
     SyncToolSpecification specification = McpServerUtils.toSyncToolSpecification(toolCallback(SCHEMA, project), null);
 
-    CallToolResult result = call(specification, Map.of("query", "q", "fields", "name"));
+    CallToolResult result = call(specification, Map.of("query", "q", "fields", "id"));
 
     assertEquals(project, ((TextContent) result.content().get(0)).text());
-    assertSame(project, McpServerUtils.projectFields(project, Set.of("name")));
+    assertSame(project, McpServerUtils.projectFields(project, Set.of("name"), "allowed_status_list"));
   }
 
   /**
@@ -198,7 +205,8 @@ class McpServerUtilsTest {
   @Test
   void projectsTheItemsOfAnEnvelopeCarryingOneEnvelopeKey() {
     String projected = McpServerUtils.projectFields("{\"tasks\":[{\"id\":1,\"title\":\"a\"}],\"used_limit\":20}",
-                                                    Set.of("id"));
+                                                    Set.of("id"),
+                                                    "tasks");
 
     assertEquals("{\"tasks\":[{\"id\":1}],\"used_limit\":20}", projected);
   }
@@ -213,8 +221,8 @@ class McpServerUtilsTest {
     String notePart = "{\"note_id\":1,\"breadcrumb\":[{\"id\":1,\"title\":\"a\"}],\"next_offset\":40000}";
     String counted = "{\"labels\":[{\"id\":1,\"title\":\"a\"}],\"count\":1,\"used_offset\":0}";
 
-    assertSame(notePart, McpServerUtils.projectFields(notePart, Set.of("id")));
-    assertSame(counted, McpServerUtils.projectFields(counted, Set.of("id")));
+    assertSame(notePart, McpServerUtils.projectFields(notePart, Set.of("id"), "breadcrumb"));
+    assertSame(counted, McpServerUtils.projectFields(counted, Set.of("id"), "labels"));
   }
 
   /**
@@ -257,16 +265,16 @@ class McpServerUtilsTest {
   }
 
   /**
-   * A tool answering a list of plain values, which hold no keys to keep, is
-   * listed without {@code fields}; one answering a list of objects, or a raw
-   * list whose elements are not known, is listed with it.
+   * A tool answering a list of plain values, which hold no keys to keep, or a
+   * raw list, whose keys are not known, is listed without {@code fields}; one
+   * answering a list of objects is listed with it.
    */
   @Test
   void offersFieldsOnAListOfObjectsOnly() {
     assertEquals(Set.of("query", "limit"), listedProperties(toolCallback(SCHEMA, "[]", "listNames")));
     assertEquals(Set.of("query", "limit"), listedProperties(toolCallback(SCHEMA, "[]", "listCodes")));
     assertEquals(Set.of("query", "limit", "fields"), listedProperties(toolCallback(SCHEMA, "[]", "listThingItems")));
-    assertEquals(Set.of("query", "limit", "fields"), listedProperties(toolCallback(SCHEMA, "[]", "listRawItems")));
+    assertEquals(Set.of("query", "limit"), listedProperties(toolCallback(SCHEMA, "[]", "listRawItems")));
     assertFalse(McpServerUtils.isListType(String[].class));
     assertFalse(McpServerUtils.isListType(int[].class));
     assertTrue(McpServerUtils.isListType(toolMethod("listThingItems").getGenericReturnType()));
@@ -277,10 +285,10 @@ class McpServerUtilsTest {
    */
   @Test
   void projectsTheItemsOfATopLevelArray() {
-    String projected = McpServerUtils.projectFields("[{\"id\":1,\"title\":\"a\"},{\"id\":2,\"title\":\"b\"},\"text\"]",
-                                                    Set.of("id"));
+    String array = "[{\"id\":1,\"title\":\"a\"},{\"id\":2,\"title\":\"b\"},\"text\"]";
 
-    assertEquals("[{\"id\":1},{\"id\":2},\"text\"]", projected);
+    assertEquals("[{\"id\":1},{\"id\":2},\"text\"]", McpServerUtils.projectFields(array, Set.of("id"), null));
+    assertSame(array, McpServerUtils.projectFields(array, Set.of("id"), "things"));
   }
 
   /**
@@ -308,11 +316,11 @@ class McpServerUtilsTest {
     String trailing = "{\"things\":[{\"id\":1,\"title\":\"a\"}]} and more";
     String single = "{\"id\":1,\"title\":\"a\"}";
 
-    assertSame(text, McpServerUtils.projectFields(text, fields));
-    assertSame(quoted, McpServerUtils.projectFields(quoted, fields));
-    assertSame(truncated, McpServerUtils.projectFields(truncated, fields));
-    assertSame(trailing, McpServerUtils.projectFields(trailing, fields));
-    assertSame(single, McpServerUtils.projectFields(single, fields));
+    assertSame(text, McpServerUtils.projectFields(text, fields, "things"));
+    assertSame(quoted, McpServerUtils.projectFields(quoted, fields, "things"));
+    assertSame(truncated, McpServerUtils.projectFields(truncated, fields, "things"));
+    assertSame(trailing, McpServerUtils.projectFields(trailing, fields, "things"));
+    assertSame(single, McpServerUtils.projectFields(single, fields, "things"));
   }
 
   /**
@@ -364,7 +372,7 @@ class McpServerUtilsTest {
 
     Map<?, ?> properties = (Map<?, ?>) specification.tool().inputSchema().get("properties");
     assertEquals(Set.of("query", "limit"), properties.keySet());
-    assertFalse(McpServerUtils.returnsList(toolCallback));
+    assertTrue(McpServerUtils.itemKeys(toolCallback).isEmpty());
   }
 
   /**
@@ -384,6 +392,123 @@ class McpServerUtilsTest {
     assertFalse(McpServerUtils.isListType(Thing.class));
     assertFalse(McpServerUtils.isListType(String.class));
     assertFalse(McpServerUtils.isListType(void.class));
+  }
+
+  /**
+   * A call naming a key the items don't have is refused before the tool runs,
+   * alone or with known keys, with a message naming the unknown keys and the
+   * valid ones, instead of answering a list shortened to the known keys.
+   */
+  @Test
+  void refusesUnknownFieldsBeforeTheToolRuns() {
+    ToolCallback toolCallback = toolCallback(SCHEMA, ENVELOPE);
+    SyncToolSpecification specification = McpServerUtils.toSyncToolSpecification(toolCallback, null);
+    String validKeys = String.join(", ", serializedThingKeys());
+
+    CallToolResult mixed = call(specification, Map.of("query", "q", "fields", "id,title, posted_time"));
+    CallToolResult alone = call(specification, Map.of("query", "q", "fields", "title"));
+
+    assertTrue(mixed.isError());
+    assertEquals(McpServerUtils.FIELDS_UNKNOWN_MESSAGE.formatted("title, posted_time", validKeys),
+                 ((TextContent) mixed.content().get(0)).text());
+    assertTrue(alone.isError());
+    assertEquals(McpServerUtils.FIELDS_UNKNOWN_MESSAGE.formatted("title", validKeys),
+                 ((TextContent) alone.content().get(0)).text());
+    verify(toolCallback, never()).call(anyString(), any(ToolContext.class));
+  }
+
+  /**
+   * The keys of an envelope's items are their JSON names, those of its list of
+   * objects, its lists of plain values left out. A key holding a nested object
+   * keeps it whole, and a dotted key inside it is refused.
+   */
+  @Test
+  void projectsTheTopLevelKeysOfTheItemsByTheirJsonNames() {
+    String posts = """
+        {"posts":[{"activity_id":1,"content":"c","author":{"name":"root","url":"u"}}],"tags":["a"],"has_more":false}""";
+    ToolCallback toolCallback = toolCallback(SCHEMA, posts, "listPosts");
+    SyncToolSpecification specification = McpServerUtils.toSyncToolSpecification(toolCallback, null);
+
+    assertEquals("posts", McpServerUtils.itemKeys(toolCallback).listProperty());
+    List<String> itemKeys = McpServerUtils.itemKeys(toolCallback).keys();
+    assertEquals(Set.of("activity_id", "content", "author"), Set.copyOf(itemKeys));
+    assertEquals(3, itemKeys.size());
+    Map<?, ?> fields = (Map<?, ?>) ((Map<?, ?>) specification.tool().inputSchema().get("properties")).get("fields");
+    assertEquals(McpServerUtils.FIELDS_DESCRIPTION + " Keys: " + String.join(", ", itemKeys) + ".", fields.get("description"));
+
+    CallToolResult projected = call(specification, Map.of("query", "q", "fields", "activity_id,author"));
+    JsonNode post = JSON_MAPPER.readTree(((TextContent) projected.content().get(0)).text()).get("posts").get(0);
+    assertEquals(Set.of("activity_id", "author"), Set.copyOf(post.propertyNames()));
+    assertEquals("root", post.get("author").get("name").asString());
+    assertEquals("u", post.get("author").get("url").asString());
+
+    CallToolResult nested = call(specification, Map.of("query", "q", "fields", "activity_id,author.name"));
+    assertTrue(nested.isError());
+    assertEquals(McpServerUtils.FIELDS_UNKNOWN_MESSAGE.formatted("author.name", String.join(", ", itemKeys)),
+                 ((TextContent) nested.content().get(0)).text());
+  }
+
+  /**
+   * Only the envelope's list the item keys were read from is projected: any
+   * other array of the envelope keeps its items whole.
+   */
+  @Test
+  void projectsOnlyTheListOfTheItemKeys() {
+    String posts = """
+        {"posts":[{"activity_id":1,"content":"c"}],"authors":[{"name":"root","url":"u"}],"has_more":false}""";
+
+    JsonNode projected = JSON_MAPPER.readTree(McpServerUtils.projectFields(posts, Set.of("activity_id"), "posts"));
+
+    assertEquals(Set.of("activity_id"), Set.copyOf(projected.get("posts").get(0).propertyNames()));
+    assertEquals(Set.of("name", "url"), Set.copyOf(projected.get("authors").get(0).propertyNames()));
+  }
+
+  /**
+   * A tool whose items have no fixed set of keys is listed without
+   * {@code fields}: items that are maps, objects, JSON nodes or carry keys of
+   * their own through a {@link JsonAnyGetter}, an envelope holding such
+   * items, an abstract or an interface item type, or an envelope holding
+   * another property that may be written as an array of objects, a list, an
+   * {@link Iterable}, an {@link Iterator}, a {@link Stream}, an optional list
+   * or an {@link Object}, or whose only such property is not a list or an
+   * array, as an {@link Iterable} or an {@link Iterator} is, since the items to
+   * project are then not known.
+   */
+  @Test
+  void listsAToolOfItemsWithoutKnownKeysWithoutFieldsArgument() {
+    for (String methodName : List.of("listMaps",
+                                     "listObjects",
+                                     "listNodes",
+                                     "listDynamicThings",
+                                     "listMapPage",
+                                     "listPostsAndAuthors",
+                                     "listPostsAndIterableAuthors",
+                                     "listPostsAndOptionalAuthors",
+                                     "listPostsAndObjectAuthors",
+                                     "listPostsAndIteratorAuthors",
+                                     "listPostsAndStreamAuthors",
+                                     "listIterablePosts",
+                                     "listIteratorPosts",
+                                     "listAbstractThings",
+                                     "listInterfaceThings")) {
+      ToolCallback toolCallback = toolCallback(SCHEMA, "[]", methodName);
+
+      assertEquals(Set.of("query", "limit"), listedProperties(toolCallback), methodName);
+      assertTrue(McpServerUtils.itemKeys(toolCallback).isEmpty(), methodName);
+    }
+  }
+
+  /**
+   * The items of a generic envelope have the keys of its type argument; with
+   * a wildcard, they are not known and the tool is listed without
+   * {@code fields}.
+   */
+  @Test
+  void readsTheItemKeysOfAGenericEnvelopeFromItsTypeArgument() {
+    assertEquals(serializedThingKeys(), McpServerUtils.itemKeys(toolMethod("listGenericPage").getGenericReturnType()).keys());
+    assertEquals("items", McpServerUtils.itemKeys(toolMethod("listGenericPage").getGenericReturnType()).listProperty());
+    assertTrue(McpServerUtils.itemKeys(toolMethod("listWildcardPage").getGenericReturnType()).isEmpty());
+    assertEquals(Set.of("query", "limit"), listedProperties(toolCallback(SCHEMA, "[]", "listWildcardPage")));
   }
 
   /**
@@ -438,6 +563,15 @@ class McpServerUtilsTest {
     return toolCallback;
   }
 
+
+  /**
+   * @return the keys of a {@link Thing}, in the order Spring AI's default tool
+   *         result converter writes them
+   */
+  private static List<String> serializedThingKeys() {
+    String thing = JacksonUtils.getDefaultJsonMapper().writeValueAsString(new Thing(1, 2, 3, List.of("p")));
+    return List.copyOf(JSON_MAPPER.readTree(thing).propertyNames());
+  }
 
   /**
    * @param toolCallback a tool callback
@@ -526,6 +660,133 @@ class McpServerUtilsTest {
     List listRawItems() {
       return null;
     }
+
+    /**
+     * @return a list envelope of posts
+     */
+    PostCollection listPosts() {
+      return null;
+    }
+
+    /**
+     * @return a list envelope of posts and of their authors
+     */
+    PostAndAuthorCollection listPostsAndAuthors() {
+      return null;
+    }
+
+    /**
+     * @return a list envelope of posts and of an iterable of their authors
+     */
+    PostsAndIterableAuthors listPostsAndIterableAuthors() {
+      return null;
+    }
+
+    /**
+     * @return a list envelope of posts and of an optional list of their
+     *         authors
+     */
+    PostsAndOptionalAuthors listPostsAndOptionalAuthors() {
+      return null;
+    }
+
+    /**
+     * @return a list envelope of posts and of their authors as an object
+     */
+    PostsAndObjectAuthors listPostsAndObjectAuthors() {
+      return null;
+    }
+
+    /**
+     * @return a list envelope of posts and of an iterator of their authors
+     */
+    PostsAndIteratorAuthors listPostsAndIteratorAuthors() {
+      return null;
+    }
+
+    /**
+     * @return a list envelope of posts and of a stream of their authors
+     */
+    PostsAndStreamAuthors listPostsAndStreamAuthors() {
+      return null;
+    }
+
+    /**
+     * @return a list envelope of an iterator of posts
+     */
+    IteratorPosts listIteratorPosts() {
+      return null;
+    }
+
+    /**
+     * @return a list envelope of an iterable of posts
+     */
+    IterablePosts listIterablePosts() {
+      return null;
+    }
+
+    /**
+     * @return a list of an abstract item type
+     */
+    List<AbstractThing> listAbstractThings() {
+      return null;
+    }
+
+    /**
+     * @return a list of an interface item type
+     */
+    List<InterfaceThing> listInterfaceThings() {
+      return null;
+    }
+
+    /**
+     * @return a list of maps
+     */
+    List<Map<String, Object>> listMaps() {
+      return null;
+    }
+
+    /**
+     * @return a list of objects of any type
+     */
+    List<Object> listObjects() {
+      return null;
+    }
+
+    /**
+     * @return a list of JSON nodes
+     */
+    List<JsonNode> listNodes() {
+      return null;
+    }
+
+    /**
+     * @return a list of items adding keys of their own
+     */
+    List<DynamicThing> listDynamicThings() {
+      return null;
+    }
+
+    /**
+     * @return a list envelope of maps
+     */
+    MapPage listMapPage() {
+      return null;
+    }
+
+    /**
+     * @return a generic list envelope of things
+     */
+    GenericPage<Thing> listGenericPage() {
+      return null;
+    }
+
+    /**
+     * @return a generic list envelope of unknown items
+     */
+    GenericPage<?> listWildcardPage() {
+      return null;
+    }
   }
 
   /**
@@ -600,5 +861,190 @@ class McpServerUtilsTest {
   private static class UnannotatedPage {
 
     private boolean has_more; // NOSONAR the JSON name, as the rule reads it
+  }
+
+  /**
+   * A post, whose id is serialized as {@code activity_id}.
+   *
+   * @param id      the post id
+   * @param content its content
+   * @param author  its author, a nested object
+   */
+  private record Post(@JsonProperty("activity_id") long id, String content, Author author) {
+  }
+
+  /**
+   * A post author.
+   *
+   * @param name the author name
+   * @param url  the author profile URL
+   */
+  private record Author(String name, String url) {
+  }
+
+  /**
+   * A list envelope of posts, also listing plain tags.
+   *
+   * @param posts   the posts
+   * @param tags    tags, plain values
+   * @param hasMore whether more posts match
+   */
+  private record PostCollection(List<Post> posts, List<String> tags, @JsonProperty("has_more") boolean hasMore) {
+  }
+
+  /**
+   * A list envelope of posts, also listing their authors.
+   *
+   * @param posts   the posts
+   * @param authors their authors
+   * @param hasMore whether more posts match
+   */
+  private record PostAndAuthorCollection(List<Post> posts, List<Author> authors, @JsonProperty("has_more") boolean hasMore) {
+  }
+
+  /**
+   * A list envelope of posts, also writing their authors from an
+   * {@link Iterable}.
+   *
+   * @param posts   the posts
+   * @param authors their authors
+   * @param hasMore whether more posts match
+   */
+  private record PostsAndIterableAuthors(List<Post> posts, Iterable<Author> authors, @JsonProperty("has_more") boolean hasMore) {
+  }
+
+  /**
+   * A list envelope of posts, also writing their authors from an optional
+   * list.
+   *
+   * @param posts   the posts
+   * @param authors their authors
+   * @param hasMore whether more posts match
+   */
+  private record PostsAndOptionalAuthors(List<Post> posts, Optional<List<Author>> authors,
+                                         @JsonProperty("has_more") boolean hasMore) {
+  }
+
+  /**
+   * A list envelope of posts, also writing their authors from a property
+   * declared {@link Object}.
+   *
+   * @param posts   the posts
+   * @param authors their authors
+   * @param hasMore whether more posts match
+   */
+  private record PostsAndObjectAuthors(List<Post> posts, Object authors, @JsonProperty("has_more") boolean hasMore) {
+  }
+
+  /**
+   * A list envelope of posts, also writing their authors from an
+   * {@link Iterator}.
+   *
+   * @param posts   the posts
+   * @param authors their authors
+   * @param hasMore whether more posts match
+   */
+  private record PostsAndIteratorAuthors(List<Post> posts, Iterator<Author> authors, @JsonProperty("has_more") boolean hasMore) {
+  }
+
+  /**
+   * A list envelope of posts, also writing their authors from a
+   * {@link Stream}.
+   *
+   * @param posts   the posts
+   * @param authors their authors
+   * @param hasMore whether more posts match
+   */
+  private record PostsAndStreamAuthors(List<Post> posts, Stream<Author> authors, @JsonProperty("has_more") boolean hasMore) {
+  }
+
+  /**
+   * A list envelope writing its posts from an {@link Iterator}, whose element
+   * type Jackson knows.
+   *
+   * @param posts   the posts
+   * @param hasMore whether more posts match
+   */
+  private record IteratorPosts(Iterator<Post> posts, @JsonProperty("has_more") boolean hasMore) {
+  }
+
+  /**
+   * A list envelope writing its posts from an {@link Iterable}.
+   *
+   * @param posts   the posts
+   * @param tags    tags, plain values
+   * @param hasMore whether more posts match
+   */
+  private record IterablePosts(Iterable<Post> posts, List<String> tags, @JsonProperty("has_more") boolean hasMore) {
+  }
+
+  /**
+   * An abstract item type, whose subclasses may add keys.
+   */
+  @SuppressWarnings("unused")
+  private abstract static class AbstractThing {
+
+    private long id;
+
+    /**
+     * @return the item id
+     */
+    public long getId() {
+      return id;
+    }
+  }
+
+  /**
+   * An interface item type, whose implementations may add keys.
+   */
+  private interface InterfaceThing {
+
+    /**
+     * @return the item id
+     */
+    long getId();
+  }
+
+  /**
+   * A list envelope of maps.
+   *
+   * @param items   the items
+   * @param hasMore whether more items match
+   */
+  private record MapPage(List<Map<String, Object>> items, @JsonProperty("has_more") boolean hasMore) {
+  }
+
+  /**
+   * A generic list envelope.
+   *
+   * @param <T>     the item type
+   * @param items   the items
+   * @param hasMore whether more items match
+   */
+  private record GenericPage<T>(List<T> items, @JsonProperty("has_more") boolean hasMore) {
+  }
+
+  /**
+   * An item adding keys of its own to its id.
+   */
+  @SuppressWarnings("unused")
+  private static class DynamicThing {
+
+    private long id;
+
+    /**
+     * @return the item id
+     */
+    public long getId() {
+      return id;
+    }
+
+    /**
+     * @return the keys the item adds
+     */
+    @JsonAnyGetter
+    public Map<String, Object> getOther() {
+      return Map.of();
+    }
   }
 }
