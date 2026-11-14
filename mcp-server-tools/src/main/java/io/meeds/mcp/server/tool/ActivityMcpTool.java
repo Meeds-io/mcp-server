@@ -260,7 +260,7 @@ public class ActivityMcpTool implements McpToolPlugin {
    * @param position       the activity's index in the stream
    * @param sinceTimestamp the time, in milliseconds
    * @return true when the stream holds an activity there, readable and
-   *         changed after that time
+   *         changed at or after that time
    */
   private boolean hasActivitySince(RealtimeListAccess<ExoSocialActivity> listAccess, int position, long sinceTimestamp) {
     List<String> activityIds = listAccess.loadIdsAsList(position, 1);
