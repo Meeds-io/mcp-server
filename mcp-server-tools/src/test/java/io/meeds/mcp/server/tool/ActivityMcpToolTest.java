@@ -655,6 +655,8 @@ class ActivityMcpToolTest extends IntegrationTestBase {
     SpaceModel space = createTestSpace();
     long boundaryId = activityMcpTool.createActivity(space.getSpaceId(), "Changed at midnight", null).id();
     String boundary = String.valueOf(boundaryId);
+    Clock serverClock = activityMcpTool.clock;
+    activityMcpTool.clock = Clock.fixed(Instant.now(), ZoneOffset.UTC);
     try (MockedStatic<McpToolUtils> mcpToolUtils = mockStatic(McpToolUtils.class,
                                                               withSettings().defaultAnswer(Answers.CALLS_REAL_METHODS))) {
       mcpToolUtils.when(McpToolUtils::getUserTimeZone).thenReturn(TimeZone.getTimeZone("UTC"));
@@ -669,6 +671,43 @@ class ActivityMcpToolTest extends IntegrationTestBase {
 
       assertTrue(result.activities().stream().anyMatch(a -> a.id() == boundaryId));
     } finally {
+      activityMcpTool.clock = serverClock;
+      ReflectionTestUtils.setField(activityMcpTool, "activityManager", activityManager);
+    }
+  }
+
+  /**
+   * When the activity after its bound last changed at the very instant the
+   * period starts, get_activities_since_days says more remain: that activity
+   * is in the period. Mutant: a strict comparison in the probe.
+   *
+   * @throws Exception never
+   */
+  @Test
+  void getActivitiesSinceDaysHasMoreWhenTheNextActivityChangedAtTheFirstInstant() throws Exception {
+    SpaceModel space = createTestSpace();
+    int existing = activityMcpTool.getActivities(space.getSpaceId(), 0, McpToolPluginUtils.MAX_LIMIT).size();
+    for (int i = existing; i <= McpToolPluginUtils.MAX_LIMIT; i++) {
+      activityMcpTool.createActivity(space.getSpaceId(), "Activity before a midnight one " + i, null);
+    }
+    String next = String.valueOf(activityMcpTool.getActivities(space.getSpaceId(), McpToolPluginUtils.MAX_LIMIT, 1).get(0).id());
+    Clock serverClock = activityMcpTool.clock;
+    activityMcpTool.clock = Clock.fixed(Instant.now(), ZoneOffset.UTC);
+    try (MockedStatic<McpToolUtils> mcpToolUtils = mockStatic(McpToolUtils.class,
+                                                              withSettings().defaultAnswer(Answers.CALLS_REAL_METHODS))) {
+      mcpToolUtils.when(McpToolUtils::getUserTimeZone).thenReturn(TimeZone.getTimeZone("UTC"));
+      ExoSocialActivity midnightActivity = spy(activityManager.getActivity(next));
+      doReturn(new Date(activityMcpTool.getSinceStart(1).toEpochMilli())).when(midnightActivity).getUpdated();
+      ActivityManager midnightActivityManager = mock(ActivityManager.class, AdditionalAnswers.delegatesTo(activityManager));
+      doReturn(midnightActivity).when(midnightActivityManager).getActivity(next);
+      ReflectionTestUtils.setField(activityMcpTool, "activityManager", midnightActivityManager);
+
+      ActivityCollectionModel result = activityMcpTool.getActivitiesSinceDays(space.getSpaceId(), 1L);
+
+      assertEquals(100, result.activities().size());
+      assertTrue(result.hasMore());
+    } finally {
+      activityMcpTool.clock = serverClock;
       ReflectionTestUtils.setField(activityMcpTool, "activityManager", activityManager);
     }
   }
