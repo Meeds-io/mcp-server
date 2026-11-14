@@ -26,20 +26,30 @@ import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.Mockito.doReturn;
+import static org.mockito.Mockito.mockStatic;
+import static org.mockito.Mockito.withSettings;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.spy;
 
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.time.Clock;
+import java.time.Instant;
+import java.time.LocalDate;
 import java.time.OffsetDateTime;
+import java.time.ZoneId;
+import java.time.ZoneOffset;
 import java.time.temporal.ChronoUnit;
 import java.util.Base64;
 import java.util.Date;
 import java.util.List;
+import java.util.TimeZone;
 import java.util.UUID;
 
 import org.junit.jupiter.api.Test;
 import org.mockito.AdditionalAnswers;
+import org.mockito.Answers;
+import org.mockito.MockedStatic;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.test.util.ReflectionTestUtils;
 
@@ -49,6 +59,7 @@ import org.exoplatform.social.core.manager.ActivityManager;
 import org.exoplatform.upload.UploadResource;
 import org.exoplatform.upload.UploadService;
 
+import io.meeds.mcp.server.util.McpToolUtils;
 import io.meeds.mcp.server.tool.constant.Registration;
 import io.meeds.mcp.server.tool.constant.Visibility;
 import io.meeds.mcp.server.tool.model.ActivityCollectionModel;
@@ -597,6 +608,31 @@ class ActivityMcpToolTest extends IntegrationTestBase {
     assertFalse(json.contains("avatar_url"), json);
     assertFalse(json.contains("members_count"), json);
     assertNotNull(activityMcpTool.getActivity(created.id()).author().getAvatarUrl());
+  }
+
+  /**
+   * get_activities_since_days counts its days from midnight of the user's day,
+   * in the user's time zone (EXO-94298): at 00:30 UTC, already 14:30 in
+   * Kiritimati (UTC+14), one day back starts at midnight of the user's
+   * yesterday there, not of the server's. Without a time zone, the server's.
+   * Mutants: the server's zone; the server's clock and day.
+   */
+  @Test
+  void getActivitiesSinceDaysCountsFromTheUsersMidnight() {
+    Clock serverClock = activityMcpTool.clock;
+    activityMcpTool.clock = Clock.fixed(Instant.parse("2026-10-08T00:30:00Z"), ZoneOffset.UTC);
+    try (MockedStatic<McpToolUtils> mcpToolUtils = mockStatic(McpToolUtils.class,
+                                                              withSettings().defaultAnswer(Answers.CALLS_REAL_METHODS))) {
+      mcpToolUtils.when(McpToolUtils::getUserTimeZone).thenReturn(TimeZone.getTimeZone("Pacific/Kiritimati"));
+      assertEquals(Instant.parse("2026-10-06T10:00:00Z"), activityMcpTool.getSinceStart(1));
+
+      mcpToolUtils.when(McpToolUtils::getUserTimeZone).thenReturn(null);
+      ZoneId server = ZoneId.systemDefault();
+      LocalDate serverToday = LocalDate.ofInstant(Instant.parse("2026-10-08T00:30:00Z"), server);
+      assertEquals(serverToday.minusDays(1).atStartOfDay(server).toInstant(), activityMcpTool.getSinceStart(1));
+    } finally {
+      activityMcpTool.clock = serverClock;
+    }
   }
 
   /**

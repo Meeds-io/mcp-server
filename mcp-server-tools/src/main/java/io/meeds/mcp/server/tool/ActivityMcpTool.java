@@ -23,6 +23,8 @@ import static io.meeds.mcp.server.tool.util.McpToolPluginUtils.getInteger;
 import static io.meeds.mcp.server.util.McpToolUtils.markdownToHtml;
 
 import java.io.IOException;
+import java.time.Clock;
+import java.time.Instant;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.OffsetDateTime;
@@ -38,6 +40,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Map.Entry;
 import java.util.Objects;
+import java.util.TimeZone;
 import java.util.function.Supplier;
 import java.util.stream.Stream;
 
@@ -162,6 +165,23 @@ public class ActivityMcpTool implements McpToolPlugin {
   @Autowired
   private FileService             fileService;
 
+  /** The clock the periods are read on; a test sets a fixed one. */
+  Clock                           clock = Clock.systemUTC();
+
+  /**
+   * Returns the start of a period of days that ends today: midnight of the
+   * user's day, that number of days ago, in the user's time zone, the server's
+   * when they have none, as the dates a tool returns are (EXO-94298).
+   *
+   * @param days the number of days to look back
+   * @return the instant the period starts
+   */
+  Instant getSinceStart(long days) {
+    TimeZone userTimeZone = McpToolUtils.getUserTimeZone();
+    ZoneId zone = userTimeZone == null ? ZoneId.systemDefault() : userTimeZone.toZoneId();
+    return LocalDate.now(clock.withZone(zone)).minusDays(days).atStartOfDay(zone).toInstant();
+  }
+
   /**
    * Lists the activities updated since a number of days, reading the stream
    * newest first, by pages of {@link McpToolPlugin#DEFAULT_LIMIT}, and stopping
@@ -174,7 +194,8 @@ public class ActivityMcpTool implements McpToolPlugin {
    *
    * @param spaceId restrict to one space, or null for every stream the user
    *                  sees
-   * @param days    the number of days to look back
+   * @param days    the number of days to look back, from midnight of the
+   *                  user's day in their time zone, see {@link #getSinceStart(long)}
    * @return the activities updated since then, at most {@link #MAX_TO_LOAD}
    * @throws IllegalAccessException  when the user can't view the space
    * @throws ObjectNotFoundException when the space doesn't exist
@@ -199,11 +220,7 @@ public class ActivityMcpTool implements McpToolPlugin {
     } else {
       activityFilter.setStreamType(ActivityStreamType.ALL_STREAM);
     }
-    long sinceTimestamp = LocalDate.now()
-                                   .minusDays(days)
-                                   .atStartOfDay(ZoneId.systemDefault())
-                                   .toEpochSecond() *
-        1000l;
+    long sinceTimestamp = getSinceStart(days).toEpochMilli();
 
     RealtimeListAccess<ExoSocialActivity> listAccess = activityManager.getActivitiesByFilterWithListAccess(currentUserIdentity,
                                                                                                           activityFilter);
