@@ -614,8 +614,10 @@ class ActivityMcpToolTest extends IntegrationTestBase {
    * get_activities_since_days counts its days from midnight of the user's day,
    * in the user's time zone (EXO-94298): at 00:30 UTC, already 14:30 in
    * Kiritimati (UTC+14), one day back starts at midnight of the user's
-   * yesterday there, not of the server's. Without a time zone, the server's.
-   * Mutants: the server's zone; the server's clock and day.
+   * yesterday there, not of the server's. On a day whose midnight a
+   * daylight-saving switch skips, the day's first instant. Without a time
+   * zone, the server's. Mutants: the server's zone; the server's clock and
+   * day.
    */
   @Test
   void getActivitiesSinceDaysCountsFromTheUsersMidnight() {
@@ -626,12 +628,48 @@ class ActivityMcpToolTest extends IntegrationTestBase {
       mcpToolUtils.when(McpToolUtils::getUserTimeZone).thenReturn(TimeZone.getTimeZone("Pacific/Kiritimati"));
       assertEquals(Instant.parse("2026-10-06T10:00:00Z"), activityMcpTool.getSinceStart(1));
 
+      // São Paulo skipped the midnight of 4 November 2018: its day began at 01:00
+      activityMcpTool.clock = Clock.fixed(Instant.parse("2018-11-05T12:00:00Z"), ZoneOffset.UTC);
+      mcpToolUtils.when(McpToolUtils::getUserTimeZone).thenReturn(TimeZone.getTimeZone("America/Sao_Paulo"));
+      assertEquals(Instant.parse("2018-11-04T03:00:00Z"), activityMcpTool.getSinceStart(1));
+
+      activityMcpTool.clock = Clock.fixed(Instant.parse("2026-10-08T00:30:00Z"), ZoneOffset.UTC);
       mcpToolUtils.when(McpToolUtils::getUserTimeZone).thenReturn(null);
       ZoneId server = ZoneId.systemDefault();
       LocalDate serverToday = LocalDate.ofInstant(Instant.parse("2026-10-08T00:30:00Z"), server);
       assertEquals(serverToday.minusDays(1).atStartOfDay(server).toInstant(), activityMcpTool.getSinceStart(1));
     } finally {
       activityMcpTool.clock = serverClock;
+    }
+  }
+
+  /**
+   * An activity last changed at the very instant the period starts is in it:
+   * the period counts from midnight, that midnight included. Mutant: a strict
+   * comparison.
+   *
+   * @throws Exception never
+   */
+  @Test
+  void getActivitiesSinceDaysIncludesAChangeAtTheFirstInstant() throws Exception {
+    SpaceModel space = createTestSpace();
+    long boundaryId = activityMcpTool.createActivity(space.getSpaceId(), "Changed at midnight", null).id();
+    String boundary = String.valueOf(boundaryId);
+    try (MockedStatic<McpToolUtils> mcpToolUtils = mockStatic(McpToolUtils.class,
+                                                              withSettings().defaultAnswer(Answers.CALLS_REAL_METHODS))) {
+      mcpToolUtils.when(McpToolUtils::getUserTimeZone).thenReturn(TimeZone.getTimeZone("UTC"));
+      long start = activityMcpTool.getSinceStart(1).toEpochMilli();
+      ExoSocialActivity midnightActivity = spy(activityManager.getActivity(boundary));
+      doReturn(new Date(start)).when(midnightActivity).getUpdated();
+      ActivityManager midnightActivityManager = mock(ActivityManager.class, AdditionalAnswers.delegatesTo(activityManager));
+      doReturn(midnightActivity).when(midnightActivityManager).getActivity(boundary);
+      ReflectionTestUtils.setField(activityMcpTool, "activityManager", midnightActivityManager);
+
+      ActivityCollectionModel result = activityMcpTool.getActivitiesSinceDays(space.getSpaceId(), 1L);
+
+      assertTrue(result.activities().stream().anyMatch(a -> a.id() == boundaryId));
+    } finally {
+      ReflectionTestUtils.setField(activityMcpTool, "activityManager", activityManager);
     }
   }
 

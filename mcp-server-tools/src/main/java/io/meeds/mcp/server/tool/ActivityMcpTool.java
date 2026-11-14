@@ -171,7 +171,9 @@ public class ActivityMcpTool implements McpToolPlugin {
   /**
    * Returns the start of a period of days that ends today: midnight of the
    * user's day, that number of days ago, in the user's time zone, the server's
-   * when they have none, as the dates a tool returns are (EXO-94298).
+   * when they have none, as the dates a tool returns are (EXO-94298). On a
+   * day whose midnight a daylight-saving switch skips, the day's first
+   * instant. A change at that very instant is in the period.
    *
    * @param days the number of days to look back
    * @return the instant the period starts
@@ -235,7 +237,7 @@ public class ActivityMcpTool implements McpToolPlugin {
       List<ExoSocialActivity> activities = activityIds.stream()
                                                       .map(activityManager::getActivity)
                                                       .filter(Objects::nonNull)
-                                                      .filter(a -> getLastChangeTime(a) > sinceTimestamp)
+                                                      .filter(a -> getLastChangeTime(a) >= sinceTimestamp)
                                                       .toList();
       if (activities.isEmpty()) {
         break;
@@ -266,7 +268,7 @@ public class ActivityMcpTool implements McpToolPlugin {
       return false;
     }
     ExoSocialActivity activity = activityManager.getActivity(activityIds.get(0));
-    return activity != null && getLastChangeTime(activity) > sinceTimestamp;
+    return activity != null && getLastChangeTime(activity) >= sinceTimestamp;
   }
 
   /**
