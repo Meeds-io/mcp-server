@@ -503,8 +503,33 @@ class ActivityMcpToolTest extends IntegrationTestBase {
   void pinAndUnpinActivity() throws Exception { // NOSONAR
     ActivityModel activity = activityMcpTool.createActivity(null, "Activity to pin", null);
 
-    activityMcpTool.pinActivity(activity.id());
-    activityMcpTool.unpinActivity(activity.id());
+    // the result is the activity as stored after the call, so the agent reports
+    // the post it acted on and its actual pinned state
+    ActivityModel pinned = activityMcpTool.pinActivity(activity.id());
+    assertEquals(activity.id(), pinned.id());
+    assertTrue(pinned.pinned());
+
+    ActivityModel unpinned = activityMcpTool.unpinActivity(activity.id());
+    assertEquals(activity.id(), unpinned.id());
+    assertFalse(unpinned.pinned());
+  }
+
+  @Test
+  void spaceManagerPinsAndUnpinsASpacePost() throws Exception { // NOSONAR
+    // the creator of a space is its manager: the pin right is the space's
+    // publish right, evaluated against the real space
+    SpaceModel space = createTestSpace();
+    ActivityModel activity = activityMcpTool.createActivity(space.getSpaceId(), "Space post to pin", null);
+
+    ActivityModel pinned = activityMcpTool.pinActivity(activity.id());
+    assertEquals(activity.id(), pinned.id());
+    assertEquals(space.getSpaceId(), pinned.space().getSpaceId());
+    assertTrue(pinned.pinned());
+    assertTrue(activityMcpTool.getActivity(activity.id()).pinned());
+
+    ActivityModel unpinned = activityMcpTool.unpinActivity(activity.id());
+    assertFalse(unpinned.pinned());
+    assertFalse(activityMcpTool.getActivity(activity.id()).pinned());
   }
 
   @Test
