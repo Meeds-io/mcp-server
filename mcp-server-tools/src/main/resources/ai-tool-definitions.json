@@ -398,7 +398,7 @@
       "space_scope": { "space_arg": "space_id", "allowed_args": ["usernames_to_remove"], "space_admin": true, "space_role": "manager" },
       "icon": "fa-users",
       "title": "Remove user from space",
-      "description": "Remove one or more users from a Space.",
+      "description": "Remove one or more users from a Space. A space always keeps at least one manager: the call is refused before any removal when the users include the space's only manager or every one of its managers. Promote another member to manager first. Report the outcome from this tool's result only, never assume it.",
       "input_schema": {
         "type": "object",
         "properties": {
@@ -430,7 +430,7 @@
       "space_scope": { "space_arg": "space_id", "allowed_args": ["username", "space_role"], "space_admin": true, "space_role": "manager" },
       "icon": "fa-users",
       "title": "Promote user in space",
-      "description": "Assign or promote a role for a confirmed member of a Space.",
+      "description": "Assign or promote a role for a confirmed member of a Space. To turn a manager back into a simple member, use remove_user_role_in_space with the MANAGER role, which refuses it for the space's only manager.",
       "input_schema": {
         "type": "object",
         "properties": {
@@ -468,7 +468,7 @@
       "space_scope": { "space_arg": "space_id", "allowed_args": ["username", "space_role"], "space_admin": true, "space_role": "manager" },
       "icon": "fa-users",
       "title": "Remove user role from space",
-      "description": "Remove a specific role from a user in a Space.",
+      "description": "Remove a specific role from a user in a Space. Removing the MANAGER role from the space's only manager is refused, since a space always keeps at least one manager: promote another member to manager first. Report the outcome from this tool's result only: on a refusal, say that the role was kept.",
       "input_schema": {
         "type": "object",
         "properties": {
@@ -850,7 +850,7 @@
       "name": "pin_activity",
       "icon": "fa-stream",
       "title": "Pin an activity in stream",
-      "description": "Pin an activity (Also Known As 'post') by its ID in the stream UI.",
+      "description": "Pin an activity (Also Known As 'post') by its ID in the stream UI. The ID is the activity's own ID, as get_activities or get_activity return it, not the content_id of a news article, a note or another content shown in the post. Returns the activity as stored after the call: report its 'pinned' field and the post's content, so the user sees which post was pinned.",
       "input_schema": {
         "type": "object",
         "properties": {
@@ -875,7 +875,7 @@
       "name": "unpin_activity",
       "icon": "fa-stream",
       "title": "Unpin an activity from stream",
-      "description": "Unpin an activity (Also Known As 'post') by its ID.",
+      "description": "Unpin an activity (Also Known As 'post') by its ID, the activity's own ID as get_activities or get_activity return it. Returns the activity as stored after the call: report its 'pinned' field.",
       "input_schema": {
         "type": "object",
         "properties": {
