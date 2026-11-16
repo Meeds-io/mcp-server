@@ -871,11 +871,13 @@ public class ActivityMcpTool implements McpToolPlugin {
    * REST layer does.
    *
    * @param activityId identifier of the activity to pin
+   * @return the activity as stored after the pin, so that the caller reports
+   *         the post it acted on and its pinned state rather than assuming them
    * @throws IllegalAccessException  when the activity isn't viewable by the
    *                                 current user or the user can't pin it
    * @throws ObjectNotFoundException when the activity doesn't exist
    */
-  public void pinActivity(long activityId) throws IllegalAccessException, ObjectNotFoundException {
+  public ActivityModel pinActivity(long activityId) throws IllegalAccessException, ObjectNotFoundException {
     org.exoplatform.services.security.Identity authenticatedUserIdentity = getCurrentUserAclIdentity();
     Identity currentUserIdentity = identityManager.getOrCreateUserIdentity(authenticatedUserIdentity.getUserId());
     ExoSocialActivity activity = activityManager.getActivity(String.valueOf(activityId));
@@ -887,6 +889,7 @@ public class ActivityMcpTool implements McpToolPlugin {
       throw new IllegalAccessException("Activity with id '%s' can't be pinned by current user".formatted(activityId));
     }
     activityManager.pinActivity(activity.getId(), currentUserIdentity.getId());
+    return toActivityModel(activity.getId());
   }
 
   /**
@@ -895,11 +898,13 @@ public class ActivityMcpTool implements McpToolPlugin {
    * as the REST layer does.
    *
    * @param activityId identifier of the activity to unpin
+   * @return the activity as stored after the unpin, so that the caller reports
+   *         the post it acted on and its pinned state rather than assuming them
    * @throws IllegalAccessException  when the activity isn't viewable by the
    *                                 current user or the user can't unpin it
    * @throws ObjectNotFoundException when the activity doesn't exist
    */
-  public void unpinActivity(long activityId) throws IllegalAccessException, ObjectNotFoundException {
+  public ActivityModel unpinActivity(long activityId) throws IllegalAccessException, ObjectNotFoundException {
     org.exoplatform.services.security.Identity authenticatedUserIdentity = getCurrentUserAclIdentity();
     Identity currentUserIdentity = identityManager.getOrCreateUserIdentity(authenticatedUserIdentity.getUserId());
     ExoSocialActivity activity = activityManager.getActivity(String.valueOf(activityId));
@@ -911,6 +916,7 @@ public class ActivityMcpTool implements McpToolPlugin {
       throw new IllegalAccessException("Activity with id '%s' can't be pinned by current user".formatted(activityId));
     }
     activityManager.unpinActivity(activity.getId());
+    return toActivityModel(activity.getId());
   }
 
   /**
