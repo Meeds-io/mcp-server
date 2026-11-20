@@ -31,6 +31,9 @@ import java.util.UUID;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 
+import tools.jackson.databind.json.JsonMapper;
+
+import org.exoplatform.commons.utils.ISO8601;
 import org.exoplatform.social.core.manager.IdentityManager;
 import org.exoplatform.social.core.space.model.Space;
 import org.exoplatform.social.core.space.spi.SpaceService;
@@ -117,6 +120,41 @@ class SpaceMcpToolTest extends IntegrationTestBase {
     List<SpaceModel> spaces = spaceMcpTool.getManagedSpaces(null, 0, 10);
 
     assertNotNull(spaces);
+  }
+
+  /**
+   * A managed space carries the creation date social stores, so one call
+   * gives how many spaces the user manages and when each was created, with
+   * no read of each space (EXO-94746). Compared to the second, so that a
+   * date given in seconds or left out fails.
+   */
+  @Test
+  void getManagedSpacesGivesEachSpaceItsCreationDate() throws Exception {// NOSONAR
+    SpaceModel created = createTestSpace();
+
+    SpaceModel managed = spaceMcpTool.getManagedSpaces(created.getName(), 0, 10)
+                                     .stream()
+                                     .filter(space -> space.getSpaceId() == created.getSpaceId())
+                                     .findFirst()
+                                     .orElseThrow();
+
+    assertNotNull(managed.getCreatedDate());
+    long stored = spaceService.getSpaceById(created.getSpaceId()).getCreatedTime();
+    assertTrue(stored > 0);
+    assertEquals(stored / 1000, ISO8601.parse(managed.getCreatedDate()).getTimeInMillis() / 1000);
+  }
+
+  /**
+   * The creation date leaves the tool under the key its description names.
+   */
+  @Test
+  void spaceCreationDateIsWrittenAsCreatedDate() {
+    SpaceModel space = new SpaceModel();
+    space.setCreatedDate("2026-11-20T07:37:42.504+01:00");
+
+    String json = JsonMapper.builder().build().writeValueAsString(space);
+
+    assertTrue(json.contains("\"created_date\":\"2026-11-20T07:37:42.504+01:00\""), json);
   }
 
   @Test
