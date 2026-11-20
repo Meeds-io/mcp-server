@@ -88,7 +88,7 @@ public class SpaceMcpTool implements McpToolPlugin {
   private static final String     MSG_SPACE_USER_NOT_DELETER = "Space with Id '%s' can't be deleted by current user";
 
   private static final String     MSG_SPACE_ID_NOT_A_SPACE = "space_id %s is not a space id: a space id is a positive number read from a tool result. "
-      + "Call get_my_spaces with the space's name as query and pass the space_id it returns, "
+      + "Call get_my_spaces (or search_spaces, when it is among your tools) with the space's name as query and pass the space_id it returns, "
       + "or, when the request names no space, ask the user which space or which people they mean.";
 
   @Autowired
