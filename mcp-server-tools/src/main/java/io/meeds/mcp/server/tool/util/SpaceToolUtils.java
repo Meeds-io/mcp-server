@@ -18,6 +18,8 @@
  */
 package io.meeds.mcp.server.tool.util;
 
+import static io.meeds.mcp.server.util.McpToolUtils.formatDate;
+
 import java.util.List;
 import java.util.Objects;
 import java.util.stream.Stream;
@@ -54,6 +56,15 @@ public class SpaceToolUtils {
     }
   }
 
+  /**
+   * Builds the space as every space tool returns it, its creation date
+   * included, so that a list of spaces needs no read of each one.
+   *
+   * @param spaceService the space service, for the user's roles
+   * @param space the space, may be null
+   * @param username the acting user
+   * @return the space's model, or null when no space was given
+   */
   public static SpaceModel toSpaceModel(SpaceService spaceService,
                                         Space space,
                                         String username) {
@@ -74,7 +85,8 @@ public class SpaceToolUtils {
                           space.getManagers().length,
                           space.getCategoryIds(),
                           getUserRoles(spaceService, space, username),
-                          space.getParentSpaceId() != null && space.getParentSpaceId() > 0 ? space.getParentSpaceId() : null);
+                          space.getParentSpaceId() != null && space.getParentSpaceId() > 0 ? space.getParentSpaceId() : null,
+                          formatDate(space.getCreatedTime()));
   }
 
   public static Visibility toVisibility(SpaceVisibility v) {
