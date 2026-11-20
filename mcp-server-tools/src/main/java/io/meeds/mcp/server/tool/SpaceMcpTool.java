@@ -87,6 +87,10 @@ public class SpaceMcpTool implements McpToolPlugin {
 
   private static final String     MSG_SPACE_USER_NOT_DELETER = "Space with Id '%s' can't be deleted by current user";
 
+  private static final String     MSG_SPACE_ID_NOT_A_SPACE = "space_id %s is not a space id: a space id is a positive number read from a tool result. "
+      + "Call get_my_spaces with the space's name as query and pass the space_id it returns, "
+      + "or, when the request names no space, ask the user which space or which people they mean.";
+
   @Autowired
   private SpaceService            spaceService;
 
@@ -608,9 +612,27 @@ public class SpaceMcpTool implements McpToolPlugin {
     spaceService.removePendingUser(space, target);
   }
 
+  /**
+   * Lists the members of a space, each with their roles in it. A space id
+   * that is zero or negative is refused before any lookup, with a text naming
+   * the tool that gives a real one: an agent sends 0 when it has no id for
+   * the team it was asked about (EXO-94786).
+   *
+   * @param spaceId technical id of the space, read from a tool result
+   * @param offset  offset of the first member to return, 0 when null
+   * @param limit   maximum number of members to return, capped
+   * @return the members the space holds, with their roles
+   * @throws IllegalArgumentException when the space id is zero or negative
+   * @throws ObjectNotFoundException  when no space has that id
+   * @throws IllegalAccessException   when the space is hidden from the
+   *                                    current user
+   */
   public List<SpaceMemberModel> getSpaceMembers(long spaceId,
                                                 Integer offset,
                                                 Integer limit) throws ObjectNotFoundException, IllegalAccessException {
+    if (spaceId <= 0) {
+      throw new IllegalArgumentException(MSG_SPACE_ID_NOT_A_SPACE.formatted(spaceId));
+    }
     String currentUsername = getCurrentUserName();
     Space space = requireSpace(spaceId);
     if (Space.HIDDEN.equals(space.getVisibility()) && !spaceService.canViewSpace(space, currentUsername)) {

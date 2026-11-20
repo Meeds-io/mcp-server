@@ -31,6 +31,7 @@ import java.util.UUID;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 
+import org.exoplatform.commons.exception.ObjectNotFoundException;
 import org.exoplatform.social.core.manager.IdentityManager;
 import org.exoplatform.social.core.space.model.Space;
 import org.exoplatform.social.core.space.spi.SpaceService;
@@ -171,6 +172,25 @@ class SpaceMcpToolTest extends IntegrationTestBase {
     assertNotNull(members);
     assertTrue(members.stream()
                       .anyMatch(m -> USERNAME.equals(m.user().getUsername()) && m.roles().contains(SpaceRole.MANAGER)));
+  }
+
+  /**
+   * A space id of 0 or below is refused before any lookup, with a text that
+   * names the argument as sent and the tool that gives a real id, never the
+   * not-found answer of an id no space holds (EXO-94786). The valid side of
+   * the guard is {@link #getSpaceMembersIncludesManagerRole()}; a positive id
+   * no space holds still gets the not-found refusal.
+   */
+  @Test
+  void getSpaceMembersRefusesASpaceIdThatIsNotASpace() {
+    for (long spaceId : new long[] { 0L, -1L }) {
+      IllegalArgumentException refusal = assertThrows(IllegalArgumentException.class,
+                                                      () -> spaceMcpTool.getSpaceMembers(spaceId, 0, 10));
+      assertTrue(refusal.getMessage().startsWith("space_id " + spaceId + " is not a space id"), refusal.getMessage());
+      assertTrue(refusal.getMessage().contains("get_my_spaces"), refusal.getMessage());
+      assertTrue(refusal.getMessage().contains("ask the user which space or which people"), refusal.getMessage());
+    }
+    assertThrows(ObjectNotFoundException.class, () -> spaceMcpTool.getSpaceMembers(Long.MAX_VALUE, 0, 10));
   }
 
   @Test
