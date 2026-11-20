@@ -268,7 +268,7 @@
       "name": "get_managed_spaces",
       "icon": "fa-users",
       "title": "Search in spaces I manage",
-      "description": "Retrieve the list of spaces where the current user is a manager.",
+      "description": "Retrieve the list of spaces where the current user is a manager, each with its creation date (created_date): one call gives how many spaces the user manages and when each was created, so read no space again for it.",
       "input_schema": {
         "type": "object",
         "properties": {

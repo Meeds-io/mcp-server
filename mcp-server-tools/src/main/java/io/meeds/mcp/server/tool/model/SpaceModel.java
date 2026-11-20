@@ -76,4 +76,11 @@ public class SpaceModel {
   @JsonProperty("parent_space_id")
   private Long            parentSpaceId;
 
+  /**
+   * The space's creation date, ISO-8601 in the acting user's time zone, so
+   * that one list of spaces answers when each was created (EXO-94746).
+   */
+  @JsonProperty("created_date")
+  private String          createdDate;
+
 }
