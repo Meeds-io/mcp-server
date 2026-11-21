@@ -411,7 +411,8 @@ public class ActivityMcpTool implements McpToolPlugin {
    * were loaded. Social's list holds one row per stream item of the user,
    * deduplicated to one id per activity, so a load can bring fewer ids than
    * asked, or no new id, while more posts follow: only an empty load ends the
-   * stream before the cap. Package-private for its unit test.
+   * stream before the cap. Each activity is read once across the loads.
+   * Package-private for its unit test.
    *
    * @param profileStream the user's profile stream, as the current user reads it
    * @param ownerIdentity the social identity of the user whose posts are read
@@ -423,10 +424,11 @@ public class ActivityMcpTool implements McpToolPlugin {
                                                   int needed) {
     int toLoad = needed;
     int maxToLoad = needed + MAX_EXTRA_LOADED_POSTS;
+    Map<String, ExoSocialActivity> read = new HashMap<>();
     while (true) {
       List<String> ids = profileStream.loadIdsAsList(0, toLoad);
       List<ExoSocialActivity> posted = ids.stream()
-                                          .map(activityManager::getActivity)
+                                          .map(id -> read.computeIfAbsent(id, activityManager::getActivity))
                                           .filter(Objects::nonNull)
                                           .filter(activity -> Objects.equals(activity.getPosterId(), ownerIdentity.getId()))
                                           .toList();
