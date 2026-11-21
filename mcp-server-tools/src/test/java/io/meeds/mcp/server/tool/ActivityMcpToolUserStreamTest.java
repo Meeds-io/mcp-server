@@ -20,6 +20,7 @@ package io.meeds.mcp.server.tool;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.util.List;
@@ -30,6 +31,9 @@ import org.springframework.beans.factory.annotation.Autowired;
 
 import org.exoplatform.services.security.ConversationState;
 import org.exoplatform.services.security.Identity;
+import org.exoplatform.social.core.activity.model.ExoSocialActivity;
+import org.exoplatform.social.core.activity.model.ExoSocialActivityImpl;
+import org.exoplatform.social.core.manager.ActivityManager;
 import org.exoplatform.social.core.manager.IdentityManager;
 import org.exoplatform.social.core.space.model.Space;
 import org.exoplatform.social.core.space.spi.SpaceService;
@@ -43,10 +47,10 @@ import io.meeds.mcp.server.tool.model.SpaceTemplateModel;
 import io.meeds.mcp.server.tool.test.IntegrationTestBase;
 
 /**
- * The posts {@code get_user_activity_stream} returns for another user: social's
- * profile stream holds only that user's posts outside spaces, so the tool adds
- * their posts in the spaces both users are members of, and nothing from a
- * space the current user can't view (EXO-94931).
+ * The posts {@code get_user_activity_stream} returns for a user: only the ones
+ * that user posted, on the profile stream and, for another user, in the spaces
+ * both users share, and nothing from a space the current user can't view
+ * (EXO-94931).
  */
 class ActivityMcpToolUserStreamTest extends IntegrationTestBase {
 
@@ -68,6 +72,9 @@ class ActivityMcpToolUserStreamTest extends IntegrationTestBase {
 
   @Autowired
   private IdentityManager      identityManager;
+
+  @Autowired
+  private ActivityManager      activityManager;
 
   /**
    * Another user's newest post, made in a space both users are members of,
@@ -94,6 +101,53 @@ class ActivityMcpToolUserStreamTest extends IntegrationTestBase {
     assertFalse(posts.isEmpty(), "the space post of " + POSTER + " is missing");
     assertEquals(spacePost.id(), posts.get(0).id());
     assertTrue(ids(posts).contains(profilePost.id()), "the profile post of " + POSTER + " is missing");
+  }
+
+  /**
+   * A newer post by someone else that the user commented on sits in the user's
+   * profile stream, but it is not one of their posts: it is left out, the
+   * user's own older post stays. Mutant: the poster filter on the profile
+   * stream removed.
+   *
+   * @throws Exception when a fixture can't be created
+   */
+  @Test
+  void aPostTheUserOnlyCommentedOnIsLeftOut() throws Exception {
+    org.exoplatform.social.core.identity.model.Identity posterIdentity = identityManager.getOrCreateUserIdentity(POSTER);
+    identityManager.getOrCreateUserIdentity(OUTSIDER);
+    actAs(POSTER);
+    ActivityModel ownPost = activityMcpTool.createActivity(null, "Own post " + UUID.randomUUID(), null);
+    pause();
+    actAs(OUTSIDER);
+    ActivityModel otherPost = activityMcpTool.createActivity(null, "Someone else's post " + UUID.randomUUID(), null);
+    pause();
+    ExoSocialActivity comment = new ExoSocialActivityImpl();
+    comment.setTitle("A comment " + UUID.randomUUID());
+    comment.setUserId(posterIdentity.getId());
+    activityManager.saveComment(activityManager.getActivity(String.valueOf(otherPost.id())), comment);
+
+    actAs(USERNAME);
+    List<Long> posts = ids(activityMcpTool.getUserActivityStream(POSTER, 0, 10));
+
+    assertTrue(posts.contains(ownPost.id()), "the post of " + POSTER + " is missing");
+    assertFalse(posts.contains(otherPost.id()), "a post " + POSTER + " only commented on is listed");
+  }
+
+  /**
+   * An offset past the deepest page is refused with a message naming what to
+   * use instead, and the deepest page itself is read. Mutant: the offset cap
+   * removed.
+   *
+   * @throws Exception when a fixture can't be created
+   */
+  @Test
+  void anOffsetPastTheDeepestPageIsRefused() throws Exception {
+    identityManager.getOrCreateUserIdentity(POSTER);
+
+    assertEquals(List.of(), activityMcpTool.getUserActivityStream(POSTER, 1000, 10));
+    IllegalArgumentException refusal = assertThrows(IllegalArgumentException.class,
+                                                    () -> activityMcpTool.getUserActivityStream(POSTER, Integer.MAX_VALUE, 10));
+    assertTrue(refusal.getMessage().contains("search_activities"), refusal.getMessage());
   }
 
   /**

@@ -45,8 +45,9 @@ import org.exoplatform.social.core.manager.IdentityManager;
 import org.exoplatform.social.core.space.model.Space;
 
 /**
- * How {@link ActivityMcpTool#getPostsInSpace} reads another user's posts in
- * one space for {@code get_user_activity_stream} (EXO-94931).
+ * How {@link ActivityMcpTool#getPostsInSpace} reads a user's posts in one
+ * space, and {@link ActivityMcpTool#getPostsOnProfileStream} on their profile
+ * stream, for {@code get_user_activity_stream} (EXO-94931).
  */
 class ActivityMcpToolPostsInSpaceTest {
 
@@ -180,6 +181,27 @@ class ActivityMcpToolPostsInSpaceTest {
 
     assertEquals(List.of(), posts);
     assertEquals(501, sizes.get(sizes.size() - 1));
+  }
+
+  /**
+   * On the profile stream, a post by someone else the user reacted to does not
+   * take the place of the user's own newest post: it is left out and the load
+   * grows past it. Mutants: the poster filter removed; no reload.
+   */
+  @Test
+  void aProfilePostBySomeoneElseDoesNotHideTheUsersNewestOne() {
+    ExoSocialActivity reacted = activity("20", false);
+    ExoSocialActivity own = activity("21", false);
+    when(reacted.getPosterId()).thenReturn("9");
+    when(own.getPosterId()).thenReturn("2");
+    when(activityManager.getActivity("20")).thenReturn(reacted);
+    when(activityManager.getActivity("21")).thenReturn(own);
+    when(listAccess.loadIdsAsList(0, 1)).thenReturn(List.of("20"));
+    when(listAccess.loadIdsAsList(0, 2)).thenReturn(List.of("20", "21"));
+
+    List<ExoSocialActivity> posts = activityMcpTool.getPostsOnProfileStream(listAccess, ownerIdentity, 1);
+
+    assertEquals(List.of(own), posts);
   }
 
   /**

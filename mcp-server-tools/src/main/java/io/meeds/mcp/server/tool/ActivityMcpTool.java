@@ -113,6 +113,12 @@ public class ActivityMcpTool implements McpToolPlugin {
    */
   private static final int        MAX_EXTRA_SPACE_POSTS    = 500;
 
+  /**
+   * The deepest offset a user stream pages to: every source is read from its
+   * first post, so a deeper page costs more than a search.
+   */
+  private static final int        MAX_USER_STREAM_OFFSET   = 1000;
+
   private static final String     ACTIVITY_ACCESS_DENIED   = "Activity with id '%s' isn't accessible for user";
 
   private static final String     ACTIVITY_NOT_FOUND       =
@@ -338,11 +344,13 @@ public class ActivityMcpTool implements McpToolPlugin {
 
   /**
    * Lists a page of the posts of a user, as the current user sees them,
-   * newest first. For the user's own posts it is their stream, spaces
-   * included. For another user's posts, social's profile stream holds only
-   * the posts made outside spaces, so the posts that user made in the spaces
-   * both users are members of are added, each one checked as viewable by the
-   * current user.
+   * newest first. Social's profile stream also holds the posts the user
+   * commented on, liked or was mentioned in, so only the ones the user posted
+   * are kept. For the user's own posts that stream holds their space posts
+   * too. For another user's posts it holds only the posts made outside
+   * spaces, so the posts that user made in the spaces both users have a
+   * membership of are added, each one checked as viewable by the current
+   * user.
    *
    * @param username the user whose posts to read, with or without a leading
    *                   {@code @}
@@ -352,6 +360,8 @@ public class ActivityMcpTool implements McpToolPlugin {
    * @return the activities, each one with its author and space reduced to
    *         what names them, the most recently changed first
    * @throws ObjectNotFoundException when the user doesn't exist
+   * @throws IllegalArgumentException when the offset is over
+   *           {@link #MAX_USER_STREAM_OFFSET}
    */
   public List<ActivitySummaryModel> getUserActivityStream(String username,
                                                    Integer offset,
@@ -364,26 +374,23 @@ public class ActivityMcpTool implements McpToolPlugin {
     }
     Identity viewerIdentity = identityManager.getOrCreateUserIdentity(viewer.getUserId());
     int pageOffset = Math.max(0, getInteger(offset, DEFAULT_OFFSET));
+    if (pageOffset > MAX_USER_STREAM_OFFSET) {
+      throw new IllegalArgumentException(("The offset %d is over %d, the deepest page of a user's posts. "
+          + "To find an older post, use search_activities with words from it.").formatted(pageOffset,
+                                                                                            MAX_USER_STREAM_OFFSET));
+    }
     int pageLimit = clampLimit(limit, DEFAULT_LIMIT);
+    int needed = pageOffset + pageLimit;
     RealtimeListAccess<ExoSocialActivity> profileStream = activityManager.getActivitiesWithListAccess(ownerIdentity,
                                                                                                       viewerIdentity);
-    if (Objects.equals(viewerIdentity.getId(), ownerIdentity.getId())) {
-      return profileStream.loadIdsAsList(pageOffset, pageLimit)
-                          .stream()
-                          .map(this::toActivitySummaryModel)
-                          .filter(Objects::nonNull)
-                          .toList();
-    }
-    int needed = pageOffset + pageLimit;
     Map<String, ExoSocialActivity> posts = new LinkedHashMap<>();
-    profileStream.loadIdsAsList(0, needed)
-                 .stream()
-                 .map(activityManager::getActivity)
-                 .filter(Objects::nonNull)
-                 .forEach(activity -> posts.putIfAbsent(activity.getId(), activity));
-    for (Space space : getCommonSpaces(viewer.getUserId(), targetUsername)) {
-      getPostsInSpace(viewer, viewerIdentity, ownerIdentity, space, needed).forEach(activity -> posts.putIfAbsent(activity.getId(),
-                                                                                                                  activity));
+    getPostsOnProfileStream(profileStream, ownerIdentity, needed).forEach(activity -> posts.putIfAbsent(activity.getId(),
+                                                                                                       activity));
+    if (!Objects.equals(viewerIdentity.getId(), ownerIdentity.getId())) {
+      for (Space space : getCommonSpaces(viewer.getUserId(), targetUsername)) {
+        getPostsInSpace(viewer, viewerIdentity, ownerIdentity, space, needed).forEach(activity -> posts.putIfAbsent(activity.getId(),
+                                                                                                                    activity));
+      }
     }
     return posts.values()
                 .stream()
@@ -396,9 +403,40 @@ public class ActivityMcpTool implements McpToolPlugin {
   }
 
   /**
+   * Reads the most recent posts a user posted from their profile stream,
+   * which also lists the posts they commented on, liked or were mentioned in.
+   * The load grows until it holds the needed number of the user's own posts,
+   * the stream has no more, or {@link #MAX_EXTRA_SPACE_POSTS} more than needed
+   * were loaded. Package-private for its unit test.
+   *
+   * @param profileStream the user's profile stream, as the current user reads it
+   * @param ownerIdentity the social identity of the user whose posts are read
+   * @param needed        how many of the newest posts are needed
+   * @return the posts, possibly empty
+   */
+  List<ExoSocialActivity> getPostsOnProfileStream(RealtimeListAccess<ExoSocialActivity> profileStream,
+                                                  Identity ownerIdentity,
+                                                  int needed) {
+    int toLoad = needed;
+    int maxToLoad = needed + MAX_EXTRA_SPACE_POSTS;
+    while (true) {
+      List<String> ids = profileStream.loadIdsAsList(0, toLoad);
+      List<ExoSocialActivity> posted = ids.stream()
+                                          .map(activityManager::getActivity)
+                                          .filter(Objects::nonNull)
+                                          .filter(activity -> Objects.equals(activity.getPosterId(), ownerIdentity.getId()))
+                                          .toList();
+      if (ids.size() < toLoad || posted.size() >= needed || toLoad >= maxToLoad) {
+        return posted;
+      }
+      toLoad = Math.min(maxToLoad, toLoad + Math.max(needed - posted.size(), toLoad));
+    }
+  }
+
+  /**
    * Reads the spaces two users have a membership of, whatever its status
    * (social's common spaces include an invitation or a pending request), at
-   * most {@link #MAX_TO_LOAD}.
+   * most {@link #MAX_TO_LOAD}, in no particular order.
    *
    * @param viewerUsername the current user
    * @param ownerUsername  the user whose posts are read
@@ -410,7 +448,7 @@ public class ActivityMcpTool implements McpToolPlugin {
       return spaces == null ? Collections.emptyList() : List.of(spaces);
     } catch (Exception e) {
       LOG.debug("Unable to read the spaces common to {} and {}", viewerUsername, ownerUsername, e);
-      throw new IllegalStateException("The spaces of user '%s' could not be read".formatted(ownerUsername));
+      throw new IllegalStateException("The spaces of user '%s' could not be read".formatted(ownerUsername), e);
     }
   }
 
