@@ -107,6 +107,12 @@ public class ActivityMcpTool implements McpToolPlugin {
 
   private static final int        MAX_TO_LOAD              = 100;
 
+  /**
+   * How many posts of one space a user stream may load past the ones it needs,
+   * to make up for pinned posts and for posts the current user can't view.
+   */
+  private static final int        MAX_EXTRA_SPACE_POSTS    = 500;
+
   private static final String     ACTIVITY_ACCESS_DENIED   = "Activity with id '%s' isn't accessible for user";
 
   private static final String     ACTIVITY_NOT_FOUND       =
@@ -413,8 +419,10 @@ public class ActivityMcpTool implements McpToolPlugin {
    * posts the current user can view. Social refuses the space's list to a
    * current user who can't view the space (neither a member nor a space
    * super-manager), and that space is then skipped. A space stream lists its
-   * pinned posts first, so the load grows by the number of pinned posts until
-   * the newest ones are all in. Package-private for its unit test.
+   * pinned posts first, and some posts may be hidden from the current user, so
+   * the load grows until it holds the needed number of viewable posts that are
+   * not pinned, the space has no more, or {@link #MAX_EXTRA_SPACE_POSTS} more
+   * than needed were loaded. Package-private for its unit test.
    *
    * @param viewer         the current user
    * @param viewerIdentity the current user's social identity
@@ -447,17 +455,19 @@ public class ActivityMcpTool implements McpToolPlugin {
       return Collections.emptyList();
     }
     int toLoad = needed;
-    List<ExoSocialActivity> loaded = listAccess.loadAsList(0, toLoad);
-    long pinned = loaded.stream().filter(ExoSocialActivity::isPinned).count();
-    while (loaded.size() == toLoad && toLoad < needed + pinned) {
-      toLoad = (int) (needed + pinned);
-      loaded = listAccess.loadAsList(0, toLoad);
-      pinned = loaded.stream().filter(ExoSocialActivity::isPinned).count();
+    int maxToLoad = needed + MAX_EXTRA_SPACE_POSTS;
+    while (true) {
+      List<ExoSocialActivity> loaded = listAccess.loadAsList(0, toLoad);
+      List<ExoSocialActivity> viewable = loaded.stream()
+                                               .filter(Objects::nonNull)
+                                               .filter(activity -> activityManager.isActivityViewable(activity, viewer))
+                                               .toList();
+      long newest = viewable.stream().filter(activity -> !activity.isPinned()).count();
+      if (loaded.size() < toLoad || newest >= needed || toLoad >= maxToLoad) {
+        return viewable;
+      }
+      toLoad = (int) Math.min(maxToLoad, (long) toLoad + Math.max(needed - newest, toLoad));
     }
-    return loaded.stream()
-                 .filter(Objects::nonNull)
-                 .filter(activity -> activityManager.isActivityViewable(activity, viewer))
-                 .toList();
   }
 
   public ActivityModel getActivity(long activityId) throws IllegalAccessException, ObjectNotFoundException {

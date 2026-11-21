@@ -19,12 +19,15 @@
 package io.meeds.mcp.server.tool;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
+import java.util.ArrayList;
 import java.util.List;
 
 import org.junit.jupiter.api.BeforeEach;
@@ -133,6 +136,50 @@ class ActivityMcpToolPostsInSpaceTest {
     List<ExoSocialActivity> posts = activityMcpTool.getPostsInSpace(viewer, viewerIdentity, ownerIdentity, space, 5);
 
     assertEquals(List.of(shown), posts);
+  }
+
+  /**
+   * A post the current user can't view does not take the place of a newer
+   * one they can: the load grows past it. Mutant: no reload after the
+   * viewable filter.
+   */
+  @Test
+  void aHiddenPostDoesNotHideTheNewestViewableOne() {
+    ExoSocialActivity hidden = activity("14", false);
+    ExoSocialActivity shown = activity("15", false);
+    when(listAccess.loadAsList(0, 1)).thenReturn(List.of(hidden));
+    when(listAccess.loadAsList(0, 2)).thenReturn(List.of(hidden, shown));
+    when(activityManager.isActivityViewable(hidden, viewer)).thenReturn(false);
+
+    List<ExoSocialActivity> posts = activityMcpTool.getPostsInSpace(viewer, viewerIdentity, ownerIdentity, space, 1);
+
+    assertEquals(List.of(shown), posts);
+  }
+
+  /**
+   * A space whose posts are all hidden from the current user stops growing
+   * its load once 500 more posts than needed were read. Mutant: the cap
+   * removed (the load never ends).
+   */
+  @Test
+  void aSpaceOfHiddenPostsStopsAtTheLoadCap() {
+    List<Integer> sizes = new ArrayList<>();
+    when(listAccess.loadAsList(eq(0), anyInt())).thenAnswer(invocation -> {
+      int size = invocation.getArgument(1);
+      sizes.add(size);
+      assertTrue(sizes.size() < 50, "the load does not stop");
+      List<ExoSocialActivity> page = new ArrayList<>();
+      for (int i = 0; i < size; i++) {
+        page.add(activity("h" + i, false));
+      }
+      return page;
+    });
+    when(activityManager.isActivityViewable(any(), eq(viewer))).thenReturn(false);
+
+    List<ExoSocialActivity> posts = activityMcpTool.getPostsInSpace(viewer, viewerIdentity, ownerIdentity, space, 1);
+
+    assertEquals(List.of(), posts);
+    assertEquals(501, sizes.get(sizes.size() - 1));
   }
 
   /**

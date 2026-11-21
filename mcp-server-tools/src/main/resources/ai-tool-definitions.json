@@ -681,7 +681,7 @@
       "name": "get_user_activity_stream",
       "icon": "fa-stream",
       "title": "Get a user's activity stream",
-      "description": "Retrieve the activities (Also Known As 'posts') a given user posted, the most recent first: on their profile stream and, for another user, in the spaces you both are members of, filtered to what the current user is allowed to see. An empty list means that user has no post the current user can see. Compact items; get_activity for details.",
+      "description": "Retrieve the activities (Also Known As 'posts') a given user posted, the most recent first: on their profile stream and, for another user, in the spaces you share with them (at most 100), filtered to what the current user is allowed to see. A post in a space that user has since left is not listed, so an empty list means no post was found, not that none exists. Compact items; get_activity for details.",
       "input_schema": {
         "type": "object",
         "properties": {
