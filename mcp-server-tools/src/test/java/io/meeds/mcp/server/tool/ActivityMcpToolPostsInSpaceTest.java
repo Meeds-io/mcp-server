@@ -181,7 +181,7 @@ class ActivityMcpToolPostsInSpaceTest {
     List<ExoSocialActivity> posts = activityMcpTool.getPostsInSpace(viewer, viewerIdentity, ownerIdentity, space, 1);
 
     assertEquals(List.of(), posts);
-    assertEquals(501, sizes.get(sizes.size() - 1));
+    assertEquals(List.of(1, 2, 4, 8, 16, 32, 64, 128, 256, 501), sizes);
   }
 
   /**
@@ -252,7 +252,30 @@ class ActivityMcpToolPostsInSpaceTest {
     List<ExoSocialActivity> posts = activityMcpTool.getPostsOnProfileStream(listAccess, ownerIdentity, 1);
 
     assertEquals(List.of(), posts);
-    assertEquals(501, sizes.get(sizes.size() - 1));
+    assertEquals(List.of(1, 2, 4, 8, 16, 32, 64, 128, 256, 501), sizes);
+  }
+
+  /**
+   * A larger profile load can bring no new id while the user's post follows:
+   * the rows of one activity (a mention of the user, then their reply) are
+   * deduplicated. Such a load is not read as the end of the stream. Mutant: a
+   * load bringing no new id taken as the end.
+   */
+  @Test
+  void aProfileLoadWithNoNewIdIsNotTheEndOfTheStream() {
+    ExoSocialActivity mentioned = activity("30", false);
+    ExoSocialActivity own = activity("31", false);
+    when(mentioned.getPosterId()).thenReturn("9");
+    when(own.getPosterId()).thenReturn("2");
+    when(activityManager.getActivity("30")).thenReturn(mentioned);
+    when(activityManager.getActivity("31")).thenReturn(own);
+    when(listAccess.loadIdsAsList(0, 1)).thenReturn(List.of("30"));
+    when(listAccess.loadIdsAsList(0, 2)).thenReturn(List.of("30"));
+    when(listAccess.loadIdsAsList(0, 4)).thenReturn(List.of("30", "31"));
+
+    List<ExoSocialActivity> posts = activityMcpTool.getPostsOnProfileStream(listAccess, ownerIdentity, 1);
+
+    assertEquals(List.of(own), posts);
   }
 
   /**

@@ -408,10 +408,10 @@ public class ActivityMcpTool implements McpToolPlugin {
    * which also lists the posts they commented on, liked or were mentioned in.
    * The load grows until it holds the needed number of the user's own posts,
    * the stream has no more, or {@link #MAX_EXTRA_LOADED_POSTS} more than needed
-   * were loaded. Social's list can hold fewer ids than asked while more
-   * follow (an activity with several stream items of the user counts once),
-   * so the stream ends only when a larger load brings nothing new.
-   * Package-private for its unit test.
+   * were loaded. Social's list holds one row per stream item of the user,
+   * deduplicated to one id per activity, so a load can bring fewer ids than
+   * asked, or no new id, while more posts follow: only an empty load ends the
+   * stream before the cap. Package-private for its unit test.
    *
    * @param profileStream the user's profile stream, as the current user reads it
    * @param ownerIdentity the social identity of the user whose posts are read
@@ -423,7 +423,6 @@ public class ActivityMcpTool implements McpToolPlugin {
                                                   int needed) {
     int toLoad = needed;
     int maxToLoad = needed + MAX_EXTRA_LOADED_POSTS;
-    int previous = -1;
     while (true) {
       List<String> ids = profileStream.loadIdsAsList(0, toLoad);
       List<ExoSocialActivity> posted = ids.stream()
@@ -431,10 +430,9 @@ public class ActivityMcpTool implements McpToolPlugin {
                                           .filter(Objects::nonNull)
                                           .filter(activity -> Objects.equals(activity.getPosterId(), ownerIdentity.getId()))
                                           .toList();
-      if (ids.size() <= previous || ids.isEmpty() || posted.size() >= needed || toLoad >= maxToLoad) {
+      if (ids.isEmpty() || posted.size() >= needed || toLoad >= maxToLoad) {
         return posted;
       }
-      previous = ids.size();
       toLoad = Math.min(maxToLoad, toLoad + Math.max(needed - posted.size(), toLoad));
     }
   }
