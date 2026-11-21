@@ -108,10 +108,11 @@ public class ActivityMcpTool implements McpToolPlugin {
   private static final int        MAX_TO_LOAD              = 100;
 
   /**
-   * How many posts of one space a user stream may load past the ones it needs,
-   * to make up for pinned posts and for posts the current user can't view.
+   * How many entries of one source of a user stream (the profile stream or a
+   * space stream) may be loaded past the ones it needs, to make up for pinned
+   * posts, posts the current user can't view and posts by someone else.
    */
-  private static final int        MAX_EXTRA_SPACE_POSTS    = 500;
+  private static final int        MAX_EXTRA_LOADED_POSTS   = 500;
 
   /**
    * The deepest offset a user stream pages to: every source is read from its
@@ -406,8 +407,11 @@ public class ActivityMcpTool implements McpToolPlugin {
    * Reads the most recent posts a user posted from their profile stream,
    * which also lists the posts they commented on, liked or were mentioned in.
    * The load grows until it holds the needed number of the user's own posts,
-   * the stream has no more, or {@link #MAX_EXTRA_SPACE_POSTS} more than needed
-   * were loaded. Package-private for its unit test.
+   * the stream has no more, or {@link #MAX_EXTRA_LOADED_POSTS} more than needed
+   * were loaded. Social's list can hold fewer ids than asked while more
+   * follow (an activity with several stream items of the user counts once),
+   * so the stream ends only when a larger load brings nothing new.
+   * Package-private for its unit test.
    *
    * @param profileStream the user's profile stream, as the current user reads it
    * @param ownerIdentity the social identity of the user whose posts are read
@@ -418,7 +422,8 @@ public class ActivityMcpTool implements McpToolPlugin {
                                                   Identity ownerIdentity,
                                                   int needed) {
     int toLoad = needed;
-    int maxToLoad = needed + MAX_EXTRA_SPACE_POSTS;
+    int maxToLoad = needed + MAX_EXTRA_LOADED_POSTS;
+    int previous = -1;
     while (true) {
       List<String> ids = profileStream.loadIdsAsList(0, toLoad);
       List<ExoSocialActivity> posted = ids.stream()
@@ -426,9 +431,10 @@ public class ActivityMcpTool implements McpToolPlugin {
                                           .filter(Objects::nonNull)
                                           .filter(activity -> Objects.equals(activity.getPosterId(), ownerIdentity.getId()))
                                           .toList();
-      if (ids.size() < toLoad || posted.size() >= needed || toLoad >= maxToLoad) {
+      if (ids.size() <= previous || ids.isEmpty() || posted.size() >= needed || toLoad >= maxToLoad) {
         return posted;
       }
+      previous = ids.size();
       toLoad = Math.min(maxToLoad, toLoad + Math.max(needed - posted.size(), toLoad));
     }
   }
@@ -459,8 +465,9 @@ public class ActivityMcpTool implements McpToolPlugin {
    * super-manager), and that space is then skipped. A space stream lists its
    * pinned posts first, and some posts may be hidden from the current user, so
    * the load grows until it holds the needed number of viewable posts that are
-   * not pinned, the space has no more, or {@link #MAX_EXTRA_SPACE_POSTS} more
-   * than needed were loaded. Package-private for its unit test.
+   * not pinned, the space has no more (a larger load brings nothing new), or
+   * {@link #MAX_EXTRA_LOADED_POSTS} more than needed were loaded.
+   * Package-private for its unit test.
    *
    * @param viewer         the current user
    * @param viewerIdentity the current user's social identity
@@ -493,7 +500,8 @@ public class ActivityMcpTool implements McpToolPlugin {
       return Collections.emptyList();
     }
     int toLoad = needed;
-    int maxToLoad = needed + MAX_EXTRA_SPACE_POSTS;
+    int maxToLoad = needed + MAX_EXTRA_LOADED_POSTS;
+    int previous = -1;
     while (true) {
       List<ExoSocialActivity> loaded = listAccess.loadAsList(0, toLoad);
       List<ExoSocialActivity> viewable = loaded.stream()
@@ -501,9 +509,10 @@ public class ActivityMcpTool implements McpToolPlugin {
                                                .filter(activity -> activityManager.isActivityViewable(activity, viewer))
                                                .toList();
       long newest = viewable.stream().filter(activity -> !activity.isPinned()).count();
-      if (loaded.size() < toLoad || newest >= needed || toLoad >= maxToLoad) {
+      if (loaded.size() <= previous || loaded.isEmpty() || newest >= needed || toLoad >= maxToLoad) {
         return viewable;
       }
+      previous = loaded.size();
       toLoad = (int) Math.min(maxToLoad, (long) toLoad + Math.max(needed - newest, toLoad));
     }
   }

@@ -22,6 +22,7 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyInt;
+import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verify;
@@ -131,7 +132,7 @@ class ActivityMcpToolPostsInSpaceTest {
   void aPostTheCurrentUserCannotViewIsLeftOut() {
     ExoSocialActivity hidden = activity("12", false);
     ExoSocialActivity shown = activity("13", false);
-    when(listAccess.loadAsList(0, 5)).thenReturn(List.of(hidden, shown));
+    when(listAccess.loadAsList(eq(0), anyInt())).thenReturn(List.of(hidden, shown));
     when(activityManager.isActivityViewable(hidden, viewer)).thenReturn(false);
 
     List<ExoSocialActivity> posts = activityMcpTool.getPostsInSpace(viewer, viewerIdentity, ownerIdentity, space, 5);
@@ -202,6 +203,56 @@ class ActivityMcpToolPostsInSpaceTest {
     List<ExoSocialActivity> posts = activityMcpTool.getPostsOnProfileStream(listAccess, ownerIdentity, 1);
 
     assertEquals(List.of(own), posts);
+  }
+
+  /**
+   * Social's profile list may hold fewer ids than asked while more follow: an
+   * activity with several stream items of the user counts once. A short list
+   * is not read as the end of the stream. Mutant: a short list taken as the
+   * end.
+   */
+  @Test
+  void aShortProfileListIsNotTheEndOfTheStream() {
+    ExoSocialActivity newest = activity("21", false);
+    ExoSocialActivity older = activity("22", false);
+    when(newest.getPosterId()).thenReturn("2");
+    when(older.getPosterId()).thenReturn("2");
+    when(activityManager.getActivity("21")).thenReturn(newest);
+    when(activityManager.getActivity("22")).thenReturn(older);
+    when(listAccess.loadIdsAsList(0, 2)).thenReturn(List.of("21"));
+    when(listAccess.loadIdsAsList(0, 4)).thenReturn(List.of("21", "22"));
+
+    List<ExoSocialActivity> posts = activityMcpTool.getPostsOnProfileStream(listAccess, ownerIdentity, 2);
+
+    assertEquals(List.of(newest, older), posts);
+  }
+
+  /**
+   * A profile stream full of posts by someone else stops growing its load
+   * once 500 more entries than needed were read. Mutant: the cap removed (the
+   * load never ends).
+   */
+  @Test
+  void aProfileStreamOfOthersPostsStopsAtTheLoadCap() {
+    List<Integer> sizes = new ArrayList<>();
+    when(listAccess.loadIdsAsList(eq(0), anyInt())).thenAnswer(invocation -> {
+      int size = invocation.getArgument(1);
+      sizes.add(size);
+      assertTrue(sizes.size() < 50, "the load does not stop");
+      List<String> ids = new ArrayList<>();
+      for (int i = 0; i < size; i++) {
+        ids.add("o" + i);
+      }
+      return ids;
+    });
+    ExoSocialActivity reacted = activity("o", false);
+    when(reacted.getPosterId()).thenReturn("9");
+    when(activityManager.getActivity(anyString())).thenReturn(reacted);
+
+    List<ExoSocialActivity> posts = activityMcpTool.getPostsOnProfileStream(listAccess, ownerIdentity, 1);
+
+    assertEquals(List.of(), posts);
+    assertEquals(501, sizes.get(sizes.size() - 1));
   }
 
   /**
