@@ -258,8 +258,8 @@ class ActivityMcpToolPostsInSpaceTest {
   /**
    * A larger profile load can bring no new id while the user's post follows:
    * the rows of one activity (a mention of the user, then their reply) are
-   * deduplicated. Such a load is not read as the end of the stream. Mutant: a
-   * load bringing no new id taken as the end.
+   * deduplicated. Such a load is not read as the end of the stream. Mutant:
+   * a list shorter than asked taken as the end (short-list-ends).
    */
   @Test
   void aProfileLoadWithNoNewIdIsNotTheEndOfTheStream() {

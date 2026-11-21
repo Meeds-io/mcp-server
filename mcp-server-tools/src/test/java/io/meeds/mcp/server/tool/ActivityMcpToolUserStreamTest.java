@@ -161,14 +161,14 @@ class ActivityMcpToolUserStreamTest extends IntegrationTestBase {
    */
   @Test
   void aPostInASpaceTheCurrentUserIsOnlyInvitedToIsLeftOut() throws Exception {
-    Space space = invitedOnlySpaceWithAPostOfTheOutsider(POSTER);
-    assertFalse(spaceService.isMember(space, POSTER), POSTER + " must be invited only");
+    InvitedOnly fixture = invitedOnlySpaceWithAPostOfTheOutsider(POSTER);
+    assertFalse(spaceService.isMember(fixture.space(), POSTER), POSTER + " must be invited only");
     assertFalse(spaceService.isSuperManager(POSTER), POSTER + " must not be a space super manager for this case");
 
     actAs(POSTER);
-    List<ActivitySummaryModel> posts = activityMcpTool.getUserActivityStream(OUTSIDER, 0, 10);
+    List<ActivitySummaryModel> posts = activityMcpTool.getUserActivityStream(OUTSIDER, 0, 100);
 
-    assertEquals(List.of(), ids(posts));
+    assertFalse(ids(posts).contains(fixture.postId()), "the post of a space " + POSTER + " is only invited to is listed");
   }
 
   /**
@@ -180,14 +180,14 @@ class ActivityMcpToolUserStreamTest extends IntegrationTestBase {
    */
   @Test
   void aSpaceSuperManagerSeesThePostOfASpaceTheyAreOnlyInvitedTo() throws Exception {
-    Space space = invitedOnlySpaceWithAPostOfTheOutsider(USERNAME);
-    assertFalse(spaceService.isMember(space, USERNAME), USERNAME + " must be invited only");
+    InvitedOnly fixture = invitedOnlySpaceWithAPostOfTheOutsider(USERNAME);
+    assertFalse(spaceService.isMember(fixture.space(), USERNAME), USERNAME + " must be invited only");
     assertTrue(spaceService.isSuperManager(USERNAME), USERNAME + " must be a space super manager for this case");
 
     actAs(USERNAME);
-    List<ActivitySummaryModel> posts = activityMcpTool.getUserActivityStream(OUTSIDER, 0, 10);
+    List<ActivitySummaryModel> posts = activityMcpTool.getUserActivityStream(OUTSIDER, 0, 100);
 
-    assertEquals(1, posts.size());
+    assertTrue(ids(posts).contains(fixture.postId()), "the super manager does not get the space's post");
   }
 
   /**
@@ -195,18 +195,26 @@ class ActivityMcpToolUserStreamTest extends IntegrationTestBase {
    * neither joins nor is a member.
    *
    * @param invitee the invited user
-   * @return the space
+   * @return the space and the id of the outsider's post in it
    * @throws Exception when a fixture can't be created
    */
-  private Space invitedOnlySpaceWithAPostOfTheOutsider(String invitee) throws Exception {
+  private InvitedOnly invitedOnlySpaceWithAPostOfTheOutsider(String invitee) throws Exception {
     identityManager.getOrCreateUserIdentity(OUTSIDER);
     identityManager.getOrCreateUserIdentity(invitee);
     actAs(OUTSIDER);
     SpaceModel spaceModel = createSpace();
-    activityMcpTool.createActivity(spaceModel.getSpaceId(), "Members only " + UUID.randomUUID(), null);
-    Space space = spaceService.getSpaceById(spaceModel.getSpaceId());
-    spaceService.addInvitedUser(space, invitee);
-    return spaceService.getSpaceById(spaceModel.getSpaceId());
+    ActivityModel post = activityMcpTool.createActivity(spaceModel.getSpaceId(), "Members only " + UUID.randomUUID(), null);
+    spaceService.addInvitedUser(spaceService.getSpaceById(spaceModel.getSpaceId()), invitee);
+    return new InvitedOnly(spaceService.getSpaceById(spaceModel.getSpaceId()), post.id());
+  }
+
+  /**
+   * A space the invitee is only invited to, and the outsider's post in it.
+   *
+   * @param space  the space
+   * @param postId the post's id
+   */
+  private record InvitedOnly(Space space, long postId) {
   }
 
   /**
