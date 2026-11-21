@@ -681,7 +681,7 @@
       "name": "get_user_activity_stream",
       "icon": "fa-stream",
       "title": "Get a user's activity stream",
-      "description": "Retrieve the activities (Also Known As 'posts') on a given user's profile stream, filtered to what the current user is allowed to see. Compact items; get_activity for details.",
+      "description": "Retrieve the activities (Also Known As 'posts') a given user posted, the most recent first: on their profile stream and, for another user, in the spaces you both are members of, filtered to what the current user is allowed to see. An empty list means that user has no post the current user can see. Compact items; get_activity for details.",
       "input_schema": {
         "type": "object",
         "properties": {

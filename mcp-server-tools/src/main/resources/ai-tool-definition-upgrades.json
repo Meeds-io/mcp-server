@@ -6,6 +6,13 @@
         "66c3d77fde56fb105e3dbbfa902953b237159f239cebffac59a91f5ca9491766",
         "2813e1640ebcd778e7f9e086acdf7c1fc4bc00ea3a10db519fba2d2d87e45dcb"
       ]
+    },
+    {
+      "name": "get_user_activity_stream",
+      "replaced_definitions": [
+        "8ea8b76b64c63044f4eff6cab1fe96fe728b3a5b4baf886c4d56c9ff3356a10f",
+        "3949cdcdf23c14695d3f50f1c8d91a3c849b52af078f83018f0e7ae9007d5b8b"
+      ]
     }
   ]
 }
