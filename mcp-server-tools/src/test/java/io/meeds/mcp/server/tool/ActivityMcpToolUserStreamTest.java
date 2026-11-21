@@ -31,6 +31,7 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.exoplatform.services.security.ConversationState;
 import org.exoplatform.services.security.Identity;
 import org.exoplatform.social.core.manager.IdentityManager;
+import org.exoplatform.social.core.space.model.Space;
 import org.exoplatform.social.core.space.spi.SpaceService;
 
 import io.meeds.mcp.server.tool.constant.Registration;
@@ -99,25 +100,59 @@ class ActivityMcpToolUserStreamTest extends IntegrationTestBase {
    * A user whose only post is in a space the current user was merely invited
    * to has no post the current user can see: the list is empty. Social counts
    * an invitation as a common space, so this pins that its posts stay out.
-   * The viewer is mary, checked not to be a space super manager: john, the
-   * default viewer, could read the space's post although only invited.
+   * The viewer is mary, a plain user of the test organization, checked to be
+   * neither a member of the space nor a space super manager.
    *
    * @throws Exception when a fixture can't be created
    */
   @Test
   void aPostInASpaceTheCurrentUserIsOnlyInvitedToIsLeftOut() throws Exception {
-    identityManager.getOrCreateUserIdentity(OUTSIDER);
-    identityManager.getOrCreateUserIdentity(POSTER);
-    actAs(OUTSIDER);
-    SpaceModel space = createSpace();
-    activityMcpTool.createActivity(space.getSpaceId(), "Members only " + UUID.randomUUID(), null);
-    spaceService.addInvitedUser(spaceService.getSpaceById(space.getSpaceId()), POSTER);
+    Space space = invitedOnlySpaceWithAPostOfTheOutsider(POSTER);
+    assertFalse(spaceService.isMember(space, POSTER), POSTER + " must be invited only");
     assertFalse(spaceService.isSuperManager(POSTER), POSTER + " must not be a space super manager for this case");
 
     actAs(POSTER);
     List<ActivitySummaryModel> posts = activityMcpTool.getUserActivityStream(OUTSIDER, 0, 10);
 
     assertEquals(List.of(), ids(posts));
+  }
+
+  /**
+   * A space super manager may view every space, so an invited-only space's
+   * post reaches them: the known limit of the invited-only case. john is a
+   * manager of /platform/administrators in the test organization.
+   *
+   * @throws Exception when a fixture can't be created
+   */
+  @Test
+  void aSpaceSuperManagerSeesThePostOfASpaceTheyAreOnlyInvitedTo() throws Exception {
+    Space space = invitedOnlySpaceWithAPostOfTheOutsider(USERNAME);
+    assertFalse(spaceService.isMember(space, USERNAME), USERNAME + " must be invited only");
+    assertTrue(spaceService.isSuperManager(USERNAME), USERNAME + " must be a space super manager for this case");
+
+    actAs(USERNAME);
+    List<ActivitySummaryModel> posts = activityMcpTool.getUserActivityStream(OUTSIDER, 0, 10);
+
+    assertEquals(1, posts.size());
+  }
+
+  /**
+   * Has the outsider create a space, post in it and invite a user, who
+   * neither joins nor is a member.
+   *
+   * @param invitee the invited user
+   * @return the space
+   * @throws Exception when a fixture can't be created
+   */
+  private Space invitedOnlySpaceWithAPostOfTheOutsider(String invitee) throws Exception {
+    identityManager.getOrCreateUserIdentity(OUTSIDER);
+    identityManager.getOrCreateUserIdentity(invitee);
+    actAs(OUTSIDER);
+    SpaceModel spaceModel = createSpace();
+    activityMcpTool.createActivity(spaceModel.getSpaceId(), "Members only " + UUID.randomUUID(), null);
+    Space space = spaceService.getSpaceById(spaceModel.getSpaceId());
+    spaceService.addInvitedUser(space, invitee);
+    return spaceService.getSpaceById(spaceModel.getSpaceId());
   }
 
   /**
