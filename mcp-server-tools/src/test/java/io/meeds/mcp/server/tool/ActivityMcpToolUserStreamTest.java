@@ -99,18 +99,22 @@ class ActivityMcpToolUserStreamTest extends IntegrationTestBase {
    * A user whose only post is in a space the current user was merely invited
    * to has no post the current user can see: the list is empty. Social counts
    * an invitation as a common space, so this pins that its posts stay out.
+   * The viewer is mary, checked not to be a space super manager: john, the
+   * default viewer, could read the space's post although only invited.
    *
    * @throws Exception when a fixture can't be created
    */
   @Test
   void aPostInASpaceTheCurrentUserIsOnlyInvitedToIsLeftOut() throws Exception {
     identityManager.getOrCreateUserIdentity(OUTSIDER);
+    identityManager.getOrCreateUserIdentity(POSTER);
     actAs(OUTSIDER);
     SpaceModel space = createSpace();
     activityMcpTool.createActivity(space.getSpaceId(), "Members only " + UUID.randomUUID(), null);
-    spaceService.addInvitedUser(spaceService.getSpaceById(space.getSpaceId()), USERNAME);
+    spaceService.addInvitedUser(spaceService.getSpaceById(space.getSpaceId()), POSTER);
+    assertFalse(spaceService.isSuperManager(POSTER), POSTER + " must not be a space super manager for this case");
 
-    actAs(USERNAME);
+    actAs(POSTER);
     List<ActivitySummaryModel> posts = activityMcpTool.getUserActivityStream(OUTSIDER, 0, 10);
 
     assertEquals(List.of(), ids(posts));
