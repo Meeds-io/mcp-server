@@ -242,10 +242,16 @@ public class ActivityMcpTool implements McpToolPlugin {
       throw new ObjectNotFoundException("User '%s' doesn't exist. Use search_users to find a valid username.".formatted(username));
     }
     Identity viewerIdentity = identityManager.getOrCreateUserIdentity(viewer.getUserId());
+    // The offset is the raw position in the stream: keep only the entries of
+    // the loaded page that the viewer can see
     List<String> activityIds = activityManager.getActivitiesWithListAccess(ownerIdentity, viewerIdentity)
                                               .loadIdsAsList(getInteger(offset, DEFAULT_OFFSET),
                                                              getInteger(limit, DEFAULT_LIMIT));
     return activityIds.stream()
+                      .filter(activityId -> {
+                        ExoSocialActivity activity = activityManager.getActivity(activityId);
+                        return activity != null && activityManager.isActivityViewable(activity, viewer);
+                      })
                       .map(this::toActivityModel)
                       .toList();
   }
