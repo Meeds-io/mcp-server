@@ -24,7 +24,6 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
-import java.util.concurrent.ConcurrentHashMap;
 
 import org.springframework.ai.mcp.server.common.autoconfigure.properties.McpServerProperties;
 import org.springframework.ai.mcp.server.common.autoconfigure.properties.McpServerStreamableHttpProperties;
@@ -34,14 +33,13 @@ import org.springframework.boot.context.properties.EnableConfigurationProperties
 import org.springframework.context.ApplicationContext;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
-import org.springframework.security.core.Authentication;
-import org.springframework.security.core.GrantedAuthority;
 import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.util.Assert;
 import org.springframework.web.servlet.function.RouterFunction;
 import org.springframework.web.servlet.function.ServerResponse;
 
 import io.meeds.mcp.server.service.McpServerToolService;
+import io.meeds.mcp.server.service.McpToolListingCache;
 import io.meeds.mcp.server.util.McpToolArgumentUtils;
 
 import io.modelcontextprotocol.json.jackson3.JacksonMcpJsonMapper;
@@ -204,7 +202,7 @@ public class McpServerToolListingHandlerConfiguration {
 
     private Map<String, McpNotificationHandler>           notificationHandlers;
 
-    private Map<ToolsCacheKey, Mono<McpSchema.ListToolsResult>> toolsCache;
+    private McpToolListingCache                          listingCache;
 
     private Duration                                      requestTimeout;
 
@@ -225,7 +223,6 @@ public class McpServerToolListingHandlerConfiguration {
       this.requestHandlers = retrieveRequestHandlers(sessionFactory);
       this.notificationHandlers = notificationHandlers(sessionFactory);
       this.applicationContext = appContext;
-      this.toolsCache = new ConcurrentHashMap<>();
     }
 
     /**
@@ -248,28 +245,18 @@ public class McpServerToolListingHandlerConfiguration {
     /**
      * Drops every cached {@code tools/list} answer. Called through the tool
      * update listener registered in {@link #getMcpServerToolService()}, so a
-     * tool definition change — a tool disabled, its approval requirement
-     * flipped — is visible on the very next listing rather than at restart.
-     * Not called when the MCP audience changes: the cache is keyed on scopes
-     * only, on the invariant documented in {@link #toolsListRequestHandler()},
+     * tool definition change that affects the scope check — its approval
+     * requirement flipped — is visible on the very next listing rather than at
+     * restart; a switched-off tool is filtered at read time whatever the cache
+     * holds. Not called when the MCP audience changes: the cache is keyed on
+     * scopes only, on the invariant documented in {@link McpToolListingCache},
      * so an audience change alters who reaches the handler, never what it
      * answers.
      */
     public void clearToolsCache() {
-      toolsCache.clear();
-    }
-
-    /**
-     * Identity of a cached {@code tools/list} answer: the scopes the caller's
-     * token carries, the one input {@code isToolEligible} reads besides the
-     * tool itself. Kept as a record of compared fields rather than a folded
-     * {@code int} hash of the list, so that two scope lists that happen to
-     * hash alike cannot share an entry.
-     *
-     * @param scopes the caller's {@code SCOPE_*} authorities, sorted and
-     *               deduplicated so that two equivalent tokens share an entry
-     */
-    private record ToolsCacheKey(List<String> scopes) {
+      if (listingCache != null) {
+        listingCache.clear();
+      }
     }
 
     /**
@@ -331,61 +318,16 @@ public class McpServerToolListingHandlerConfiguration {
     }
 
     /**
-     * Builds the {@code tools/list} handler that replaces the SDK's: the
-     * server's tools filtered through {@link #isToolEligible} for the caller's
-     * scopes, memoised per distinct scope set in {@code toolsCache}. The cache
-     * key holds the caller's {@code SCOPE_*} authorities and not the caller,
-     * because — as the in-body comment states — eligibility is decided on the
-     * global flag and the scopes alone once the door has admitted the caller.
+     * Builds the {@code tools/list} handler that replaces the SDK's, answering
+     * from {@link McpToolListingCache}.
      *
-     * @return the handler, answering from the cache when the caller's scope
-     *         set has been seen since the last {@link #clearToolsCache()}
+     * @return the handler
      */
     private McpRequestHandler<McpSchema.ListToolsResult> toolsListRequestHandler() {
       return (exchange, params) -> {
         Assert.notNull(getMcpServerToolService(), "Mcp Server Tool Service shouldn't be null");
-        Authentication authentication = SecurityContextHolder.getContext().getAuthentication();
-        // The key holds the scopes and not the caller, on an invariant this
-        // cache depends on: the door (McpServerOauthOpaqueTokenIntrospector)
-        // has already refused any caller outside the MCP audience before this
-        // handler runs, and isAllowedTool answers on the global flag and the
-        // scopes alone - all-or-nothing per user, never per tool - so every
-        // caller reaching this line with the same scopes sees the same list.
-        // Should the audience ever become per-tool or per-group, the caller
-        // goes back into the key, and the map then also needs an eviction
-        // policy: it only ever grows until a tool definition changes
-        ToolsCacheKey key = new ToolsCacheKey(authentication.getAuthorities()
-                                                            .stream()
-                                                            .map(GrantedAuthority::getAuthority)
-                                                            .filter(a -> a.startsWith("SCOPE_"))
-                                                            .distinct()
-                                                            .sorted()
-                                                            .toList());
-        return toolsCache.computeIfAbsent(key, k -> {
-          List<Tool> listTools = listTools();
-          List<Tool> tools = listTools.stream()
-                                      .filter(t -> isToolEligible(t.name(), authentication))
-                                      .toList();
-          return Mono.just(McpSchema.ListToolsResult.builder(tools)
-                                                    .build());
-        });
+        return listingCache.list(SecurityContextHolder.getContext().getAuthentication());
       };
-    }
-
-    /**
-     * Tells whether a tool is listed to a caller. Delegates to
-     * {@code McpServerToolService.isAllowedTool}, the same answer the
-     * {@code tools/call} path gives, so that a tool is never listed to a caller
-     * who could not call it. The per-user MCP audience is not asked here: the
-     * door has already refused any caller outside it before a handler runs.
-     *
-     * @param toolName       the tool name
-     * @param authentication the caller's authentication, carrying the token's
-     *                       scopes as {@code SCOPE_*} authorities
-     * @return true when the caller may call the tool
-     */
-    private boolean isToolEligible(String toolName, Authentication authentication) {
-      return getMcpServerToolService().isAllowedTool(toolName, authentication);
     }
 
     /**
@@ -446,10 +388,12 @@ public class McpServerToolListingHandlerConfiguration {
      *
      * @return the tool service
      */
-    private McpServerToolService getMcpServerToolService() {
+    private synchronized McpServerToolService getMcpServerToolService() {
       if (this.mcpServerToolService == null) {
-        this.mcpServerToolService = applicationContext.getBean(McpServerToolService.class);
-        this.mcpServerToolService.addToolUpdateListener(n -> this.clearToolsCache());
+        McpServerToolService toolService = applicationContext.getBean(McpServerToolService.class);
+        this.listingCache = new McpToolListingCache(toolService, this::listTools);
+        toolService.addToolUpdateListenerFirst(n -> this.clearToolsCache());
+        this.mcpServerToolService = toolService;
       }
       return this.mcpServerToolService;
     }

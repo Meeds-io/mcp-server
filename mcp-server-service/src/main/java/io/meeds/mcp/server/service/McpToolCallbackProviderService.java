@@ -310,9 +310,7 @@ public class McpToolCallbackProviderService implements ToolCallbackProvider {
       try {
         ActingIdentity actingIdentity = resolveActingIdentity(userIdentity.getUserId());
         withActingIdentity(executionBuilder, actingIdentity);
-        if (!mcpServerToolService.isAllowedTool(toolMethod.getName(), authentication)) {
-          throw new IllegalAccessException("Tool '%s' execution isn't allowed switch selected scopes".formatted(toolMethod.getName()));
-        }
+        checkAllowed(authentication);
         String toolName = toSnakeCase(toolMethod.getName());
         boolean alwaysAsk = mcpServerToolService.isAlwaysAsk(toolName);
         if (alwaysAsk && !mcpServerToolService.hasApprovalScope(authentication)) {
@@ -340,6 +338,9 @@ public class McpToolCallbackProviderService implements ToolCallbackProvider {
           // one ungranted
           approveAgentWrite(grantRequest, executionBuilder);
         }
+        // The tool may have been switched off while the call waited for its
+        // approval
+        checkAllowed(authentication);
         mcpToolApprovalService.traceToolExecution(executionBuilder.toolExecutionType(UserToolRequestType.TOOL_EXECUTION_START)
                                                                   .build());
         // Call the Tool
@@ -394,6 +395,14 @@ public class McpToolCallbackProviderService implements ToolCallbackProvider {
         }
       } finally {
         ConversationState.setCurrent(null);
+      }
+    }
+
+    private void checkAllowed(Authentication authentication) throws IllegalAccessException {
+      if (!mcpServerToolService.isAllowedTool(toolMethod.getName(), authentication)) {
+        throw new IllegalAccessException((mcpServerToolService.isToolDisabled(toolMethod.getName()) ?
+                                                                                                    "Tool '%s' execution isn't allowed: the tool is switched off" :
+                                                                                                    "Tool '%s' execution isn't allowed switch selected scopes").formatted(toolMethod.getName()));
       }
     }
 

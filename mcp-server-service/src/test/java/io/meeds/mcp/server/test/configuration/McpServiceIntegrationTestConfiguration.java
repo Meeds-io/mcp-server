@@ -23,13 +23,10 @@ import static io.meeds.mcp.server.util.McpServerUtils.toSyncToolSpecifications;
 
 import java.lang.reflect.Field;
 import java.time.Duration;
-import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
-import java.util.concurrent.ConcurrentHashMap;
-import java.util.stream.Collectors;
 
 import org.springframework.ai.mcp.server.common.autoconfigure.properties.McpServerProperties;
 import org.springframework.ai.mcp.server.common.autoconfigure.properties.McpServerStreamableHttpProperties;
@@ -47,8 +44,6 @@ import org.springframework.context.annotation.Configuration;
 import org.springframework.core.annotation.Order;
 import org.springframework.security.config.Customizer;
 import org.springframework.security.config.annotation.web.builders.HttpSecurity;
-import org.springframework.security.core.Authentication;
-import org.springframework.security.core.GrantedAuthority;
 import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.security.web.SecurityFilterChain;
 import org.springframework.security.web.authentication.logout.LogoutFilter;
@@ -63,6 +58,7 @@ import io.meeds.mcp.server.plugin.McpServerOauthOpaqueTokenIntrospector;
 import io.meeds.mcp.server.plugin.McpToolPlugin;
 import io.meeds.mcp.server.service.McpInternalOAuthClientService;
 import io.meeds.mcp.server.service.McpServerToolService;
+import io.meeds.mcp.server.service.McpToolListingCache;
 import io.meeds.mcp.server.service.McpToolApprovalService;
 import io.meeds.mcp.server.service.McpToolGrantService;
 import io.meeds.mcp.server.service.McpToolCallbackProviderService;
@@ -244,7 +240,7 @@ public class McpServiceIntegrationTestConfiguration {
 
     private Map<String, McpNotificationHandler>           notificationHandlers;
 
-    private Map<Integer, Mono<McpSchema.ListToolsResult>> toolsCache;
+    private McpToolListingCache                       listingCache;
 
     private Duration                                      requestTimeout;
 
@@ -255,7 +251,6 @@ public class McpServiceIntegrationTestConfiguration {
       this.requestHandlers = retrieveRequestHandlers(sessionFactory);
       this.notificationHandlers = notificationHandlers(sessionFactory);
       this.applicationContext = appContext;
-      this.toolsCache = new ConcurrentHashMap<>();
     }
 
     @Override
@@ -272,7 +267,9 @@ public class McpServiceIntegrationTestConfiguration {
     }
 
     public void clearToolsCache() {
-      toolsCache.clear();
+      if (listingCache != null) {
+        listingCache.clear();
+      }
     }
 
     private Map<String, McpNotificationHandler> notificationHandlers(DefaultMcpStreamableServerSessionFactory sessionFactory) {
@@ -315,29 +312,8 @@ public class McpServiceIntegrationTestConfiguration {
     private McpRequestHandler<McpSchema.ListToolsResult> toolsListRequestHandler() {
       return (exchange, params) -> {
         Assert.notNull(getMcpServerToolService(), "Mcp Server Tool Service shouldn't be null");
-        Authentication authentication = SecurityContextHolder.getContext().getAuthentication();
-        int key = authentication.getAuthorities()
-                                .stream()
-                                .map(GrantedAuthority::getAuthority)
-                                .filter(a -> a.startsWith("SCOPE_"))
-                                .distinct()
-                                .sorted()
-                                .collect(Collectors.toCollection(ArrayList::new))
-                                .hashCode();
-        return toolsCache.computeIfAbsent(key, k -> {
-          List<Tool> listTools = listTools();
-          List<Tool> tools = listTools
-                                      .stream()
-                                      .filter(t -> isToolEligible(t.name(), authentication))
-                                      .toList();
-          return Mono.just(McpSchema.ListToolsResult.builder(tools)
-                                                    .build());
-        });
+        return listingCache.list(SecurityContextHolder.getContext().getAuthentication());
       };
-    }
-
-    private boolean isToolEligible(String toolName, Authentication authentication) {
-      return getMcpServerToolService().isAllowedTool(toolName, authentication);
     }
 
     private List<Tool> listTools() {
@@ -370,10 +346,12 @@ public class McpServiceIntegrationTestConfiguration {
       }
     }
 
-    private McpServerToolService getMcpServerToolService() {
+    private synchronized McpServerToolService getMcpServerToolService() {
       if (mcpServerToolService == null) {
-        this.mcpServerToolService = applicationContext.getBean(McpServerToolService.class);
-        this.mcpServerToolService.addToolUpdateListener(n -> this.clearToolsCache());
+        McpServerToolService toolService = applicationContext.getBean(McpServerToolService.class);
+        this.listingCache = new McpToolListingCache(toolService, this::listTools);
+        toolService.addToolUpdateListenerFirst(n -> this.clearToolsCache());
+        this.mcpServerToolService = toolService;
       }
       return mcpServerToolService;
     }

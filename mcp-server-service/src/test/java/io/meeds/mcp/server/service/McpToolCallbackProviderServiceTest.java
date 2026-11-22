@@ -440,6 +440,45 @@ class McpToolCallbackProviderServiceTest {
   }
 
   /**
+   * An approval granted after the tool was switched off doesn't run the call,
+   * and a call refused because the tool is switched off says so.
+   */
+  @Test
+  void call_approvalGrantedAfterSwitchOff_isRefusedAndNotRun() {// NOSONAR
+    bindRequest(TOOL_CONTEXT_ID, CONVERSATION_ID);
+    when(mcpServerToolService.isAllowedTool(eq(TOOL_METHOD), any())).thenReturn(true, false);
+    when(mcpServerToolService.isToolDisabled(TOOL_METHOD)).thenReturn(true);
+    when(mcpToolApprovalService.requestApproval(anyString(),
+                                                eq(CONVERSATION_ID),
+                                                eq(TOOL_METHOD),
+                                                anyString(),
+                                                eq(USERNAME),
+                                                any(),
+                                                anyBoolean(),
+                                                any())).thenReturn(true);
+
+    IllegalAccessException e = assertThrows(IllegalAccessException.class, () -> toolCallback.call(TOOL_INPUT));
+
+    assertTrue(e.getMessage().contains("execution isn't allowed"), e.getMessage());
+    assertTrue(e.getMessage().contains("switched off"), e.getMessage());
+    verify(mcpToolApprovalService, never()).traceToolExecution(argThatIs(UserToolRequestType.TOOL_EXECUTION_START));
+  }
+
+  /**
+   * A call the tool-level check refuses, as it does for a tool an
+   * administrator switched off, never reaches the tool nor the approval flow.
+   */
+  @Test
+  void call_toolRefusedByTheToolLevelCheck_isNotRun() {// NOSONAR
+    when(mcpServerToolService.isAllowedTool(eq(TOOL_METHOD), any())).thenReturn(false);
+
+    assertThrows(IllegalAccessException.class, () -> toolCallback.call(TOOL_INPUT));
+
+    verify(mcpToolApprovalService, never()).requestApproval(any(), any(), any(), any(), any(), any(), anyBoolean(), any());
+    verify(mcpToolApprovalService, never()).traceToolExecution(argThatIs(UserToolRequestType.TOOL_EXECUTION_START));
+  }
+
+  /**
    * An "always ask" tool is refused to a caller that can't be asked (no
    * approval scope, as external MCP clients' plain write tokens), even though
    * such a caller runs other write tools without a card.
