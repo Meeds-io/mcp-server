@@ -33,9 +33,11 @@ import java.time.format.DateTimeParseException;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Collections;
+import java.util.Comparator;
 import java.util.Date;
 import java.util.HashMap;
 import java.util.Iterator;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Map.Entry;
@@ -104,6 +106,19 @@ public class ActivityMcpTool implements McpToolPlugin {
   private static final Log        LOG                      = ExoLogger.getLogger(ActivityMcpTool.class);
 
   private static final int        MAX_TO_LOAD              = 100;
+
+  /**
+   * How many entries of one source of a user stream (the profile stream or a
+   * space stream) may be loaded past the ones it needs, to make up for pinned
+   * posts, posts the current user can't view and posts by someone else.
+   */
+  private static final int        MAX_EXTRA_LOADED_POSTS   = 500;
+
+  /**
+   * The deepest offset a user stream pages to: every source is read from its
+   * first post, so a deeper page costs more than a search.
+   */
+  private static final int        MAX_USER_STREAM_OFFSET   = 1000;
 
   private static final String     ACTIVITY_ACCESS_DENIED   = "Activity with id '%s' isn't accessible for user";
 
@@ -329,17 +344,25 @@ public class ActivityMcpTool implements McpToolPlugin {
   }
 
   /**
-   * Lists a page of the activity stream of a user, as the current user sees
-   * it.
+   * Lists a page of the posts of a user, as the current user sees them,
+   * newest first. Social's profile stream also holds the posts the user
+   * commented on, liked or was mentioned in, so only the ones the user posted
+   * are kept. For the user's own posts that stream holds their space posts
+   * too. For another user's posts it holds only the posts made outside
+   * spaces, so the posts that user made in the spaces both users have a
+   * membership of are added, each one checked as viewable by the current
+   * user.
    *
-   * @param username the user whose stream to read, with or without a leading
+   * @param username the user whose posts to read, with or without a leading
    *                   {@code @}
    * @param offset   index of the first activity to retrieve
    * @param limit    maximum number of activities to retrieve, at most
    *                   {@link io.meeds.mcp.server.tool.util.McpToolPluginUtils#MAX_LIMIT}
    * @return the activities, each one with its author and space reduced to
-   *         what names them
+   *         what names them, the most recently changed first
    * @throws ObjectNotFoundException when the user doesn't exist
+   * @throws IllegalArgumentException when the offset is over
+   *           {@link #MAX_USER_STREAM_OFFSET}
    */
   public List<ActivitySummaryModel> getUserActivityStream(String username,
                                                    Integer offset,
@@ -351,13 +374,147 @@ public class ActivityMcpTool implements McpToolPlugin {
       throw new ObjectNotFoundException("User '%s' doesn't exist. Use search_users to find a valid username.".formatted(username));
     }
     Identity viewerIdentity = identityManager.getOrCreateUserIdentity(viewer.getUserId());
-    List<String> activityIds = activityManager.getActivitiesWithListAccess(ownerIdentity, viewerIdentity)
-                                              .loadIdsAsList(getInteger(offset, DEFAULT_OFFSET),
-                                                             clampLimit(limit, DEFAULT_LIMIT));
-    return activityIds.stream()
-                      .map(this::toActivitySummaryModel)
-                      .filter(Objects::nonNull)
-                      .toList();
+    int pageOffset = Math.max(0, getInteger(offset, DEFAULT_OFFSET));
+    if (pageOffset > MAX_USER_STREAM_OFFSET) {
+      throw new IllegalArgumentException(("The offset %d is over %d, the deepest page of a user's posts. "
+          + "To find an older post, use search_activities with words from it.").formatted(pageOffset,
+                                                                                            MAX_USER_STREAM_OFFSET));
+    }
+    int pageLimit = clampLimit(limit, DEFAULT_LIMIT);
+    int needed = pageOffset + pageLimit;
+    RealtimeListAccess<ExoSocialActivity> profileStream = activityManager.getActivitiesWithListAccess(ownerIdentity,
+                                                                                                      viewerIdentity);
+    Map<String, ExoSocialActivity> posts = new LinkedHashMap<>();
+    getPostsOnProfileStream(profileStream, ownerIdentity, needed).forEach(activity -> posts.putIfAbsent(activity.getId(),
+                                                                                                       activity));
+    if (!Objects.equals(viewerIdentity.getId(), ownerIdentity.getId())) {
+      for (Space space : getCommonSpaces(viewer.getUserId(), targetUsername)) {
+        getPostsInSpace(viewer, viewerIdentity, ownerIdentity, space, needed).forEach(activity -> posts.putIfAbsent(activity.getId(),
+                                                                                                                    activity));
+      }
+    }
+    return posts.values()
+                .stream()
+                .sorted(Comparator.comparingLong(this::getLastChangeTime).reversed())
+                .skip(pageOffset)
+                .limit(pageLimit)
+                .map(this::toActivitySummaryModel)
+                .filter(Objects::nonNull)
+                .toList();
+  }
+
+  /**
+   * Reads the most recent posts a user posted from their profile stream,
+   * which also lists the posts they commented on, liked or were mentioned in.
+   * The load grows until it holds the needed number of the user's own posts,
+   * the stream has no more, or {@link #MAX_EXTRA_LOADED_POSTS} more than needed
+   * were loaded. Social's list holds one row per stream item of the user,
+   * deduplicated to one id per activity, so a load can bring fewer ids than
+   * asked, or no new id, while more posts follow: only an empty load ends the
+   * stream before the cap. Each activity is read once across the loads.
+   * Package-private for its unit test.
+   *
+   * @param profileStream the user's profile stream, as the current user reads it
+   * @param ownerIdentity the social identity of the user whose posts are read
+   * @param needed        how many of the newest posts are needed
+   * @return the posts, possibly empty
+   */
+  List<ExoSocialActivity> getPostsOnProfileStream(RealtimeListAccess<ExoSocialActivity> profileStream,
+                                                  Identity ownerIdentity,
+                                                  int needed) {
+    int toLoad = needed;
+    int maxToLoad = needed + MAX_EXTRA_LOADED_POSTS;
+    Map<String, ExoSocialActivity> read = new HashMap<>();
+    while (true) {
+      List<String> ids = profileStream.loadIdsAsList(0, toLoad);
+      List<ExoSocialActivity> posted = ids.stream()
+                                          .map(id -> read.computeIfAbsent(id, activityManager::getActivity))
+                                          .filter(Objects::nonNull)
+                                          .filter(activity -> Objects.equals(activity.getPosterId(), ownerIdentity.getId()))
+                                          .toList();
+      if (ids.isEmpty() || posted.size() >= needed || toLoad >= maxToLoad) {
+        return posted;
+      }
+      toLoad = Math.min(maxToLoad, toLoad + Math.max(needed - posted.size(), toLoad));
+    }
+  }
+
+  /**
+   * Reads the spaces two users have a membership of, whatever its status
+   * (social's common spaces include an invitation or a pending request), at
+   * most {@link #MAX_TO_LOAD}, in no particular order.
+   *
+   * @param viewerUsername the current user
+   * @param ownerUsername  the user whose posts are read
+   * @return the spaces, possibly empty
+   */
+  private List<Space> getCommonSpaces(String viewerUsername, String ownerUsername) {
+    try {
+      Space[] spaces = spaceService.getCommonSpaces(viewerUsername, ownerUsername).load(0, MAX_TO_LOAD);
+      return spaces == null ? Collections.emptyList() : List.of(spaces);
+    } catch (Exception e) {
+      LOG.debug("Unable to read the spaces common to {} and {}", viewerUsername, ownerUsername, e);
+      throw new IllegalStateException("The spaces of user '%s' could not be read".formatted(ownerUsername), e);
+    }
+  }
+
+  /**
+   * Reads the most recent posts a user made in one space, keeping only the
+   * posts the current user can view. Social refuses the space's list to a
+   * current user who can't view the space (neither a member nor a space
+   * super-manager), and that space is then skipped. A space stream lists its
+   * pinned posts first, and some posts may be hidden from the current user, so
+   * the load grows until it holds the needed number of viewable posts that are
+   * not pinned, the space has no more (a larger load brings nothing new), or
+   * {@link #MAX_EXTRA_LOADED_POSTS} more than needed were loaded.
+   * Package-private for its unit test.
+   *
+   * @param viewer         the current user
+   * @param viewerIdentity the current user's social identity
+   * @param ownerIdentity  the social identity of the user whose posts are read
+   * @param space          a space both users have a membership of
+   * @param needed         how many of the newest posts are needed
+   * @return the posts, possibly empty
+   */
+  List<ExoSocialActivity> getPostsInSpace(org.exoplatform.services.security.Identity viewer,
+                                          Identity viewerIdentity,
+                                          Identity ownerIdentity,
+                                          Space space,
+                                          int needed) {
+    if (space == null) {
+      return Collections.emptyList();
+    }
+    Identity spaceIdentity = identityManager.getOrCreateSpaceIdentity(space.getPrettyName());
+    if (spaceIdentity == null) {
+      return Collections.emptyList();
+    }
+    ActivityFilter activityFilter = new ActivityFilter();
+    activityFilter.setStreamType(ActivityStreamType.ANY_SPACE_ACTIVITY);
+    activityFilter.setSpaceIdentityId(spaceIdentity.getIdentityId());
+    activityFilter.setUserId(ownerIdentity.getIdentityId());
+    RealtimeListAccess<ExoSocialActivity> listAccess;
+    try {
+      listAccess = activityManager.getActivitiesByFilterWithListAccess(viewerIdentity, activityFilter);
+    } catch (ObjectNotFoundException | IllegalAccessException e) {
+      LOG.debug("Space {} skipped while reading the posts of {}", space.getId(), ownerIdentity.getRemoteId(), e);
+      return Collections.emptyList();
+    }
+    int toLoad = needed;
+    int maxToLoad = needed + MAX_EXTRA_LOADED_POSTS;
+    int previous = -1;
+    while (true) {
+      List<ExoSocialActivity> loaded = listAccess.loadAsList(0, toLoad);
+      List<ExoSocialActivity> viewable = loaded.stream()
+                                               .filter(Objects::nonNull)
+                                               .filter(activity -> activityManager.isActivityViewable(activity, viewer))
+                                               .toList();
+      long newest = viewable.stream().filter(activity -> !activity.isPinned()).count();
+      if (loaded.size() <= previous || loaded.isEmpty() || newest >= needed || toLoad >= maxToLoad) {
+        return viewable;
+      }
+      previous = loaded.size();
+      toLoad = (int) Math.min(maxToLoad, (long) toLoad + Math.max(needed - newest, toLoad));
+    }
   }
 
   public ActivityModel getActivity(long activityId) throws IllegalAccessException, ObjectNotFoundException {

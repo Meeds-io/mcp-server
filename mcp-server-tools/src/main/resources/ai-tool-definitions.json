@@ -681,7 +681,7 @@
       "name": "get_user_activity_stream",
       "icon": "fa-stream",
       "title": "Get a user's activity stream",
-      "description": "Retrieve the activities (Also Known As 'posts') on a given user's profile stream, filtered to what the current user is allowed to see. Compact items; get_activity for details.",
+      "description": "Retrieve the activities (Also Known As 'posts') a given user posted, the most recent first: on their profile stream and, for another user, in the spaces you share with them (at most 100), filtered to what the current user is allowed to see. Posts they only commented on or liked are not listed, nor a post in a space that user has since left, so an empty list means no post was found, not that none exists. Sorted on the last change: a new comment moves a post up. An offset over 1000 is refused with an error, not answered with an empty list: correct the call, or use search_activities for older posts. Compact items; get_activity for details.",
       "input_schema": {
         "type": "object",
         "properties": {

@@ -87,4 +87,31 @@ class ToolDefinitionUpgradesTest {
     }
   }
 
+  /**
+   * The user stream's description that names the posts in common spaces
+   * reaches every booted instance: the profile-stream text develop shipped
+   * and the one with « Compact items » and « (max 100) » that the feature
+   * branches shipped next are both listed as replaced (EXO-94931).
+   */
+  @Test
+  void userActivityStreamReplacesEveryProfileStreamText() {
+    URL upgradesUrl = getClass().getClassLoader().getResource("ai-tool-definition-upgrades.json");
+    assertNotNull(upgradesUrl);
+    List<String> replaced = McpToolUtils.parseToolDefinitionUpgrades(upgradesUrl)
+                                        .stream()
+                                        .filter(upgrade -> "get_user_activity_stream".equals(upgrade.name()))
+                                        .flatMap(upgrade -> upgrade.replacedDefinitions().stream())
+                                        .toList();
+    String profileStream = "Retrieve the activities (Also Known As 'posts') on a given user's profile stream, filtered to what the current user is allowed to see.";
+    String schema = """
+        {"type":"object","properties":{"username":{"type":"string","description":"Username whose activity stream to retrieve"},"offset":{"type":"integer","description":"Offset of activities to retrieve"},"limit":{"type":"integer","description":"%s"}},"required":["username"]}
+        """;
+    assertTrue(replaced.contains(McpToolUtils.definitionDigest(profileStream,
+                                                               schema.formatted("Limit of activities to retrieve"))),
+               "the text develop shipped is not replaced");
+    assertTrue(replaced.contains(McpToolUtils.definitionDigest(profileStream + " Compact items; get_activity for details.",
+                                                               schema.formatted("Limit of activities to retrieve (max 100)"))),
+               "the text the feature branches shipped is not replaced");
+  }
+
 }
