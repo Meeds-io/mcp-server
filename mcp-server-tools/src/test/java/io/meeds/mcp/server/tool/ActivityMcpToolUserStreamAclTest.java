@@ -19,12 +19,15 @@
 package io.meeds.mcp.server.tool;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
+import java.net.URL;
 import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.List;
@@ -44,8 +47,10 @@ import org.exoplatform.social.core.activity.model.ExoSocialActivity;
 import org.exoplatform.social.core.manager.ActivityManager;
 import org.exoplatform.social.core.manager.IdentityManager;
 
+import io.meeds.mcp.server.model.SimpleToolDefinition;
 import io.meeds.mcp.server.tool.model.ActivityModel;
 import io.meeds.mcp.server.tool.util.ActivityToolUtils;
+import io.meeds.mcp.server.util.McpToolUtils;
 
 /**
  * Pins {@link ActivityMcpTool#getUserActivityStream}: only the entries the
@@ -63,6 +68,8 @@ class ActivityMcpToolUserStreamAclTest {
   private final List<String>              streamIds       = new ArrayList<>();
 
   private final Set<String>               hiddenIds       = new HashSet<>();
+
+  private final Set<String>               deletedIds      = new HashSet<>();
 
   private MockedStatic<ActivityToolUtils> toolUtils;
 
@@ -84,6 +91,9 @@ class ActivityMcpToolUserStreamAclTest {
     });
     when(activityManager.getActivitiesWithListAccess(any(), any())).thenReturn(listAccess);
     when(activityManager.getActivity(anyString())).thenAnswer(inv -> {
+      if (deletedIds.contains(inv.<String>getArgument(0))) {
+        return null;
+      }
       ExoSocialActivity activity = mock(ExoSocialActivity.class);
       when(activity.getId()).thenReturn(inv.<String>getArgument(0));
       return activity;
@@ -176,6 +186,42 @@ class ActivityMcpToolUserStreamAclTest {
     List<Long> result = ids(activityMcpTool.getUserActivityStream("mary", 0, 10));
 
     assertEquals(List.of(1L, 2L), result);
+  }
+
+  /**
+   * An entry deleted between the page load and the check is left out, and
+   * the others are kept.
+   */
+  @Test
+  void entryDeletedBeforeTheCheckIsLeftOutAndTheOthersKept() throws Exception { // NOSONAR
+    stream(3);
+    deletedIds.add("2");
+
+    List<Long> result = ids(activityMcpTool.getUserActivityStream("mary", 0, 10));
+
+    assertEquals(List.of(1L, 3L), result);
+  }
+
+  /**
+   * The shipped definition tells the agent how the pages of this tool
+   * advance: a page can come back short or empty while later pages still
+   * hold posts, and the next page starts at offset + limit.
+   */
+  @Test
+  void definitionTellsHowThePagesAdvance() {
+    URL url = getClass().getClassLoader().getResource("ai-tool-definitions.json");
+    assertNotNull(url);
+    SimpleToolDefinition definition = McpToolUtils.parseToolDefinitions(url)
+                                                  .stream()
+                                                  .filter(tool -> "get_user_activity_stream".equals(tool.getName()))
+                                                  .findFirst()
+                                                  .orElseThrow();
+
+    assertTrue(definition.getDescription().contains("a page can hold fewer posts than the limit, or none, while later pages still hold posts"));
+    assertTrue(definition.getDescription().contains("The next page always starts at offset + limit"));
+    assertTrue(definition.getInputSchema().contains("counting the posts the current user cannot see"));
+    assertTrue(definition.getInputSchema().contains("never at offset plus the number of posts returned"));
+    assertTrue(definition.getInputSchema().contains("a page can hold fewer posts than this, or none"));
   }
 
 }
