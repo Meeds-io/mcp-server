@@ -833,6 +833,24 @@ class McpToolServerServiceTest {
     assertEquals(List.of("first", "other"), notified);
   }
 
+  @Test
+  @DisplayName("A listener registered while the listeners are being notified does not fail the update")
+  void aListenerRegisteredDuringANotificationDoesNotFailTheUpdate() {
+    SimpleToolDefinition existing = tool(ALPHA_TOOL, "Alpha", TYPE_OBJECT, false, false);
+    ReflectionTestUtils.setField(mcpServerToolService, "toolDefinitions", Map.of(ALPHA_TOOL, existing));
+    List<String> notified = new ArrayList<>();
+    // the first tools/list on a node registers its listener at any time,
+    // here while an update notifies the listeners already registered
+    mcpServerToolService.addToolUpdateListener(n -> {
+      notified.add("other");
+      mcpServerToolService.addToolUpdateListenerFirst(m -> notified.add("late"));
+    });
+
+    mcpServerToolService.updateToolDefinition(ALPHA_TOOL, "Alpha", "Desc", TYPE_OBJECT, false, true);
+
+    assertEquals(List.of("other"), notified);
+  }
+
   private void storedDisabledFlags(Map<String, SettingValue<?>> flags) {
     when(settingService.getSettingsByContextAndScope(eq("GLOBAL"),
                                                      eq("AI_AGENT"),

@@ -34,6 +34,7 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.function.Function;
 import java.util.stream.Collectors;
 
@@ -125,7 +126,7 @@ public class McpServerToolService {
 
   private Boolean                           mcpEnabled;
 
-  private List<ToolListener>                toolListeners                 = new ArrayList<>();
+  private List<ToolListener>                toolListeners                 = new CopyOnWriteArrayList<>();
 
   @Setter
   private Map<String, SimpleToolDefinition> toolDefinitions;
