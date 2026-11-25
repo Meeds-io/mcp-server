@@ -22,6 +22,8 @@ import static io.meeds.mcp.server.tool.util.SpaceToolUtils.getUserRoles;
 import static io.meeds.mcp.server.tool.util.SpaceToolUtils.toSpaceModel;
 import static io.meeds.mcp.server.tool.util.SpaceToolUtils.toSpaceRegistration;
 import static io.meeds.mcp.server.tool.util.SpaceToolUtils.toSpaceVisibility;
+import static io.meeds.mcp.server.tool.util.McpToolPluginUtils.MAX_LIMIT;
+import static io.meeds.mcp.server.tool.util.McpToolPluginUtils.clampLimit;
 import static io.meeds.mcp.server.tool.util.McpToolPluginUtils.getInteger;
 import static io.meeds.mcp.server.tool.util.UserToolUtils.getUserIdentities;
 import static io.meeds.mcp.server.tool.util.UserToolUtils.toUserModel;
@@ -29,6 +31,7 @@ import static io.meeds.mcp.server.tool.util.UserToolUtils.toUserModel;
 import java.io.ByteArrayInputStream;
 import java.io.IOException;
 import java.io.InputStream;
+import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
 import java.util.List;
@@ -55,15 +58,19 @@ import org.exoplatform.social.core.space.SpaceException;
 import org.exoplatform.social.core.space.SpaceFilter;
 import org.exoplatform.social.core.space.model.Space;
 import org.exoplatform.social.core.space.spi.SpaceService;
+import org.exoplatform.upload.UploadService;
 
+import io.meeds.mcp.server.model.ActingIdentity;
 import io.meeds.mcp.server.plugin.McpToolPlugin;
 import io.meeds.mcp.server.tool.constant.Registration;
 import io.meeds.mcp.server.tool.constant.SpaceRole;
 import io.meeds.mcp.server.tool.constant.Visibility;
 import io.meeds.mcp.server.tool.model.SpaceMemberModel;
 import io.meeds.mcp.server.tool.model.SpaceModel;
+import io.meeds.mcp.server.tool.model.SubSpacesPageModel;
 import io.meeds.mcp.server.tool.model.UserModel;
 import io.meeds.mcp.server.tool.util.UploadToolUtils;
+import io.meeds.mcp.server.util.McpToolUtils;
 import io.meeds.social.space.constant.SpaceRegistration;
 import io.meeds.social.space.constant.SpaceVisibility;
 import io.meeds.social.space.template.model.SpaceTemplate;
@@ -74,6 +81,13 @@ import lombok.SneakyThrows;
 
 @Service
 public class SpaceMcpTool implements McpToolPlugin {
+
+  /**
+   * The loads a page of sub-spaces makes at most under a space scope, each of
+   * {@code limit} sub-spaces, so a parent whose sub-spaces are mostly hidden
+   * can't make one call read them all.
+   */
+  static final int                MAX_SCOPED_SUB_SPACES_LOADS = 5;
 
   private static final String     MSG_SPACE_DOESN_T_EXIST  = "Space with Id '%s' doesn't exist";
 
@@ -111,6 +125,9 @@ public class SpaceMcpTool implements McpToolPlugin {
 
   @Autowired
   private FileService             fileService;
+
+  @Autowired
+  private UploadService           uploadService;
 
   public SpaceModel createSpace(long spaceTemplateId, // NOSONAR
                                 String name,
@@ -197,7 +214,7 @@ public class SpaceMcpTool implements McpToolPlugin {
 
     String currentUsername = getCurrentUserName();
     ListAccess<Space> spacesListAccess = spaceService.getAccessibleSpacesByFilter(currentUsername, new SpaceFilter(query));
-    Space[] spaces = spacesListAccess.load(getInteger(offset, DEFAULT_OFFSET), getInteger(limit, DEFAULT_LIMIT));
+    Space[] spaces = spacesListAccess.load(getInteger(offset, DEFAULT_OFFSET), clampLimit(limit, DEFAULT_LIMIT));
     return spaces == null ? Collections.emptyList() :
                           Stream.of(spaces)
                                 .map(s -> toSpaceModel(spaceService, s, currentUsername))
@@ -210,7 +227,7 @@ public class SpaceMcpTool implements McpToolPlugin {
                                       Integer limit) {
     String currentUsername = getCurrentUserName();
     ListAccess<Space> spacesListAccess = spaceService.getMemberSpacesByFilter(currentUsername, new SpaceFilter(query));
-    Space[] spaces = spacesListAccess.load(getInteger(offset, DEFAULT_OFFSET), getInteger(limit, DEFAULT_LIMIT));
+    Space[] spaces = spacesListAccess.load(getInteger(offset, DEFAULT_OFFSET), clampLimit(limit, DEFAULT_LIMIT));
     return spaces == null ? Collections.emptyList() :
                           Stream.of(spaces)
                                 .map(s -> toSpaceModel(spaceService, s, currentUsername))
@@ -230,7 +247,7 @@ public class SpaceMcpTool implements McpToolPlugin {
                                            Integer limit) {
     String currentUsername = getCurrentUserName();
     ListAccess<Space> spacesListAccess = spaceService.getManagerSpacesByFilter(currentUsername, new SpaceFilter(query));
-    Space[] spaces = spacesListAccess.load(getInteger(offset, DEFAULT_OFFSET), getInteger(limit, DEFAULT_LIMIT));
+    Space[] spaces = spacesListAccess.load(getInteger(offset, DEFAULT_OFFSET), clampLimit(limit, DEFAULT_LIMIT));
     return spaces == null ? Collections.emptyList() :
                           Stream.of(spaces)
                                 .map(s -> toSpaceModel(spaceService, s, currentUsername))
@@ -276,7 +293,7 @@ public class SpaceMcpTool implements McpToolPlugin {
       if (ArrayUtils.isNotEmpty(usernames)) {
         return Stream.of(usernames)
                      .skip(getInteger(offset, DEFAULT_OFFSET))
-                     .limit(getInteger(limit, DEFAULT_LIMIT))
+                     .limit(clampLimit(limit, DEFAULT_LIMIT))
                      .map(u -> toUserModel(identityManager,
                                            profilePropertyService,
                                            userAcl,
@@ -423,26 +440,68 @@ public class SpaceMcpTool implements McpToolPlugin {
     }
   }
 
-  // Sets a space's avatar from an image provided as exactly one of an http(s)
-  // URL, a base64 string, or an ACL-checked reference to a readable platform
-  // attachment. Only a manager of the space may change it.
+  /**
+   * Sets a space's avatar from an image provided as exactly one of an http(s)
+   * URL, a base64 string, an ACL-checked reference to a readable platform
+   * attachment, or the upload id of a file the current user sent with
+   * {@code start_upload}. Only a manager of the space may change it.
+   *
+   * @param spaceId the space
+   * @param imageUrl the public http(s) URL of the image, or null
+   * @param imageBase64 the base64 bytes of the image, or null
+   * @param attachmentObjectType the type of the object holding an attachment
+   *          to use, or null
+   * @param attachmentObjectId the id of the object holding an attachment to
+   *          use, or null
+   * @param uploadId the upload id of an image the current user uploaded, or
+   *          null; consumed by the call
+   * @return the updated space
+   * @throws IllegalAccessException when the user does not manage the space, or
+   *           may not read the attachment
+   * @throws ObjectNotFoundException when the space, the attachment or the
+   *           upload does not exist
+   */
   public SpaceModel setSpaceAvatar(long spaceId,
                                    String imageUrl,
                                    String imageBase64,
                                    String attachmentObjectType,
-                                   String attachmentObjectId) throws IllegalAccessException, ObjectNotFoundException {
-    return setSpaceImage(spaceId, true, imageUrl, imageBase64, attachmentObjectType, attachmentObjectId);
+                                   String attachmentObjectId,
+                                   String uploadId) throws IllegalAccessException, ObjectNotFoundException {
+    return setSpaceImage(spaceId,
+                         true,
+                         new UploadToolUtils.ImageSource(imageUrl, imageBase64, attachmentObjectType, attachmentObjectId, uploadId));
   }
 
-  // Sets a space's banner from an image provided as exactly one of an http(s)
-  // URL, a base64 string, or an ACL-checked reference to a readable platform
-  // attachment. Only a manager of the space may change it.
+  /**
+   * Sets a space's banner from an image provided as exactly one of an http(s)
+   * URL, a base64 string, an ACL-checked reference to a readable platform
+   * attachment, or the upload id of a file the current user sent with
+   * {@code start_upload}. Only a manager of the space may change it.
+   *
+   * @param spaceId the space
+   * @param imageUrl the public http(s) URL of the image, or null
+   * @param imageBase64 the base64 bytes of the image, or null
+   * @param attachmentObjectType the type of the object holding an attachment
+   *          to use, or null
+   * @param attachmentObjectId the id of the object holding an attachment to
+   *          use, or null
+   * @param uploadId the upload id of an image the current user uploaded, or
+   *          null; consumed by the call
+   * @return the updated space
+   * @throws IllegalAccessException when the user does not manage the space, or
+   *           may not read the attachment
+   * @throws ObjectNotFoundException when the space, the attachment or the
+   *           upload does not exist
+   */
   public SpaceModel setSpaceBanner(long spaceId,
                                    String imageUrl,
                                    String imageBase64,
                                    String attachmentObjectType,
-                                   String attachmentObjectId) throws IllegalAccessException, ObjectNotFoundException {
-    return setSpaceImage(spaceId, false, imageUrl, imageBase64, attachmentObjectType, attachmentObjectId);
+                                   String attachmentObjectId,
+                                   String uploadId) throws IllegalAccessException, ObjectNotFoundException {
+    return setSpaceImage(spaceId,
+                         false,
+                         new UploadToolUtils.ImageSource(imageUrl, imageBase64, attachmentObjectType, attachmentObjectId, uploadId));
   }
 
   // ---------------------------------------------------------------------------
@@ -537,7 +596,7 @@ public class SpaceMcpTool implements McpToolPlugin {
     }
     return Stream.of(pendingUsers)
                  .skip(getInteger(offset, DEFAULT_OFFSET))
-                 .limit(getInteger(limit, DEFAULT_LIMIT))
+                 .limit(clampLimit(limit, DEFAULT_LIMIT))
                  .map(u -> user(u, currentUsername))
                  .filter(Objects::nonNull)
                  .toList();
@@ -575,29 +634,77 @@ public class SpaceMcpTool implements McpToolPlugin {
     }
     return Stream.of(members)
                  .skip(getInteger(offset, DEFAULT_OFFSET))
-                 .limit(getInteger(limit, DEFAULT_LIMIT))
+                 .limit(clampLimit(limit, DEFAULT_LIMIT))
                  .map(u -> new SpaceMemberModel(user(u, currentUsername), getUserRoles(spaceService, space, u)))
                  .filter(m -> m.user() != null)
                  .toList();
   }
 
+  /**
+   * Lists the sub-spaces of a space that the current user can access. A call
+   * limited to one space answers where every member of that space reads it,
+   * so it leaves out the hidden sub-spaces, which those members may not know
+   * of, and loads further until the page holds {@code limit} sub-spaces, the
+   * list ends, or {@value #MAX_SCOPED_SUB_SPACES_LOADS} loads of
+   * {@code limit} sub-spaces were made. The page then says where the next one
+   * starts, after the last sub-space it read: an offset among the accessible
+   * sub-spaces, hidden ones included, so no sub-space is skipped or repeated
+   * whatever the page left out.
+   *
+   * @param parentSpaceId the parent space
+   * @param offset        the offset among the accessible sub-spaces: 0, or
+   *                        the next offset of the previous page
+   * @param limit         the page size, a larger one than
+   *                        100 is capped
+   * @return the sub-spaces of the page, possibly fewer than {@code limit}
+   *         while more follow, and the next page's offset, null when the list
+   *         has ended
+   * @throws ObjectNotFoundException  when the parent space doesn't exist
+   * @throws IllegalAccessException   when the parent space is hidden from the
+   *                                    current user
+   * @throws IllegalArgumentException when the limit is negative
+   * @throws IllegalStateException    when the call's identity can't be read,
+   *                                    before any sub-space is loaded
+   */
   @SneakyThrows
-  public List<SpaceModel> listSubSpaces(long parentSpaceId,
-                                        Integer offset,
-                                        Integer limit) throws ObjectNotFoundException, IllegalAccessException {
+  public SubSpacesPageModel listSubSpaces(long parentSpaceId,
+                                          Integer offset,
+                                          Integer limit) throws ObjectNotFoundException, IllegalAccessException {
     String currentUsername = getCurrentUserName();
     Space parentSpace = requireSpace(parentSpaceId);
     if (Space.HIDDEN.equals(parentSpace.getVisibility()) && !spaceService.canViewSpace(parentSpace, currentUsername)) {
       throw new IllegalAccessException("You can't view space '%s'.".formatted(parentSpaceId));
     }
+    int pageSize = getInteger(limit, DEFAULT_LIMIT);
+    if (pageSize <= 0) {
+      throw new IllegalArgumentException("The limit must be a positive number.");
+    }
+    pageSize = Math.min(pageSize, MAX_LIMIT);
+    boolean limitedToASpace = getScopeSpaceId() != null;
     SpaceFilter filter = new SpaceFilter((String) null);
     filter.setParentSpaceId(parentSpaceId);
     ListAccess<Space> spacesListAccess = spaceService.getAccessibleSpacesByFilter(currentUsername, filter);
-    Space[] spaces = spacesListAccess.load(getInteger(offset, DEFAULT_OFFSET), getInteger(limit, DEFAULT_LIMIT));
-    return spaces == null ? Collections.emptyList()
-                          : Stream.of(spaces)
-                                  .map(s -> toSpaceModel(spaceService, s, currentUsername))
-                                  .toList();
+    List<SpaceModel> subSpaces = new ArrayList<>();
+    int position = getInteger(offset, DEFAULT_OFFSET);
+    int maxLoads = limitedToASpace ? MAX_SCOPED_SUB_SPACES_LOADS : 1;
+    for (int load = 0; load < maxLoads; load++) {
+      Space[] spaces = spacesListAccess.load(position, pageSize);
+      int loaded = spaces == null ? 0 : spaces.length;
+      int read = 0;
+      while (read < loaded && subSpaces.size() < pageSize) {
+        Space space = spaces[read++];
+        position++;
+        if (!limitedToASpace || !Space.HIDDEN.equals(space.getVisibility())) {
+          subSpaces.add(toSpaceModel(spaceService, space, currentUsername));
+        }
+      }
+      if (loaded < pageSize && read == loaded) {
+        return new SubSpacesPageModel(subSpaces, null);
+      } else if (subSpaces.size() == pageSize) {
+        break;
+      }
+    }
+    return new SubSpacesPageModel(subSpaces, position);
   }
 
   /**
@@ -716,12 +823,22 @@ public class SpaceMcpTool implements McpToolPlugin {
                        false);
   }
 
+  /**
+   * Sets the avatar or the banner of a space from the given image source, once
+   * the current user is known to manage the space.
+   *
+   * @param spaceId the space
+   * @param avatar true for the avatar, false for the banner
+   * @param source the one source of the image
+   * @return the updated space
+   * @throws IllegalAccessException when the user does not manage the space, or
+   *           may not read the attachment
+   * @throws ObjectNotFoundException when the space, the attachment or the
+   *           upload does not exist
+   */
   private SpaceModel setSpaceImage(long spaceId,
                                    boolean avatar,
-                                   String imageUrl,
-                                   String imageBase64,
-                                   String attachmentObjectType,
-                                   String attachmentObjectId) throws IllegalAccessException, ObjectNotFoundException {
+                                   UploadToolUtils.ImageSource source) throws IllegalAccessException, ObjectNotFoundException {
     String username = getCurrentUserName();
     Space space = spaceService.getSpaceById(spaceId);
     if (space == null) {
@@ -731,11 +848,9 @@ public class SpaceMcpTool implements McpToolPlugin {
     }
     UploadToolUtils.FetchedContent image = UploadToolUtils.resolveImage(attachmentService,
                                                                       fileService,
+                                                                      uploadService,
                                                                       getCurrentUserAclIdentity(),
-                                                                      new UploadToolUtils.ImageSource(imageUrl,
-                                                                                                     imageBase64,
-                                                                                                     attachmentObjectType,
-                                                                                                     attachmentObjectId),
+                                                                      source,
                                                                       UploadToolUtils.DEFAULT_MAX_BYTES);
     try (InputStream inputStream = new ByteArrayInputStream(image.bytes())) {
       if (avatar) {
@@ -757,6 +872,15 @@ public class SpaceMcpTool implements McpToolPlugin {
       throw new IllegalStateException("Could not update the space image: " + e.getMessage());
     }
     return toSpaceModel(spaceService, space, username);
+  }
+
+  /**
+   * @return the space the current call is limited to, null when it isn't
+   * @throws IllegalStateException when the call's identity can't be read
+   */
+  protected Long getScopeSpaceId() {
+    ActingIdentity identity = McpToolUtils.getCurrentActingIdentity();
+    return identity == null ? null : identity.spaceScope();
   }
 
 }

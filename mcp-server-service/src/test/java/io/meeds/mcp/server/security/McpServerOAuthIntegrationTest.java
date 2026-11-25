@@ -215,7 +215,7 @@ class McpServerOAuthIntegrationTest extends McpServiceIntegrationTestSupport {
 
     doNothing().when(mcpToolApprovalService).traceToolExecution(any(UserToolExecution.class));
     when(mcpToolApprovalService.requestApproval(anyString(),
-                                                anyString(),
+                                                anyString(), any(),
                                                 anyString(),
                                                 anyString(),
                                                 anyString(),
@@ -401,6 +401,48 @@ class McpServerOAuthIntegrationTest extends McpServiceIntegrationTestSupport {
                                                          .contains(IS_ERROR_FALSE_MESSAGE);
   }
 
+  /**
+   * A model that quotes a numeric id, as one did for {@code search_notes}, is
+   * no longer refused with {@code string found, integer expected}: the tool
+   * receives the number.
+   */
+  @Test
+  @DisplayName("A string of digits for an integer argument reaches the tool as a number")
+  void wholeNumberStringIsTurnedIntoANumberBeforeValidation() throws Exception {
+    String token = issueToken(clientWithScopes("mcp-number-string-" + UUID.randomUUID(), TOOL_READ_SCOPE));
+    String sessionId = initializeSession(token);
+
+    MvcResult result = callToolWithArguments(token,
+                                             sessionId,
+                                             TEST_OPTIONAL_TOOL_NAME,
+                                             "{ \"message\": \"hello\", \"space_id\": \"42\" }");
+
+    assertThat(result.getResponse().getContentAsString()).contains("optional:hello:42")
+                                                         .contains(IS_ERROR_FALSE_MESSAGE)
+                                                         .doesNotContain(VALIDATION_FAILED_MESSAGE);
+  }
+
+  /**
+   * Only a string of digits is turned into a number: any other string for an
+   * integer argument is still refused by the input validation.
+   */
+  @Test
+  @DisplayName("A string that is not a whole number is still refused for an integer argument")
+  void nonNumericStringIsStillRefused() throws Exception {
+    String token = issueToken(clientWithScopes("mcp-non-number-string-" + UUID.randomUUID(), TOOL_READ_SCOPE));
+    String sessionId = initializeSession(token);
+
+    MvcResult result = callToolWithArguments(token,
+                                             sessionId,
+                                             TEST_OPTIONAL_TOOL_NAME,
+                                             "{ \"message\": \"hello\", \"space_id\": \"4a2\" }");
+
+    assertThat(result.getResponse().getContentAsString()).contains(IS_ERROR_TRUE_MESSAGE)
+                                                         .contains(VALIDATION_FAILED_MESSAGE)
+                                                         .contains("/space_id: string found, integer expected")
+                                                         .doesNotContain("optional:");
+  }
+
   @Test
   @DisplayName("A null required argument is still refused by the input validation")
   void nullRequiredArgumentIsStillRefused() throws Exception {
@@ -462,7 +504,7 @@ class McpServerOAuthIntegrationTest extends McpServiceIntegrationTestSupport {
     assertThat(result.getResponse().getContentAsString()).contains(NO_CONVERSATION_MESSAGE)
                                                          .contains(IS_ERROR_TRUE_MESSAGE)
                                                          .doesNotContain("approval:approve-me");
-    verify(mcpToolApprovalService, never()).requestApproval(anyString(), any(), anyString(), anyString(), anyString(),
+    verify(mcpToolApprovalService, never()).requestApproval(anyString(), any(), any(), anyString(), anyString(), anyString(),
                                                 any(),
                                                 anyBoolean(),
                                                 any());
@@ -493,7 +535,7 @@ class McpServerOAuthIntegrationTest extends McpServiceIntegrationTestSupport {
     assertThat(result.getResponse().getContentAsString()).contains("approval:approve-me")
                                                          .contains(IS_ERROR_FALSE_MESSAGE);
     verify(mcpToolApprovalService).requestApproval(anyString(),
-                                                   eq(conversationId),
+                                                   eq(conversationId), any(),
                                                    eq(TEST_APPROVAL_TOOL_METHOD),
                                                    anyString(),
                                                    eq(USERNAME),
@@ -531,7 +573,7 @@ class McpServerOAuthIntegrationTest extends McpServiceIntegrationTestSupport {
     assertThat(result.getResponse().getContentAsString()).contains(NO_CONVERSATION_MESSAGE)
                                                          .contains(IS_ERROR_TRUE_MESSAGE)
                                                          .doesNotContain("approval:approve-me");
-    verify(mcpToolApprovalService, never()).requestApproval(anyString(), any(), anyString(), anyString(), anyString(),
+    verify(mcpToolApprovalService, never()).requestApproval(anyString(), any(), any(), anyString(), anyString(), anyString(),
                                                 any(),
                                                 anyBoolean(),
                                                 any());
@@ -633,7 +675,7 @@ class McpServerOAuthIntegrationTest extends McpServiceIntegrationTestSupport {
                                                          .doesNotContain(WRITE_MESSAGE);
 
     verify(mcpToolApprovalService, never()).requestApproval(anyString(),
-                                                   any(),
+                                                   any(), any(),
                                                    eq("testWriteTool"),
                                                    anyString(),
                                                    eq(USERNAME),
@@ -662,7 +704,7 @@ class McpServerOAuthIntegrationTest extends McpServiceIntegrationTestSupport {
     assertThat(result.getResponse().getContentAsString()).contains(WRITE_MESSAGE)
                                                          .contains(IS_ERROR_FALSE_MESSAGE);
 
-    verify(mcpToolApprovalService, never()).requestApproval(anyString(), anyString(), anyString(), anyString(), anyString(),
+    verify(mcpToolApprovalService, never()).requestApproval(anyString(), anyString(), any(), anyString(), anyString(), anyString(),
                                                 any(),
                                                 anyBoolean(),
                                                 any());
@@ -700,7 +742,7 @@ class McpServerOAuthIntegrationTest extends McpServiceIntegrationTestSupport {
     }
     MvcResult allowed = callTool(token, sessionId, TEST_WRITE_TOOL_NAME, MESSAGE);
     assertThat(allowed.getResponse().getContentAsString()).contains(WRITE_MESSAGE).contains(IS_ERROR_FALSE_MESSAGE);
-    verify(mcpToolApprovalService, never()).requestApproval(anyString(), any(), anyString(), anyString(), anyString(),
+    verify(mcpToolApprovalService, never()).requestApproval(anyString(), any(), any(), anyString(), anyString(), anyString(),
                                                             any(),
                                                             anyBoolean(),
                                                             any());

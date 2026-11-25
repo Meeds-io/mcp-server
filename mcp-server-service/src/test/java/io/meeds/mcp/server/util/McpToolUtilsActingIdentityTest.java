@@ -27,6 +27,7 @@ import static io.meeds.mcp.server.util.McpToolUtils.TOOL_CONTEXT_ID;
 import static io.meeds.mcp.server.util.McpToolUtils.TOOL_CONTEXT_ID_PARAM;
 import static io.meeds.mcp.server.util.McpToolUtils.TOOL_CONTEXT_ON_BEHALF_OF_PARAM;
 import static io.meeds.mcp.server.util.McpToolUtils.TOOL_CONTEXT_ORIGIN_PARAM;
+import static io.meeds.mcp.server.util.McpToolUtils.TOOL_CONTEXT_SPACE_SCOPE_PARAM;
 import static io.meeds.mcp.server.util.McpToolUtils.TOOL_CONTEXT_USER_NAME_PARAM;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -51,6 +52,7 @@ import org.springframework.web.context.request.ServletRequestAttributes;
 import io.meeds.mcp.server.constant.Origin;
 import io.meeds.mcp.server.constant.PrincipalKind;
 import io.meeds.mcp.server.model.ActingIdentity;
+import io.meeds.mcp.server.model.PrincipalRef;
 
 /**
  * Pins how the MCP server resolves the acting identity of a tool call
@@ -118,6 +120,70 @@ class McpToolUtilsActingIdentityTest {
   }
 
   /**
+   * The internal client's space scope header, {@code spaceScope}, is part of
+   * the identity it sends: read as the space id, kept with the rest, and
+   * required by an origin that answers in a space. Mutants: the header not
+   * read; the header read under another name than the one the ai add-on
+   * sends.
+   */
+  @Test
+  void internalClientSpaceScopeIsRead() {
+    authenticateAsBearer(McpToolUtils.MCP_OAUTH2_CLIENT_CREDENTIALS_REGISTRATION_ID,
+                         McpToolUtils.MCP_OAUTH2_CLIENT_CREDENTIALS_REGISTRATION_ID);
+    MockHttpServletRequest request = bindRequest(TOOL_CONTEXT_ID, USERNAME);
+    addIdentityHeaders(request, PrincipalKind.USER.name(), USERNAME, null, USERNAME, "[\"COMPLETION\"]", "MENTION", "COMPLETION");
+    request.addHeader("spaceScope", "42");
+
+    ActingIdentity identity = McpToolUtils.getCurrentActingIdentity();
+
+    assertThat(identity).isEqualTo(ActingIdentity.person(USERNAME, Origin.MENTION, 42L).withHop("COMPLETION"));
+    assertThat(identity.spaceScope()).isEqualTo(42L);
+  }
+
+  /**
+   * An origin that answers in a space without the space scope header, a space
+   * scope that isn't a plain space id, and a space scope sent with the legacy
+   * headers alone are all refused, never read as "no limit". Mutants: the
+   * legacy-path check removed; the header's format check relaxed.
+   */
+  @Test
+  void refusedSpaceScopeHeadersThrow() {
+    authenticateAsBearer(McpToolUtils.MCP_OAUTH2_CLIENT_CREDENTIALS_REGISTRATION_ID,
+                         McpToolUtils.MCP_OAUTH2_CLIENT_CREDENTIALS_REGISTRATION_ID);
+
+    addIdentityHeaders(bindRequest(TOOL_CONTEXT_ID, USERNAME), "USER", USERNAME, null, USERNAME, "[]", "MENTION", null);
+    assertThatThrownBy(McpToolUtils::getCurrentActingIdentity).isInstanceOf(IllegalStateException.class);
+
+    for (String value : new String[] { "abc", "0", "-4", "012", "4 ", "", "99999999999999999999" }) {
+      MockHttpServletRequest request = bindRequest(TOOL_CONTEXT_ID, USERNAME);
+      addIdentityHeaders(request, "USER", USERNAME, null, USERNAME, "[]", "CHAT", null);
+      request.addHeader(TOOL_CONTEXT_SPACE_SCOPE_PARAM, value);
+      assertThatThrownBy(McpToolUtils::getCurrentActingIdentity).as(value).isInstanceOf(IllegalStateException.class);
+    }
+
+    bindRequest(TOOL_CONTEXT_ID, USERNAME).addHeader(TOOL_CONTEXT_SPACE_SCOPE_PARAM, "42");
+    assertThatThrownBy(McpToolUtils::getCurrentActingIdentity).isInstanceOf(IllegalStateException.class);
+  }
+
+  /**
+   * An external client can't set a space scope, nor lift one: its call is its
+   * token's user, unlimited, whatever headers it sends. Mutant: the header
+   * read outside the internal client's gate.
+   */
+  @Test
+  void externalClientCannotSetASpaceScope() {
+    authenticateAsBearer("mary", "claude-desktop");
+    MockHttpServletRequest request = bindRequest(TOOL_CONTEXT_ID, USERNAME);
+    addIdentityHeaders(request, PrincipalKind.USER.name(), "mary", null, "mary", "[]", "MENTION", null);
+    request.addHeader(TOOL_CONTEXT_SPACE_SCOPE_PARAM, "42");
+
+    ActingIdentity identity = McpToolUtils.getCurrentActingIdentity();
+
+    assertThat(identity).isEqualTo(ActingIdentity.external("mary"));
+    assertThat(identity.spaceScope()).isNull();
+  }
+
+  /**
    * T13: a caller other than the internal client gets its token's user, an
    * empty chain and the external origin, whatever headers it sends, the
    * context id included.
@@ -170,20 +236,25 @@ class McpToolUtilsActingIdentityTest {
                          McpToolUtils.MCP_OAUTH2_CLIENT_CREDENTIALS_REGISTRATION_ID);
 
     addIdentityHeaders(bindRequest(TOOL_CONTEXT_ID, USERNAME), "AGENT", "agent-mail", "EMAIL_ASSISTANT", USERNAME, "[\"EMAIL_ASSISTANT\"]",
-                       "MENTION", null);
+                       "SCHEDULE", null);
     assertThatThrownBy(McpToolUtils::getCurrentActingIdentity).isInstanceOf(IllegalStateException.class);
 
     addIdentityHeaders(bindRequest(TOOL_CONTEXT_ID, USERNAME), "AGENT", "agent-mail", "EMAIL_ASSISTANT", null, "[\"EMAIL_ASSISTANT\"]",
-                       "MENTION", "agent-user:COMPLETION");
+                       "SCHEDULE", "agent-user:COMPLETION");
     assertThatThrownBy(McpToolUtils::getCurrentActingIdentity).isInstanceOf(IllegalStateException.class);
 
     addIdentityHeaders(bindRequest(TOOL_CONTEXT_ID, USERNAME), "AGENT", "agent-mail", "EMAIL_ASSISTANT", null, "[\"EMAIL_ASSISTANT\"]",
-                       "MENTION", "EMAIL_ASSISTANT");
+                       "SCHEDULE", "EMAIL_ASSISTANT");
     assertThatThrownBy(McpToolUtils::getCurrentActingIdentity).isInstanceOf(IllegalStateException.class);
 
     addIdentityHeaders(bindRequest(TOOL_CONTEXT_ID, USERNAME), "AGENT", "agent-mail", "EMAIL_ASSISTANT", null, "[\"EMAIL_ASSISTANT\"]",
-                       "MENTION", "agent-user:EMAIL_ASSISTANT");
-    assertThat(McpToolUtils.getCurrentActingIdentity().grantScope()).isEqualTo("agent-user:EMAIL_ASSISTANT");
+                       "SCHEDULE", "agent-user:EMAIL_ASSISTANT");
+    assertThatThrownBy(McpToolUtils::getCurrentActingIdentity).as("the agent's name id is not the account's login")
+                                                              .isInstanceOf(IllegalStateException.class);
+
+    addIdentityHeaders(bindRequest(TOOL_CONTEXT_ID, USERNAME), "AGENT", "agent-mail", "EMAIL_ASSISTANT", null, "[\"EMAIL_ASSISTANT\"]",
+                       "SCHEDULE", "agent-user:agent-mail");
+    assertThat(McpToolUtils.getCurrentActingIdentity().grantScope()).isEqualTo("agent-user:agent-mail");
 
     addIdentityHeaders(bindRequest(TOOL_CONTEXT_ID, USERNAME), "ROBOT", USERNAME, null, USERNAME, "[]", "CHAT", null);
     assertThatThrownBy(McpToolUtils::getCurrentActingIdentity).isInstanceOf(IllegalStateException.class);
@@ -196,6 +267,59 @@ class McpToolUtilsActingIdentityTest {
 
     addIdentityHeaders(bindRequest(TOOL_CONTEXT_ID, USERNAME), "USER", USERNAME, null, USERNAME, "COMPLETION,EMAIL_ASSISTANT", "CHAT", null);
     assertThatThrownBy(McpToolUtils::getCurrentActingIdentity).isInstanceOf(IllegalStateException.class);
+  }
+
+  /**
+   * The scope a digital worker's write in its space announces,
+   * {@code agent-user:<login>:space:<id>} (ai's
+   * {@code AiToolGrantService#getDigitalWorkerAgentScope}), is its own when
+   * the id is the call's space scope; with another space, without a space
+   * scope, or with another account's login, it is refused. Mutants: the check
+   * that accepts the agent's name id only, which refuses the accepted cases;
+   * one that ignores the space id or the space scope, or reads the name id
+   * instead of the login, which accepts a refused case.
+   */
+  @Test
+  void agentAccountGrantScopeOfItsSpaceIsItsOwnInThatSpaceOnly() {
+    authenticateAsBearer(McpToolUtils.MCP_OAUTH2_CLIENT_CREDENTIALS_REGISTRATION_ID,
+                         McpToolUtils.MCP_OAUTH2_CLIENT_CREDENTIALS_REGISTRATION_ID);
+
+    MockHttpServletRequest inItsSpace = bindRequest(TOOL_CONTEXT_ID, "eva-bot");
+    addIdentityHeaders(inItsSpace, "AGENT", "eva-bot", "SALES_ASSISTANT", null, "[\"SALES_ASSISTANT\"]", "PROPOSAL",
+                       "agent-user:eva-bot:space:7");
+    inItsSpace.addHeader(TOOL_CONTEXT_SPACE_SCOPE_PARAM, "7");
+    ActingIdentity identity = McpToolUtils.getCurrentActingIdentity();
+    assertThat(identity.grantScope()).isEqualTo("agent-user:eva-bot:space:7");
+    assertThat(identity.spaceScope()).isEqualTo(7L);
+    assertThat(identity.actor()).isEqualTo(PrincipalRef.agent("eva-bot", "SALES_ASSISTANT"));
+
+    MockHttpServletRequest accountScope = bindRequest(TOOL_CONTEXT_ID, "eva-bot");
+    addIdentityHeaders(accountScope, "AGENT", "eva-bot", "SALES_ASSISTANT", null, "[\"SALES_ASSISTANT\"]", "PROPOSAL",
+                       "agent-user:eva-bot");
+    accountScope.addHeader(TOOL_CONTEXT_SPACE_SCOPE_PARAM, "7");
+    assertThat(McpToolUtils.getCurrentActingIdentity().grantScope()).isEqualTo("agent-user:eva-bot");
+
+    MockHttpServletRequest otherSpace = bindRequest(TOOL_CONTEXT_ID, "eva-bot");
+    addIdentityHeaders(otherSpace, "AGENT", "eva-bot", "SALES_ASSISTANT", null, "[\"SALES_ASSISTANT\"]", "PROPOSAL",
+                       "agent-user:eva-bot:space:8");
+    otherSpace.addHeader(TOOL_CONTEXT_SPACE_SCOPE_PARAM, "7");
+    assertThatThrownBy(McpToolUtils::getCurrentActingIdentity).as("another space").isInstanceOf(IllegalStateException.class);
+
+    addIdentityHeaders(bindRequest(TOOL_CONTEXT_ID, "eva-bot"), "AGENT", "eva-bot", "SALES_ASSISTANT", null, "[\"SALES_ASSISTANT\"]",
+                       "PROPOSAL", "agent-user:eva-bot:space:7");
+    assertThatThrownBy(McpToolUtils::getCurrentActingIdentity).as("no space scope").isInstanceOf(IllegalStateException.class);
+
+    MockHttpServletRequest otherAccount = bindRequest(TOOL_CONTEXT_ID, "eva-bot");
+    addIdentityHeaders(otherAccount, "AGENT", "eva-bot", "SALES_ASSISTANT", null, "[\"SALES_ASSISTANT\"]", "PROPOSAL",
+                       "agent-user:support-desk:space:7");
+    otherAccount.addHeader(TOOL_CONTEXT_SPACE_SCOPE_PARAM, "7");
+    assertThatThrownBy(McpToolUtils::getCurrentActingIdentity).as("another account").isInstanceOf(IllegalStateException.class);
+
+    MockHttpServletRequest nameId = bindRequest(TOOL_CONTEXT_ID, "eva-bot");
+    addIdentityHeaders(nameId, "AGENT", "eva-bot", "SALES_ASSISTANT", null, "[\"SALES_ASSISTANT\"]", "PROPOSAL",
+                       "agent-user:SALES_ASSISTANT:space:7");
+    nameId.addHeader(TOOL_CONTEXT_SPACE_SCOPE_PARAM, "7");
+    assertThatThrownBy(McpToolUtils::getCurrentActingIdentity).as("the agent's name id").isInstanceOf(IllegalStateException.class);
   }
 
   /**

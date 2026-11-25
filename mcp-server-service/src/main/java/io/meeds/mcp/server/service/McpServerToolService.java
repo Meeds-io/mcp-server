@@ -82,6 +82,13 @@ public class McpServerToolService {
 
   private static final Context              AI_AGENT_CONTEXT              = Context.GLOBAL.id("AI_AGENT");
 
+  /**
+   * Key of the persisted tool definitions. A new key makes the next boot
+   * re-import every shipped definition, description and input schema
+   * included, and leaves the previous row unread: administrator edits made in
+   * the AI tools admin are reset once. The per-tool "always ask" flags live
+   * under their own scope and are kept.
+   */
   private static final String               TOOLS_KEY                     = "AI_AGENT_TOOL_DEFINITIONS_v17";
 
   private static final Scope                TOOLS_SCOPE                   = Scope.APPLICATION.id(TOOLS_KEY);
@@ -498,12 +505,13 @@ public class McpServerToolService {
   /**
    * Builds the tool registry: every {@code ai-tool-definitions.json} on the
    * portal classpath, each entry overridden by its persisted version when one
-   * exists, then persisted back as the new reference set. The icon is the
-   * add-on's, not the administrator's: it is always taken from the shipped
-   * file, so a booted instance shows a changed icon at its next restart. A
-   * tool its file declares with a key this server does not know is left out
-   * of the registry, and its saved definition is persisted back unchanged, so
-   * the administrator's values return with the tool once the key is known.
+   * exists, then persisted back as the new reference set. The icon and the
+   * space scope are the add-on's, not the administrator's: they are always
+   * taken from the shipped file, so a booted instance applies a changed one at
+   * its next restart. A tool its file declares with a key this server does not
+   * know is left out of the registry, and its saved definition is persisted
+   * back unchanged, so the administrator's values return with the tool once
+   * the key is known.
    */
   @SneakyThrows
   private void retrieveToolDefinitions() {
@@ -529,8 +537,8 @@ public class McpServerToolService {
                                                                                                       .filter(t -> t.getName()
                                                                                                                     .equals(toolDefinition.getName()))
                                                                                                       .findFirst()
-                                                                                                      .map(saved -> withShippedIcon(saved,
-                                                                                                                                    toolDefinition))
+                                                                                                      .map(saved -> withShippedAddonFields(saved,
+                                                                                                                                           toolDefinition))
                                                                                                       .orElse(toolDefinition))
                                                                .toList();
     Set<String> loadedToolNames = toolDefinitionList.stream().map(SimpleToolDefinition::getName).collect(Collectors.toSet());
@@ -558,17 +566,45 @@ public class McpServerToolService {
   }
 
   /**
-   * Gives a persisted definition the icon of its shipped file, keeping every
-   * value the administrator may have edited.
+   * Gives a persisted definition the icon, the space scope and the
+   * {@code readOnlyHint} of its shipped file, keeping every value the
+   * administrator may have edited. The hint tells a read from a write for a
+   * call limited to a space, which is checked against the shipped space scope,
+   * so both come from the same file. A space scope or a hint the file no
+   * longer declares is dropped from the persisted copy too.
    *
    * @param savedDefinition   the persisted definition
    * @param shippedDefinition the definition read from the add-on's file
-   * @return the persisted definition, with the shipped icon
+   * @return the persisted definition, with the shipped icon, space scope and
+   *         read-only hint
    */
-  private SimpleToolDefinition withShippedIcon(SimpleToolDefinition savedDefinition,
-                                               SimpleToolDefinition shippedDefinition) {
+  private SimpleToolDefinition withShippedAddonFields(SimpleToolDefinition savedDefinition,
+                                                      SimpleToolDefinition shippedDefinition) {
     savedDefinition.setIcon(shippedDefinition.getIcon());
+    savedDefinition.setSpaceScope(shippedDefinition.getSpaceScope());
+    savedDefinition.setAnnotations(withReadOnlyHint(savedDefinition.getAnnotations(),
+                                                    shippedDefinition.getAnnotations() == null ? null :
+                                                                                               shippedDefinition.getAnnotations()
+                                                                                                                .readOnlyHint()));
     return savedDefinition;
+  }
+
+  /**
+   * @param annotations  the persisted annotations, may be null
+   * @param readOnlyHint the shipped read-only hint, may be null
+   * @return the annotations with that hint, the others kept; null when there
+   *         are none and the hint is null
+   */
+  private static ToolAnnotations withReadOnlyHint(ToolAnnotations annotations, Boolean readOnlyHint) {
+    if (annotations == null) {
+      return readOnlyHint == null ? null : new ToolAnnotations(null, readOnlyHint, null, null, null, null);
+    }
+    return new ToolAnnotations(annotations.title(),
+                               readOnlyHint,
+                               annotations.destructiveHint(),
+                               annotations.idempotentHint(),
+                               annotations.openWorldHint(),
+                               annotations.returnDirect());
   }
 
   /**

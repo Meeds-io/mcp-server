@@ -41,8 +41,11 @@ import static io.meeds.mcp.server.util.McpToolUtils.AI_AGENT_TOOL_ON_BEHALF_OF_P
 import static io.meeds.mcp.server.util.McpToolUtils.AI_AGENT_TOOL_ORIGIN_PARAM;
 import static io.meeds.mcp.server.util.McpToolUtils.AI_AGENT_TOOL_OUTPUT_PARAM;
 import static io.meeds.mcp.server.util.McpToolUtils.AI_AGENT_TOOL_START_TIME_PARAM;
+import static io.meeds.mcp.server.util.McpToolUtils.AI_AGENT_TOOL_TURN_ID_PARAM;
 import static io.meeds.mcp.server.util.McpToolUtils.AI_AGENT_TOOL_TYPE_PARAM;
 import static io.meeds.mcp.server.util.McpToolUtils.AI_AGENT_TOOL_USERNAME_PARAM;
+import static io.meeds.mcp.server.util.McpToolUtils.normalizeTurnId;
+import static io.meeds.mcp.server.util.McpToolUtils.redactBase64ForPublication;
 import static io.meeds.mcp.server.util.McpToolUtils.toAgentChainJson;
 
 import java.util.Collection;
@@ -186,15 +189,22 @@ public class McpToolApprovalService {
                                  String toolName,
                                  String toolInput,
                                  String username) {
-    return requestApproval(id, conversationId, toolName, toolInput, username, null, false, null);
+    return requestApproval(id, conversationId, null, toolName, toolInput, username, null, false, null);
   }
 
   /**
    * Asks the user to approve a call on a card, offering "Always allow" when
-   * the call is grantable, and waits for the answer.
+   * the call is grantable, and waits for the answer. It also publishes the
+   * chat turn that started the call with the card. The turn
+   * id is client-controlled: it is only echoed back to the requesting user's
+   * channel as an opaque correlation value and never decides a grant, an
+   * approval or an identity.
    *
    * @param id                the call identifier
    * @param conversationId    the chat conversation showing the card
+   * @param turnId            the chat turn that started the call, may be null;
+   *                            dropped when blank or longer than
+   *                            {@link io.meeds.mcp.server.util.McpToolUtils#MAX_TURN_ID_LENGTH}
    * @param toolName          the tool name shown on the card
    * @param toolInput         the call input shown on the card
    * @param username          the user asked
@@ -206,6 +216,7 @@ public class McpToolApprovalService {
    */
   public boolean requestApproval(String id, // NOSONAR
                                  String conversationId,
+                                 String turnId,
                                  String toolName,
                                  String toolInput,
                                  String username,
@@ -222,7 +233,7 @@ public class McpToolApprovalService {
     userRequests.put(id, approvalRequest);
     userAnswers.put(id, approvalAnswer);
     try {
-      sendApprovalRequest(id, conversationId, toolName, toolInput, username, approvalRequest);
+      sendApprovalRequest(id, conversationId, turnId, toolName, toolInput, username, approvalRequest);
       // the scheduled checker wakes every waiter periodically to test the timeout
       synchronized (approvalRequest) {
         while (!approvalAnswer.isAnswered() && (approvalAnswer.isClaimed() || !approvalRequest.isTimedOut(timeout))) {
@@ -333,7 +344,7 @@ public class McpToolApprovalService {
     parameters.put(AI_AGENT_TOOL_DURATION_PARAM, String.valueOf(System.currentTimeMillis() - toolExecution.getStartTime()));
     parameters.put(AI_AGENT_TOOL_TYPE_PARAM, toolExecution.getToolExecutionType().name());
     parameters.put(AI_AGENT_TOOL_NAME_PARAM, StringUtils.defaultIfBlank(toolExecution.getToolName(), ""));
-    parameters.put(AI_AGENT_TOOL_INPUT_PARAM, StringUtils.defaultIfBlank(toolExecution.getToolInput(), ""));
+    parameters.put(AI_AGENT_TOOL_INPUT_PARAM, StringUtils.defaultIfBlank(redactBase64ForPublication(toolExecution.getToolInput()), ""));
     parameters.put(AI_AGENT_TOOL_OUTPUT_PARAM, StringUtils.defaultIfBlank(toolExecution.getToolOutput(), ""));
     parameters.put(AI_AGENT_TOOL_EXEC_COMPLETED_PARAM, String.valueOf(toolExecution.isCompleted()));
     parameters.put(AI_AGENT_TOOL_USERNAME_PARAM, username);
@@ -412,6 +423,8 @@ public class McpToolApprovalService {
    *
    * @param id              the call identifier
    * @param conversationId  the chat conversation
+   * @param turnId          the chat turn that started the call, published only
+   *                          when non-blank and within the length bound
    * @param toolName        the tool name shown
    * @param toolInput       the call input shown
    * @param username        the user asked
@@ -419,6 +432,7 @@ public class McpToolApprovalService {
    */
   private void sendApprovalRequest(String id,
                                    String conversationId,
+                                   String turnId,
                                    String toolName,
                                    String toolInput,
                                    String username,
@@ -426,9 +440,13 @@ public class McpToolApprovalService {
     Map<String, String> parameters = new HashMap<>();
     parameters.put(AI_AGENT_TOOL_ID_PARAM, id);
     parameters.put(AI_AGENT_TOOL_CONVERSATION_ID_PARAM, StringUtils.defaultIfBlank(conversationId, ""));
+    String boundedTurnId = normalizeTurnId(turnId);
+    if (boundedTurnId != null) {
+      parameters.put(AI_AGENT_TOOL_TURN_ID_PARAM, boundedTurnId);
+    }
     parameters.put(AI_AGENT_TOOL_TYPE_PARAM, UserToolRequestType.APPROVAL_REQUEST.name());
     parameters.put(AI_AGENT_TOOL_NAME_PARAM, StringUtils.defaultIfBlank(toolName, ""));
-    parameters.put(AI_AGENT_TOOL_INPUT_PARAM, StringUtils.defaultIfBlank(toolInput, ""));
+    parameters.put(AI_AGENT_TOOL_INPUT_PARAM, StringUtils.defaultIfBlank(redactBase64ForPublication(toolInput), ""));
     parameters.put(AI_AGENT_TOOL_USERNAME_PARAM, StringUtils.defaultIfBlank(username, ""));
     parameters.put(AI_AGENT_TOOL_GRANTABLE_PARAM, String.valueOf(approvalRequest.isGrantable()));
     if (approvalRequest.isGrantable()) {
@@ -474,7 +492,7 @@ public class McpToolApprovalService {
     parameters.put(AI_AGENT_TOOL_CONVERSATION_ID_PARAM, StringUtils.defaultIfBlank(conversationId, ""));
     parameters.put(AI_AGENT_TOOL_TYPE_PARAM, UserToolRequestType.APPROVAL_ANSWER.name());
     parameters.put(AI_AGENT_TOOL_NAME_PARAM, StringUtils.defaultIfBlank(toolName, ""));
-    parameters.put(AI_AGENT_TOOL_INPUT_PARAM, String.valueOf(toolInput));
+    parameters.put(AI_AGENT_TOOL_INPUT_PARAM, String.valueOf(redactBase64ForPublication(toolInput)));
     parameters.put(AI_AGENT_TOOL_USERNAME_PARAM, StringUtils.defaultIfBlank(username, ""));
     parameters.put(AI_AGENT_TOOL_APPROVED_PARAM, String.valueOf(approvalAnswer.isApproved()));
     McpToolGrant grant = approvalAnswer.getGrant();
@@ -517,7 +535,7 @@ public class McpToolApprovalService {
                                                           AI_AGENT_TOOL_NAME_PARAM,
                                                           StringUtils.defaultIfBlank(toolName, ""),
                                                           AI_AGENT_TOOL_INPUT_PARAM,
-                                                          String.valueOf(toolInput),
+                                                          String.valueOf(redactBase64ForPublication(toolInput)),
                                                           AI_AGENT_TOOL_USERNAME_PARAM,
                                                           StringUtils.defaultIfBlank(username, "")));
     putActingIdentity(parameters, grantRequest);

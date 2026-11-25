@@ -18,6 +18,7 @@
  */
 package io.meeds.mcp.server.tool;
 
+import static io.meeds.mcp.server.tool.util.McpToolPluginUtils.clampLimit;
 import static io.meeds.mcp.server.tool.util.McpToolPluginUtils.getInteger;
 import static io.meeds.mcp.server.util.McpToolUtils.markdownToHtml;
 
@@ -28,13 +29,16 @@ import java.time.OffsetDateTime;
 import java.time.ZoneId;
 import java.time.format.DateTimeParseException;
 import java.util.ArrayList;
+import java.util.Collection;
 import java.util.Collections;
+import java.util.Date;
 import java.util.HashMap;
 import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
 import java.util.Map.Entry;
 import java.util.Objects;
+import java.util.function.Supplier;
 import java.util.stream.Stream;
 
 import org.apache.commons.collections4.CollectionUtils;
@@ -55,6 +59,7 @@ import org.exoplatform.social.attachment.AttachmentService;
 import org.exoplatform.social.attachment.model.ObjectAttachmentDetail;
 import org.exoplatform.social.attachment.model.ObjectAttachmentList;
 import org.exoplatform.social.attachment.model.UploadedAttachmentDetail;
+import org.exoplatform.social.common.RealtimeListAccess;
 import org.exoplatform.social.core.activity.ActivityFilter;
 import org.exoplatform.social.core.activity.ActivityStreamType;
 import org.exoplatform.social.core.activity.filter.ActivitySearchFilter;
@@ -69,10 +74,14 @@ import org.exoplatform.social.core.processor.I18NActivityProcessor;
 import org.exoplatform.social.core.profileproperty.ProfilePropertyService;
 import org.exoplatform.social.core.space.model.Space;
 import org.exoplatform.social.core.space.spi.SpaceService;
+import org.exoplatform.social.core.utils.MentionUtils;
 
+import io.meeds.mcp.server.model.ActingIdentity;
 import io.meeds.mcp.server.plugin.McpToolPlugin;
+import io.meeds.mcp.server.tool.model.ActivityCollectionModel;
 import io.meeds.mcp.server.tool.model.ActivityCommentModel;
 import io.meeds.mcp.server.tool.model.ActivityModel;
+import io.meeds.mcp.server.tool.model.ActivitySummaryModel;
 import io.meeds.mcp.server.tool.model.AttachmentModel;
 import io.meeds.mcp.server.tool.model.UserModel;
 import io.meeds.mcp.server.tool.util.ActivityToolUtils;
@@ -107,6 +116,12 @@ public class ActivityMcpTool implements McpToolPlugin {
 
   /** Template parameter holding the current text of an edited comment. */
   private static final String     COMMENT_TEMPLATE_PARAM   = "comment";
+
+  private static final String     NOT_SCOPE_SPACE_MEMBER   =
+                                                         "User '%s' isn't a member of the space this call is limited to, so the text can't mention them";
+
+  private static final String     SCOPE_UNREADABLE         =
+                                                         "The space this call is limited to can't be read, so the text can't mention a user";
 
   @Autowired
   private ActivityManager         activityManager;
@@ -147,9 +162,26 @@ public class ActivityMcpTool implements McpToolPlugin {
   @Autowired
   private FileService             fileService;
 
+  /**
+   * Lists the activities updated since a number of days, reading the stream
+   * newest first, by pages of {@link McpToolPlugin#DEFAULT_LIMIT}, and stopping
+   * at the first page holding none of them or once {@link #MAX_TO_LOAD}
+   * activities were read. When it stops on that bound, it reads the next
+   * activity of the stream and says {@code has_more} only when that one
+   * exists and is updated since then too. An activity deleted between the
+   * listing of its id and its read is skipped, and each activity is read
+   * once, so none is listed empty.
+   *
+   * @param spaceId restrict to one space, or null for every stream the user
+   *                  sees
+   * @param days    the number of days to look back
+   * @return the activities updated since then, at most {@link #MAX_TO_LOAD}
+   * @throws IllegalAccessException  when the user can't view the space
+   * @throws ObjectNotFoundException when the space doesn't exist
+   */
   @SneakyThrows
-  public List<ActivityModel> getActivitiesSinceDays(Long spaceId, Long days) throws IllegalAccessException, // NOSONAR
-                                                                             ObjectNotFoundException {
+  public ActivityCollectionModel getActivitiesSinceDays(Long spaceId, Long days) throws IllegalAccessException, // NOSONAR
+                                                                                 ObjectNotFoundException {
     org.exoplatform.services.security.Identity currentUser = getCurrentUserAclIdentity();
     String currentUsername = currentUser.getUserId();
     Identity currentUserIdentity = identityManager.getOrCreateUserIdentity(currentUsername);
@@ -173,37 +205,81 @@ public class ActivityMcpTool implements McpToolPlugin {
                                    .toEpochSecond() *
         1000l;
 
-    List<ActivityModel> result = new ArrayList<>();
+    RealtimeListAccess<ExoSocialActivity> listAccess = activityManager.getActivitiesByFilterWithListAccess(currentUserIdentity,
+                                                                                                          activityFilter);
+    List<ActivitySummaryModel> result = new ArrayList<>();
     int offset = 0;
-    int limit = 10;
-    List<ExoSocialActivity> activities;
-    do {
-      List<String> activityIds = activityManager.getActivitiesByFilterWithListAccess(currentUserIdentity,
-                                                                                     activityFilter)
-                                                .loadIdsAsList(getInteger(offset, DEFAULT_OFFSET),
-                                                               getInteger(limit, DEFAULT_LIMIT));
+    int limit = DEFAULT_LIMIT;
+    while (offset < MAX_TO_LOAD) {
+      List<String> activityIds = listAccess.loadIdsAsList(offset, limit);
       if (CollectionUtils.isEmpty(activityIds)) {
         break;
-      } else {
-        activities = activityIds.stream()
-                                .map(activityManager::getActivity)
-                                .filter(a -> a.getUpdated() == null ? a.getPostedTime() > sinceTimestamp :
-                                                                    a.getUpdated().getTime() > sinceTimestamp)
-                                .toList();
-        if (CollectionUtils.isNotEmpty(activities)) {
-          activities.stream()
-                    .map(ExoSocialActivity::getId)
-                    .map(this::toActivityModel)
-                    .forEach(result::add);
-        }
-        offset += limit;
       }
-    } while (!activities.isEmpty() && offset < MAX_TO_LOAD);
-    return result;
+      List<ExoSocialActivity> activities = activityIds.stream()
+                                                      .map(activityManager::getActivity)
+                                                      .filter(Objects::nonNull)
+                                                      .filter(a -> getLastChangeTime(a) > sinceTimestamp)
+                                                      .toList();
+      if (activities.isEmpty()) {
+        break;
+      }
+      activities.stream()
+                .map(this::toActivitySummaryModel)
+                .filter(Objects::nonNull)
+                .forEach(result::add);
+      offset += limit;
+    }
+    boolean hasMore = offset >= MAX_TO_LOAD && hasActivitySince(listAccess, MAX_TO_LOAD, sinceTimestamp);
+    return new ActivityCollectionModel(result, MAX_TO_LOAD, hasMore, null);
   }
 
+  /**
+   * Tells whether the activity at a position of a stream exists and changed
+   * since a time.
+   *
+   * @param listAccess     the stream
+   * @param position       the activity's index in the stream
+   * @param sinceTimestamp the time, in milliseconds
+   * @return true when the stream holds an activity there, readable and
+   *         changed after that time
+   */
+  private boolean hasActivitySince(RealtimeListAccess<ExoSocialActivity> listAccess, int position, long sinceTimestamp) {
+    List<String> activityIds = listAccess.loadIdsAsList(position, 1);
+    if (CollectionUtils.isEmpty(activityIds)) {
+      return false;
+    }
+    ExoSocialActivity activity = activityManager.getActivity(activityIds.get(0));
+    return activity != null && getLastChangeTime(activity) > sinceTimestamp;
+  }
+
+  /**
+   * Gives the time an activity last changed: its update time when it has one,
+   * its posting time otherwise.
+   *
+   * @param activity the activity
+   * @return the time in milliseconds
+   */
+  private long getLastChangeTime(ExoSocialActivity activity) {
+    Date updated = activity.getUpdated();
+    return updated == null ? activity.getPostedTime() : updated.getTime();
+  }
+
+  /**
+   * Lists a page of the activities of a space, or of every stream the user
+   * sees.
+   *
+   * @param spaceId restrict to one space, or null for every stream the user
+   *                  sees
+   * @param offset  index of the first activity to retrieve
+   * @param limit   maximum number of activities to retrieve, at most
+   *                  {@link io.meeds.mcp.server.tool.util.McpToolPluginUtils#MAX_LIMIT}
+   * @return the activities, each one with its author and space reduced to
+   *         what names them
+   * @throws IllegalAccessException  when the user can't view the space
+   * @throws ObjectNotFoundException when the space doesn't exist
+   */
   @SneakyThrows
-  public List<ActivityModel> getActivities(Long spaceId,
+  public List<ActivitySummaryModel> getActivities(Long spaceId,
                                            Integer offset,
                                            Integer limit) throws IllegalAccessException, ObjectNotFoundException {
     org.exoplatform.services.security.Identity currentUser = getCurrentUserAclIdentity();
@@ -226,13 +302,27 @@ public class ActivityMcpTool implements McpToolPlugin {
     List<String> activityIds = activityManager.getActivitiesByFilterWithListAccess(currentUserIdentity,
                                                                                    activityFilter)
                                               .loadIdsAsList(getInteger(offset, DEFAULT_OFFSET),
-                                                             getInteger(limit, DEFAULT_LIMIT));
+                                                             clampLimit(limit, DEFAULT_LIMIT));
     return activityIds.stream()
-                      .map(this::toActivityModel)
+                      .map(this::toActivitySummaryModel)
+                      .filter(Objects::nonNull)
                       .toList();
   }
 
-  public List<ActivityModel> getUserActivityStream(String username,
+  /**
+   * Lists a page of the activity stream of a user, as the current user sees
+   * it.
+   *
+   * @param username the user whose stream to read, with or without a leading
+   *                   {@code @}
+   * @param offset   index of the first activity to retrieve
+   * @param limit    maximum number of activities to retrieve, at most
+   *                   {@link io.meeds.mcp.server.tool.util.McpToolPluginUtils#MAX_LIMIT}
+   * @return the activities, each one with its author and space reduced to
+   *         what names them
+   * @throws ObjectNotFoundException when the user doesn't exist
+   */
+  public List<ActivitySummaryModel> getUserActivityStream(String username,
                                                    Integer offset,
                                                    Integer limit) throws ObjectNotFoundException {
     org.exoplatform.services.security.Identity viewer = getCurrentUserAclIdentity();
@@ -244,9 +334,10 @@ public class ActivityMcpTool implements McpToolPlugin {
     Identity viewerIdentity = identityManager.getOrCreateUserIdentity(viewer.getUserId());
     List<String> activityIds = activityManager.getActivitiesWithListAccess(ownerIdentity, viewerIdentity)
                                               .loadIdsAsList(getInteger(offset, DEFAULT_OFFSET),
-                                                             getInteger(limit, DEFAULT_LIMIT));
+                                                             clampLimit(limit, DEFAULT_LIMIT));
     return activityIds.stream()
-                      .map(this::toActivityModel)
+                      .map(this::toActivitySummaryModel)
+                      .filter(Objects::nonNull)
                       .toList();
   }
 
@@ -322,9 +413,46 @@ public class ActivityMcpTool implements McpToolPlugin {
     }
   }
 
+  /**
+   * Posts an activity as the current user, in a space or in the user's stream.
+   * In a call limited to a space, a post must not name anyone outside that
+   * space: every user the text mentions must be a member or a super manager
+   * of it.
+   *
+   * @param spaceId              the space to post in, or null for the user's
+   *                             stream
+   * @param htmlContent          the post, in HTML or Markdown
+   * @param publicationStartTime the scheduled publication time, or null to post
+   *                             now
+   * @return the posted activity
+   * @throws IllegalAccessException  when the user can't post there, or the text
+   *                                 mentions a user outside the space the call
+   *                                 is limited to
+   * @throws ObjectNotFoundException when the space doesn't exist
+   */
   public ActivityModel createActivity(Long spaceId,
                                       String htmlContent,
                                       String publicationStartTime) throws IllegalAccessException, ObjectNotFoundException {
+    checkScopeSpaceMembers(() -> mentionedUsers(htmlContent));
+    return postActivity(spaceId, htmlContent, publicationStartTime);
+  }
+
+  /**
+   * Posts an activity as the current user, without the mention check its
+   * callers have already run.
+   *
+   * @param spaceId              the space to post in, or null for the user's
+   *                             stream
+   * @param htmlContent          the post, in HTML or Markdown
+   * @param publicationStartTime the scheduled publication time, or null to post
+   *                             now
+   * @return the posted activity
+   * @throws IllegalAccessException  when the user can't post there
+   * @throws ObjectNotFoundException when the space doesn't exist
+   */
+  private ActivityModel postActivity(Long spaceId,
+                                     String htmlContent,
+                                     String publicationStartTime) throws IllegalAccessException, ObjectNotFoundException {
     if (StringUtils.isBlank(htmlContent)) {
       throw new IllegalArgumentException("Activity 'content' attribute is mandatory");
     }
@@ -364,20 +492,64 @@ public class ActivityMcpTool implements McpToolPlugin {
     return toActivityModel(activity.getId());
   }
 
+  /**
+   * Posts an activity carrying an image, as the current user; when the image
+   * can't be attached the post is deleted again. In a call limited to a space,
+   * every user the text mentions must be a member or a super manager of that
+   * space, checked before the image is staged.
+   *
+   * @param spaceId              the space to post in, or null for the user's
+   *                             stream
+   * @param htmlContent          the post, in HTML or Markdown
+   * @param imageUrl             URL of the image, may be null
+   * @param imageBase64          base64 content of the image, may be null
+   * @param attachmentObjectType type of the object an existing attachment is
+   *                             copied from, may be null
+   * @param attachmentObjectId   identifier of the object an existing attachment
+   *                             is copied from, may be null
+   * @param uploadId             upload id of an image the current user sent
+   *                             with start_upload, may be null; consumed by
+   *                             the call
+   * @param altText              alternative text of the image, may be null
+   * @return the posted activity
+   * @throws IllegalAccessException  when the user can't post there, or the text
+   *                                 mentions a user outside the space the call
+   *                                 is limited to
+   * @throws ObjectNotFoundException when the space doesn't exist
+   */
   public ActivityModel createActivityWithImage(Long spaceId,
                                                String htmlContent,
                                                String imageUrl,
                                                String imageBase64,
                                                String attachmentObjectType,
                                                String attachmentObjectId,
+                                               String uploadId,
                                                String altText) throws IllegalAccessException, ObjectNotFoundException {
-    if (StringUtils.isBlank(imageUrl) && StringUtils.isBlank(imageBase64) && StringUtils.isBlank(attachmentObjectId)) {
-      throw new IllegalArgumentException("Provide an image via image_url, image_base64 or attachment_object_id. To post without an image, use create_activity.");
+    UploadToolUtils.ImageSource source = new UploadToolUtils.ImageSource(imageUrl,
+                                                                         imageBase64,
+                                                                         attachmentObjectType,
+                                                                         attachmentObjectId,
+                                                                         uploadId);
+    if (hasNoImageSource(source)) {
+      throw new IllegalArgumentException("Provide an image via attachment_object_id, image_url, upload_id or image_base64. To post without an image, use create_activity.");
     }
-    String uploadId = resolveImageUploadId(imageUrl, imageBase64, attachmentObjectType, attachmentObjectId);
-    ActivityModel model = createActivity(spaceId, htmlContent, null);
+    checkScopeSpaceMembers(() -> mentionedUsers(htmlContent));
+    String stagedUploadId = resolveImageUploadId(source);
+    ActivityModel model;
     try {
-      attachUploadToObject(ACTIVITY_OBJECT_TYPE, String.valueOf(model.id()), uploadId, altText);
+      model = postActivity(spaceId, htmlContent, null);
+    } catch (IllegalAccessException e) {
+      UploadToolUtils.release(uploadService, stagedUploadId);
+      throw new IllegalAccessException(withConsumedUploadHint(e.getMessage(), source));
+    } catch (ObjectNotFoundException e) {
+      UploadToolUtils.release(uploadService, stagedUploadId);
+      throw new ObjectNotFoundException(withConsumedUploadHint(e.getMessage(), source));
+    } catch (RuntimeException e) {
+      UploadToolUtils.release(uploadService, stagedUploadId);
+      throw e;
+    }
+    try {
+      attachUploadToObject(ACTIVITY_OBJECT_TYPE, String.valueOf(model.id()), stagedUploadId, altText);
     } catch (RuntimeException e) {
       deleteActivityQuietly(String.valueOf(model.id()));
       throw new IllegalStateException("The image could not be attached, so the post was not created: " + e.getMessage()
@@ -386,11 +558,32 @@ public class ActivityMcpTool implements McpToolPlugin {
     return toActivityModel(String.valueOf(model.id()));
   }
 
+  /**
+   * Attaches an image to an activity the current user may edit.
+   *
+   * @param activityId           identifier of the activity
+   * @param imageUrl             URL of the image, may be null
+   * @param imageBase64          base64 content of the image, may be null
+   * @param attachmentObjectType type of the object an existing attachment is
+   *                             copied from, may be null
+   * @param attachmentObjectId   identifier of the object an existing attachment
+   *                             is copied from, may be null
+   * @param uploadId             upload id of an image the current user sent
+   *                             with start_upload, may be null; consumed by
+   *                             the call
+   * @param altText              alternative text of the image, may be null
+   * @return the updated activity
+   * @throws IllegalAccessException  when the user can't edit the activity, or
+   *                                 read the attachment
+   * @throws ObjectNotFoundException when the activity, the attachment or the
+   *                                 upload doesn't exist
+   */
   public ActivityModel attachImageToActivity(long activityId,
                                             String imageUrl,
                                             String imageBase64,
                                             String attachmentObjectType,
                                             String attachmentObjectId,
+                                            String uploadId,
                                             String altText) throws IllegalAccessException, ObjectNotFoundException {
     org.exoplatform.services.security.Identity userIdentity = getCurrentUserAclIdentity();
     ExoSocialActivity activity = activityManager.getActivity(String.valueOf(activityId));
@@ -400,30 +593,63 @@ public class ActivityMcpTool implements McpToolPlugin {
     if (!activityManager.isActivityEditable(activity, userIdentity)) {
       throw new IllegalAccessException("Activity with id '%s' can't be edited by current user".formatted(activityId));
     }
-    String uploadId = resolveImageUploadId(imageUrl, imageBase64, attachmentObjectType, attachmentObjectId);
-    attachUploadToObject(ACTIVITY_OBJECT_TYPE, String.valueOf(activityId), uploadId, altText);
+    String stagedUploadId = resolveImageUploadId(new UploadToolUtils.ImageSource(imageUrl,
+                                                                                 imageBase64,
+                                                                                 attachmentObjectType,
+                                                                                 attachmentObjectId,
+                                                                                 uploadId));
+    attachUploadToObject(ACTIVITY_OBJECT_TYPE, String.valueOf(activityId), stagedUploadId, altText);
     return toActivityModel(String.valueOf(activityId));
   }
 
   /**
-   * Resolves the image from exactly one source — a public URL, base64 bytes, or
-   * an existing platform attachment (by object type + id) — into an uploadId.
-   * The attachment source is read <b>as the current user</b>, so its ACL is
-   * enforced (no reading files the user cannot access).
+   * Resolves the image from exactly one source — a public URL, base64 bytes, an
+   * existing platform attachment (by object type + id), or a file the current
+   * user uploaded with start_upload — and stages it under a new upload id. The
+   * attachment and the upload are read <b>as the current user</b>, so the
+   * attachment's ACL and the upload's owner are enforced; the user's upload is
+   * consumed.
+   *
+   * @param source the one source of the image
+   * @return the upload id the image is staged under, released by
+   *         {@link #attachUploadToObject}
+   * @throws IllegalAccessException  when the user can't read the attachment
+   * @throws ObjectNotFoundException when the attachment or the upload doesn't
+   *                                 exist
    */
-  private String resolveImageUploadId(String imageUrl,
-                                      String imageBase64,
-                                      String attachmentObjectType,
-                                      String attachmentObjectId) throws IllegalAccessException, ObjectNotFoundException {
+  private String resolveImageUploadId(UploadToolUtils.ImageSource source) throws IllegalAccessException,
+                                                                          ObjectNotFoundException {
     UploadToolUtils.FetchedContent image = UploadToolUtils.resolveImage(attachmentService,
                                                                       fileService,
+                                                                      uploadService,
                                                                       getCurrentUserAclIdentity(),
-                                                                      new UploadToolUtils.ImageSource(imageUrl,
-                                                                                                     imageBase64,
-                                                                                                     attachmentObjectType,
-                                                                                                     attachmentObjectId),
+                                                                      source,
                                                                       UploadToolUtils.DEFAULT_MAX_BYTES);
     return UploadToolUtils.materialize(uploadService, image.bytes(), image.fileName(), image.mimeType());
+  }
+
+  /**
+   * @param source an image source
+   * @return true when it names no image at all: no attachment, URL, upload id
+   *         or base64
+   */
+  private static boolean hasNoImageSource(UploadToolUtils.ImageSource source) {
+    return StringUtils.isAllBlank(source.attachmentObjectId(), source.imageUrl(), source.uploadId(), source.imageBase64());
+  }
+
+  /**
+   * Adds to a refusal met after the image was read that the user's upload, if
+   * the image came from one, is spent: the image is read before the post is
+   * written, and reading an upload consumes it.
+   *
+   * @param message the refusal's message
+   * @param source the image source of the call
+   * @return the message, with the hint when the source is an upload id
+   */
+  private static String withConsumedUploadHint(String message, UploadToolUtils.ImageSource source) {
+    return StringUtils.isBlank(source.uploadId()) ? message
+                                                   : message + " The upload_id was consumed: call start_upload again, run its "
+                                                       + "curl command, then retry with the new upload_id.";
   }
 
   private void attachUploadToObject(String objectType, String objectId, String uploadId, String altText) {
@@ -442,6 +668,65 @@ public class ActivityMcpTool implements McpToolPlugin {
     }
   }
 
+  /**
+   * @param htmlContent a post or a comment, in HTML or Markdown
+   * @return the users the text mentions, read from the HTML it is stored as,
+   *         with the parser the mention notifications use; none for a blank
+   *         text
+   */
+  private static Collection<String> mentionedUsers(String htmlContent) {
+    return StringUtils.isBlank(htmlContent) ? List.of() : MentionUtils.getMentionedUsernames(markdownToHtml(htmlContent));
+  }
+
+  /**
+   * @return the space the current call is limited to, null when it isn't
+   * @throws IllegalStateException when the call's identity can't be read
+   */
+  protected Long getScopeSpaceId() {
+    ActingIdentity identity = McpToolUtils.getCurrentActingIdentity();
+    return identity == null ? null : identity.spaceScope();
+  }
+
+  /**
+   * Checks the users a text written in a call limited to a space mentions are
+   * members, or super managers, of that space: a post or a comment of such a
+   * call must not name anyone outside the space, and the space scope reads the
+   * space of the post only, not the people its text names. The scope is read
+   * once, the mentions only for a limited call, and the space only when
+   * someone is mentioned. Role mentions resolve to the post's space and are
+   * not users here. A call that isn't limited is not checked; one whose
+   * identity can't be read is refused when its text mentions someone.
+   *
+   * @param people the users the text mentions, read only for a limited call
+   * @throws IllegalAccessException when the call is limited to a space one of
+   *           them is neither a member nor a super manager of, or its identity
+   *           can't be read and the text mentions someone
+   */
+  private void checkScopeSpaceMembers(Supplier<Collection<String>> people) throws IllegalAccessException {
+    Long spaceId;
+    try {
+      spaceId = getScopeSpaceId();
+    } catch (IllegalStateException e) {
+      if (people.get().isEmpty()) {
+        return;
+      }
+      throw new IllegalAccessException(SCOPE_UNREADABLE);
+    }
+    if (spaceId == null) {
+      return;
+    }
+    Collection<String> usernames = people.get();
+    if (usernames.isEmpty()) {
+      return;
+    }
+    Space space = spaceService.getSpaceById(spaceId);
+    for (String username : usernames) {
+      if (space == null || !(spaceService.isMember(space, username) || spaceService.isSuperManager(space, username))) {
+        throw new IllegalAccessException(NOT_SCOPE_SPACE_MEMBER.formatted(username));
+      }
+    }
+  }
+
   // Best-effort compensating delete used when an activity/comment was just created but its
   // image attachment then failed: without this, the post would stay live with no image and a
   // retry would create a duplicate (see create_activity_with_image / create_activity_comment_with_image).
@@ -456,6 +741,23 @@ public class ActivityMcpTool implements McpToolPlugin {
     }
   }
 
+  /**
+   * Changes the text of an activity the current user can edit, or the
+   * publication time of one still scheduled. In a call limited to a space,
+   * the new text must not name anyone outside that space: every user it
+   * mentions must be a member or a super manager of it.
+   *
+   * @param activityId           the activity
+   * @param htmlContent          the new text, in HTML or Markdown, or blank to
+   *                             keep it
+   * @param publicationStartTime the new publication time of a scheduled
+   *                             activity, or blank to keep it
+   * @return the updated activity
+   * @throws IllegalAccessException  when the user can't edit the activity, or
+   *                                 the new text mentions a user outside the
+   *                                 space the call is limited to
+   * @throws ObjectNotFoundException when the activity doesn't exist
+   */
   public ActivityModel updateActivity(long activityId,
                                       String htmlContent,
                                       String publicationStartTime) throws IllegalAccessException, ObjectNotFoundException {
@@ -469,6 +771,7 @@ public class ActivityMcpTool implements McpToolPlugin {
     } else if (!activityManager.isActivityEditable(activity, authenticatedUserIdentity)) {
       throw new IllegalAccessException("Activity with id '%s' can't be edited by current user".formatted(activityId));
     }
+    checkScopeSpaceMembers(() -> mentionedUsers(htmlContent));
     Long scheduledTime = parsePublicationStartTime(publicationStartTime);
     if (scheduledTime != null) {
       if (activity.getPublicationStartTime() == null) {
@@ -497,7 +800,7 @@ public class ActivityMcpTool implements McpToolPlugin {
    * @param limit   maximum number of activities to retrieve
    * @return the list of pending scheduled activities, soonest first
    */
-  public List<ActivityModel> getScheduledActivities(Long spaceId,
+  public List<ActivitySummaryModel> getScheduledActivities(Long spaceId,
                                                     Integer offset,
                                                     Integer limit) throws IllegalAccessException, ObjectNotFoundException {
     org.exoplatform.services.security.Identity currentUser = getCurrentUserAclIdentity();
@@ -520,9 +823,10 @@ public class ActivityMcpTool implements McpToolPlugin {
     List<String> activityIds = activityManager.getActivitiesByFilterWithListAccess(currentUserIdentity,
                                                                                    activityFilter)
                                               .loadIdsAsList(getInteger(offset, DEFAULT_OFFSET),
-                                                             getInteger(limit, DEFAULT_LIMIT));
+                                                             clampLimit(limit, DEFAULT_LIMIT));
     return activityIds.stream()
-                      .map(this::toActivityModel)
+                      .map(this::toActivitySummaryModel)
+                      .filter(Objects::nonNull)
                       .toList();
   }
 
@@ -567,11 +871,13 @@ public class ActivityMcpTool implements McpToolPlugin {
    * REST layer does.
    *
    * @param activityId identifier of the activity to pin
+   * @return the activity as stored after the pin, so that the caller reports
+   *         the post it acted on and its pinned state rather than assuming them
    * @throws IllegalAccessException  when the activity isn't viewable by the
    *                                 current user or the user can't pin it
    * @throws ObjectNotFoundException when the activity doesn't exist
    */
-  public void pinActivity(long activityId) throws IllegalAccessException, ObjectNotFoundException {
+  public ActivityModel pinActivity(long activityId) throws IllegalAccessException, ObjectNotFoundException {
     org.exoplatform.services.security.Identity authenticatedUserIdentity = getCurrentUserAclIdentity();
     Identity currentUserIdentity = identityManager.getOrCreateUserIdentity(authenticatedUserIdentity.getUserId());
     ExoSocialActivity activity = activityManager.getActivity(String.valueOf(activityId));
@@ -583,6 +889,7 @@ public class ActivityMcpTool implements McpToolPlugin {
       throw new IllegalAccessException("Activity with id '%s' can't be pinned by current user".formatted(activityId));
     }
     activityManager.pinActivity(activity.getId(), currentUserIdentity.getId());
+    return toActivityModel(activity.getId());
   }
 
   /**
@@ -591,11 +898,13 @@ public class ActivityMcpTool implements McpToolPlugin {
    * as the REST layer does.
    *
    * @param activityId identifier of the activity to unpin
+   * @return the activity as stored after the unpin, so that the caller reports
+   *         the post it acted on and its pinned state rather than assuming them
    * @throws IllegalAccessException  when the activity isn't viewable by the
    *                                 current user or the user can't unpin it
    * @throws ObjectNotFoundException when the activity doesn't exist
    */
-  public void unpinActivity(long activityId) throws IllegalAccessException, ObjectNotFoundException {
+  public ActivityModel unpinActivity(long activityId) throws IllegalAccessException, ObjectNotFoundException {
     org.exoplatform.services.security.Identity authenticatedUserIdentity = getCurrentUserAclIdentity();
     Identity currentUserIdentity = identityManager.getOrCreateUserIdentity(authenticatedUserIdentity.getUserId());
     ExoSocialActivity activity = activityManager.getActivity(String.valueOf(activityId));
@@ -607,6 +916,7 @@ public class ActivityMcpTool implements McpToolPlugin {
       throw new IllegalAccessException("Activity with id '%s' can't be pinned by current user".formatted(activityId));
     }
     activityManager.unpinActivity(activity.getId());
+    return toActivityModel(activity.getId());
   }
 
   /**
@@ -645,7 +955,7 @@ public class ActivityMcpTool implements McpToolPlugin {
     // loadSubComments = true: the replies of the page's comments come along,
     // each one right after its parent (Social's CommentComparator)
     ExoSocialActivity[] comments = activityManager.getCommentsWithListAccess(activity, true)
-                                                  .load(getInteger(offset, DEFAULT_OFFSET), getInteger(limit, DEFAULT_LIMIT));
+                                                  .load(getInteger(offset, DEFAULT_OFFSET), clampLimit(limit, DEFAULT_LIMIT));
     return comments == null ? Collections.emptyList() :
                             Stream.of(comments)
                                   .map(ExoSocialActivity::getId)
@@ -666,6 +976,36 @@ public class ActivityMcpTool implements McpToolPlugin {
    * "already HTML" ({@code <p>}, {@code <ul>}, {@code <li>}, {@code <div>},
    * {@code <img }). Any other text is rendered as CommonMark, which keeps raw
    * HTML as written and leaves Markdown inside a raw HTML block unrendered.
+   * In a call limited to a space, a comment must not name anyone outside that
+   * space: every user the rendered comment mentions must be a member or a
+   * super manager of it. The mentions are read from the HTML that is saved,
+   * as Social reads them, so Markdown around a mention ({@code **@user**})
+   * cannot hide it from the check.
+   *
+   * @param activityId      identifier of the activity to comment on
+   * @param comment         comment text, Markdown or HTML
+   * @param parentCommentId identifier of the comment to reply to, or null for a
+   *                        top-level comment
+   * @return the created comment
+   * @throws IllegalAccessException  when the activity isn't viewable by the
+   *                                 current user, or the comment mentions a
+   *                                 user outside the space the call is
+   *                                 limited to
+   * @throws ObjectNotFoundException when the activity or the parent comment
+   *                                 doesn't exist
+   */
+  public ActivityCommentModel createActivityComment(long activityId,
+                                                    String comment,
+                                                    Long parentCommentId) throws IllegalAccessException,
+                                                                          ObjectNotFoundException {
+    checkScopeSpaceMembers(() -> mentionedUsers(comment));
+    return saveActivityComment(activityId, comment, parentCommentId);
+  }
+
+  /**
+   * Posts a comment, or a threaded reply, as the current user, without the
+   * mention check its callers have already run. The text is rendered from
+   * Markdown to HTML as {@link #createActivityComment} describes.
    *
    * @param activityId      identifier of the activity to comment on
    * @param comment         comment text, Markdown or HTML
@@ -677,10 +1017,10 @@ public class ActivityMcpTool implements McpToolPlugin {
    * @throws ObjectNotFoundException when the activity or the parent comment
    *                                 doesn't exist
    */
-  public ActivityCommentModel createActivityComment(long activityId,
-                                                    String comment,
-                                                    Long parentCommentId) throws IllegalAccessException,
-                                                                          ObjectNotFoundException {
+  private ActivityCommentModel saveActivityComment(long activityId,
+                                                   String comment,
+                                                   Long parentCommentId) throws IllegalAccessException,
+                                                                         ObjectNotFoundException {
     org.exoplatform.services.security.Identity authenticatedUserIdentity = getCurrentUserAclIdentity();
     ExoSocialActivity activity = activityManager.getActivity(String.valueOf(activityId));
     if (activity == null) {
@@ -755,10 +1095,16 @@ public class ActivityMcpTool implements McpToolPlugin {
    *                             copied from, may be null
    * @param attachmentObjectId   identifier of the object an existing attachment
    *                             is copied from, may be null
+   * @param uploadId             upload id of an image the current user sent
+   *                             with start_upload, may be null; consumed by
+   *                             the call
    * @param altText              alternative text of the image, may be null
    * @return the created comment
    * @throws IllegalAccessException  when the activity isn't viewable by the
-   *                                 current user
+   *                                 current user, or the comment mentions a
+   *                                 user outside the space the call is
+   *                                 limited to (checked before the image is
+   *                                 staged)
    * @throws ObjectNotFoundException when the activity doesn't exist
    */
   public ActivityCommentModel createActivityCommentWithImage(long activityId,
@@ -767,18 +1113,37 @@ public class ActivityMcpTool implements McpToolPlugin {
                                                              String imageBase64,
                                                              String attachmentObjectType,
                                                              String attachmentObjectId,
+                                                             String uploadId,
                                                              String altText) throws IllegalAccessException,
                                                                              ObjectNotFoundException {
-    if (StringUtils.isBlank(imageUrl) && StringUtils.isBlank(imageBase64) && StringUtils.isBlank(attachmentObjectId)) {
-      throw new IllegalArgumentException("Provide an image via image_url, image_base64 or attachment_object_id. To comment without an image, use create_activity_comment.");
+    UploadToolUtils.ImageSource source = new UploadToolUtils.ImageSource(imageUrl,
+                                                                         imageBase64,
+                                                                         attachmentObjectType,
+                                                                         attachmentObjectId,
+                                                                         uploadId);
+    if (hasNoImageSource(source)) {
+      throw new IllegalArgumentException("Provide an image via attachment_object_id, image_url, upload_id or image_base64. To comment without an image, use create_activity_comment.");
     }
-    String uploadId = resolveImageUploadId(imageUrl, imageBase64, attachmentObjectType, attachmentObjectId);
-    ActivityCommentModel model = createActivityComment(activityId, comment, null);
+    checkScopeSpaceMembers(() -> mentionedUsers(comment));
+    String stagedUploadId = resolveImageUploadId(source);
+    ActivityCommentModel model;
+    try {
+      model = saveActivityComment(activityId, comment, null);
+    } catch (IllegalAccessException e) {
+      UploadToolUtils.release(uploadService, stagedUploadId);
+      throw new IllegalAccessException(withConsumedUploadHint(e.getMessage(), source));
+    } catch (ObjectNotFoundException e) {
+      UploadToolUtils.release(uploadService, stagedUploadId);
+      throw new ObjectNotFoundException(withConsumedUploadHint(e.getMessage(), source));
+    } catch (RuntimeException e) {
+      UploadToolUtils.release(uploadService, stagedUploadId);
+      throw e;
+    }
     // a comment is itself an activity; its attachment uses object type "activity" with the
     // comment's *prefixed* id ("comment<id>"), which is the metadata object id the comment renders from
     String commentActivityId = COMMENT_ID_PREFIX + model.id();
     try {
-      attachUploadToObject(ACTIVITY_OBJECT_TYPE, commentActivityId, uploadId, altText);
+      attachUploadToObject(ACTIVITY_OBJECT_TYPE, commentActivityId, stagedUploadId, altText);
     } catch (RuntimeException e) {
       deleteActivityQuietly(commentActivityId);
       throw new IllegalStateException("The image could not be attached, so the comment was not created: " + e.getMessage()
@@ -787,11 +1152,33 @@ public class ActivityMcpTool implements McpToolPlugin {
     return toActivityCommentModel(commentActivityId);
   }
 
+  /**
+   * Attaches an image to an activity comment the current user may edit.
+   *
+   * @param commentId            identifier of the comment, without its
+   *                             "comment" prefix
+   * @param imageUrl             URL of the image, may be null
+   * @param imageBase64          base64 content of the image, may be null
+   * @param attachmentObjectType type of the object an existing attachment is
+   *                             copied from, may be null
+   * @param attachmentObjectId   identifier of the object an existing attachment
+   *                             is copied from, may be null
+   * @param uploadId             upload id of an image the current user sent
+   *                             with start_upload, may be null; consumed by
+   *                             the call
+   * @param altText              alternative text of the image, may be null
+   * @return the updated comment
+   * @throws IllegalAccessException  when the user can't edit the comment, or
+   *                                 read the attachment
+   * @throws ObjectNotFoundException when the comment, the attachment or the
+   *                                 upload doesn't exist
+   */
   public ActivityCommentModel attachImageToComment(long commentId,
                                                    String imageUrl,
                                                    String imageBase64,
                                                    String attachmentObjectType,
                                                    String attachmentObjectId,
+                                                   String uploadId,
                                                    String altText) throws IllegalAccessException, ObjectNotFoundException {
     org.exoplatform.services.security.Identity userIdentity = getCurrentUserAclIdentity();
     // comments are looked up / keyed by their prefixed id ("comment<id>")
@@ -803,8 +1190,12 @@ public class ActivityMcpTool implements McpToolPlugin {
     if (!activityManager.isActivityEditable(comment, userIdentity)) {
       throw new IllegalAccessException("Comment with id '%s' can't be edited by current user".formatted(commentId));
     }
-    String uploadId = resolveImageUploadId(imageUrl, imageBase64, attachmentObjectType, attachmentObjectId);
-    attachUploadToObject(ACTIVITY_OBJECT_TYPE, commentActivityId, uploadId, altText);
+    String stagedUploadId = resolveImageUploadId(new UploadToolUtils.ImageSource(imageUrl,
+                                                                                 imageBase64,
+                                                                                 attachmentObjectType,
+                                                                                 attachmentObjectId,
+                                                                                 uploadId));
+    attachUploadToObject(ACTIVITY_OBJECT_TYPE, commentActivityId, stagedUploadId, altText);
     return toActivityCommentModel(commentActivityId);
   }
 
@@ -997,7 +1388,7 @@ public class ActivityMcpTool implements McpToolPlugin {
       String currentUsername = currentUserIdentity.getUserId();
       return Stream.of(likerIdentityIds)
                    .skip(getInteger(offset, DEFAULT_OFFSET))
-                   .limit(getInteger(limit, DEFAULT_LIMIT))
+                   .limit(clampLimit(limit, DEFAULT_LIMIT))
                    .map(Long::parseLong)
                    .map(identityManager::getIdentity)
                    .filter(Objects::nonNull)
@@ -1040,7 +1431,23 @@ public class ActivityMcpTool implements McpToolPlugin {
     activityManager.deleteLike(activity, currentUserIdentity);
   }
 
-  public List<ActivityModel> searchActivities(String query,
+  /**
+   * Searches the activities the current user sees by text, or lists the
+   * favorite ones, or, with neither, lists the stream like
+   * {@link #getActivities(Long, Integer, Integer)}.
+   *
+   * @param query      the text to search
+   * @param spaceId    restrict to one space, or null for every stream
+   * @param isFavorite whether to return the favorite activities only
+   * @param offset     index of the first activity to retrieve
+   * @param limit      maximum number of activities to retrieve, at most
+   *                     {@link io.meeds.mcp.server.tool.util.McpToolPluginUtils#MAX_LIMIT}
+   * @return the activities, each one with its author and space reduced to
+   *         what names them
+   * @throws IllegalAccessException  when the user can't view the space
+   * @throws ObjectNotFoundException when the space doesn't exist
+   */
+  public List<ActivitySummaryModel> searchActivities(String query,
                                               Long spaceId,
                                               Boolean isFavorite,
                                               Integer offset,
@@ -1073,11 +1480,12 @@ public class ActivityMcpTool implements McpToolPlugin {
     List<ActivitySearchResult> searchResults = activitySearchConnector.search(currentUserIdentity,
                                                                               activityFilter,
                                                                               getInteger(offset, DEFAULT_OFFSET),
-                                                                              getInteger(limit, DEFAULT_LIMIT));
+                                                                              clampLimit(limit, DEFAULT_LIMIT));
     return searchResults.stream()
                         .map(ActivitySearchResult::getId)
                         .map(String::valueOf)
-                        .map(this::toActivityModel)
+                        .map(this::toActivitySummaryModel)
+                        .filter(Objects::nonNull)
                         .toList();
   }
 
@@ -1102,6 +1510,40 @@ public class ActivityMcpTool implements McpToolPlugin {
     activity.setTemplateParams(currentTemplateParams);
   }
 
+  /**
+   * @param activityId the activity id
+   * @return the activity as an item of a list of activities, {@code null} when
+   *         it doesn't exist
+   */
+  private ActivitySummaryModel toActivitySummaryModel(String activityId) {
+    return ActivityToolUtils.toActivitySummaryModel(toActivityModel(activityId));
+  }
+
+  /**
+   * @param activity an activity already read
+   * @return the activity as an item of a list of activities, as the current
+   *         user sees it, without reading it again
+   */
+  private ActivitySummaryModel toActivitySummaryModel(ExoSocialActivity activity) {
+    return ActivityToolUtils.toActivitySummaryModel(ActivityToolUtils.toActivityModel(activityManager,
+                                                                                      spaceService,
+                                                                                      identityManager,
+                                                                                      userAcl,
+                                                                                      permanentLinkService,
+                                                                                      profilePropertyService,
+                                                                                      translationService,
+                                                                                      i18NActivityProcessor,
+                                                                                      portalConfigService,
+                                                                                      activity,
+                                                                                      getCurrentUserAclIdentity(),
+                                                                                      getCurrentUserLocale()));
+  }
+
+  /**
+   * @param activityId the activity id
+   * @return the activity, as the current user sees it, {@code null} when it
+   *         doesn't exist
+   */
   private ActivityModel toActivityModel(String activityId) {
     return ActivityToolUtils.toActivityModel(activityManager,
                                              spaceService,

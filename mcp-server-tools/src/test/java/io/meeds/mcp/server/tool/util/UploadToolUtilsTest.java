@@ -322,11 +322,33 @@ class UploadToolUtilsTest {
                  assertThrows(IllegalArgumentException.class, () -> UploadToolUtils.fetchImage(fetcher, url("public.test", "/big.png"), 1024)).getMessage());
     bodies.put("/text", "plain text bytes here, not an image".getBytes());
     types.put("/text", "text/plain");
-    assertEquals("The URL does not point to a supported image.", refusal(url("public.test", "/text")));
+    assertEquals("The URL does not point to a supported image (png, jpeg, gif or webp).", refusal(url("public.test", "/text")));
     bodies.put("/target.png", PNG);
     moved.put("/redirect", url("public.test", "/target.png"));
     assertEquals("The image URL redirects, which is not followed; provide the final URL.", refusal(url("public.test", "/redirect")));
     assertFalse(hits.contains("/target.png"), "a redirect target is never requested");
+  }
+
+  /**
+   * The image type is told from the bytes, never from the declared
+   * {@code Content-Type}: an SVG declared {@code image/svg+xml}, or text
+   * declared {@code image/png}, is refused, and a png declared
+   * {@code image/gif} is typed png. Mutant: an {@code image/*} declared type
+   * trusted again.
+   */
+  @Test
+  void fetchImageTypesTheBodyFromItsBytes() {
+    bodies.put("/drawing.svg", "<svg xmlns=\"http://www.w3.org/2000/svg\"><script>alert(1)</script></svg>".getBytes());
+    types.put("/drawing.svg", "image/svg+xml");
+    assertEquals("The URL does not point to a supported image (png, jpeg, gif or webp).",
+                 refusal(url("public.test", "/drawing.svg")));
+    bodies.put("/liar.png", "plain text bytes here, not an image".getBytes());
+    types.put("/liar.png", "image/png");
+    assertEquals("The URL does not point to a supported image (png, jpeg, gif or webp).",
+                 refusal(url("public.test", "/liar.png")));
+    bodies.put("/mislabelled.gif", PNG);
+    types.put("/mislabelled.gif", "image/gif");
+    assertEquals("image/png", UploadToolUtils.fetchImage(fetcher, url("public.test", "/mislabelled.gif"), 1024).mimeType());
   }
 
   /**

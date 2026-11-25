@@ -41,6 +41,7 @@ import io.meeds.mcp.server.tool.constant.Visibility;
 import io.meeds.mcp.server.tool.model.SpaceMemberModel;
 import io.meeds.mcp.server.tool.model.SpaceModel;
 import io.meeds.mcp.server.tool.model.SpaceTemplateModel;
+import io.meeds.mcp.server.tool.model.SubSpacesPageModel;
 import io.meeds.mcp.server.tool.model.UserModel;
 import io.meeds.mcp.server.tool.test.IntegrationTestBase;
 
@@ -198,7 +199,9 @@ class SpaceMcpToolTest extends IntegrationTestBase {
   void listSubSpacesIsEmptyForLeafSpace() throws Exception {
     SpaceModel space = createTestSpace();
 
-    assertNotNull(spaceMcpTool.listSubSpaces(space.getSpaceId(), 0, 10));
+    SubSpacesPageModel page = spaceMcpTool.listSubSpaces(space.getSpaceId(), 0, 10);
+    assertTrue(page.subSpaces().isEmpty());
+    assertNull(page.nextOffset());
   }
 
   @Test
@@ -316,7 +319,7 @@ class SpaceMcpToolTest extends IntegrationTestBase {
   void setSpaceAvatarFromBase64() throws Exception {
     SpaceModel space = createTestSpace();
 
-    SpaceModel updated = spaceMcpTool.setSpaceAvatar(space.getSpaceId(), null, PNG_1PX, null, null);
+    SpaceModel updated = spaceMcpTool.setSpaceAvatar(space.getSpaceId(), null, PNG_1PX, null, null, null);
 
     assertNotNull(updated);
     assertEquals(space.getSpaceId(), updated.getSpaceId());
@@ -326,7 +329,7 @@ class SpaceMcpToolTest extends IntegrationTestBase {
   void setSpaceBannerFromBase64() throws Exception {
     SpaceModel space = createTestSpace();
 
-    SpaceModel updated = spaceMcpTool.setSpaceBanner(space.getSpaceId(), null, PNG_1PX, null, null);
+    SpaceModel updated = spaceMcpTool.setSpaceBanner(space.getSpaceId(), null, PNG_1PX, null, null, null);
 
     assertNotNull(updated);
     assertEquals(space.getSpaceId(), updated.getSpaceId());
@@ -335,7 +338,7 @@ class SpaceMcpToolTest extends IntegrationTestBase {
   @Test
   void setSpaceAvatarWhenSpaceDoesNotExist() {
     assertThrows(org.exoplatform.commons.exception.ObjectNotFoundException.class,
-                 () -> spaceMcpTool.setSpaceAvatar(-1L, null, PNG_1PX, null, null));
+                 () -> spaceMcpTool.setSpaceAvatar(-1L, null, PNG_1PX, null, null, null));
   }
 
   private SpaceModel createTestSpace() throws Exception {// NOSONAR

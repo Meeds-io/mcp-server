@@ -25,9 +25,11 @@ import static io.meeds.mcp.server.util.McpToolUtils.getClientId;
 import static io.meeds.mcp.server.util.McpToolUtils.getCurrentActingIdentity;
 import static io.meeds.mcp.server.util.McpToolUtils.getCurrentAgentNameId;
 import static io.meeds.mcp.server.util.McpToolUtils.getCurrentConversationId;
+import static io.meeds.mcp.server.util.McpToolUtils.getCurrentTurnId;
 import static io.meeds.mcp.server.util.McpToolUtils.getCurrentUserName;
 import static io.meeds.mcp.server.util.McpToolUtils.getMethodToolFieldValue;
 import static io.meeds.mcp.server.util.McpToolUtils.isCurrentCallRetry;
+import static io.meeds.mcp.server.util.McpToolUtils.redactBase64ForPublication;
 import static io.meeds.mcp.server.util.McpToolUtils.toCamelCase;
 import static io.meeds.mcp.server.util.McpToolUtils.toSnakeCase;
 
@@ -74,6 +76,7 @@ import io.meeds.mcp.server.model.ActingIdentity;
 import io.meeds.mcp.server.model.McpToolGrant;
 import io.meeds.mcp.server.model.McpToolGrantConstraint;
 import io.meeds.mcp.server.model.McpToolGrantRequest;
+import io.meeds.mcp.server.model.SpaceScopeRefusedException;
 import io.meeds.mcp.server.model.UserToolDeniedException;
 import io.meeds.mcp.server.model.UserToolExecution;
 import io.meeds.mcp.server.model.UserToolExecution.UserToolExecutionBuilder;
@@ -106,6 +109,8 @@ public class McpToolCallbackProviderService implements ToolCallbackProvider {
   private List<McpToolPlugin>     toolObjects;
 
   private McpToolGrantService     mcpToolGrantService;
+
+  private McpToolSpaceScopeService mcpToolSpaceScopeService;
 
   @Override
   public ToolCallback[] getToolCallbacks() {
@@ -180,6 +185,7 @@ public class McpToolCallbackProviderService implements ToolCallbackProvider {
       return new MethodToolCallbackWrapper(mcpServerToolService,
                                            mcpToolApprovalService,
                                            mcpToolGrantService,
+                                           mcpToolSpaceScopeService,
                                            userAcl,
                                            toolCallback);
     }
@@ -218,6 +224,8 @@ public class McpToolCallbackProviderService implements ToolCallbackProvider {
 
     private final McpToolGrantService    mcpToolGrantService;
 
+    private final McpToolSpaceScopeService mcpToolSpaceScopeService;
+
     private final UserACL                userAcl;
 
     private final MethodToolCallback     toolCallback;
@@ -231,6 +239,8 @@ public class McpToolCallbackProviderService implements ToolCallbackProvider {
      * @param mcpToolApprovalService the approval cards
      * @param mcpToolGrantService    the standing approvals, may be null (no
      *                                 grant ever applies)
+     * @param mcpToolSpaceScopeService the space scope check, may be null (every
+     *                                  call limited to a space is then refused)
      * @param userAcl                the platform ACL
      * @param toolCallback           the wrapped tool method
      */
@@ -238,11 +248,13 @@ public class McpToolCallbackProviderService implements ToolCallbackProvider {
     public MethodToolCallbackWrapper(McpServerToolService mcpServerToolService,
                                      McpToolApprovalService mcpToolApprovalService,
                                      McpToolGrantService mcpToolGrantService,
+                                     McpToolSpaceScopeService mcpToolSpaceScopeService,
                                      UserACL userAcl,
                                      MethodToolCallback toolCallback) {
       this.mcpServerToolService = mcpServerToolService;
       this.mcpToolApprovalService = mcpToolApprovalService;
       this.mcpToolGrantService = mcpToolGrantService;
+      this.mcpToolSpaceScopeService = mcpToolSpaceScopeService;
       this.userAcl = userAcl;
       this.toolCallback = toolCallback;
       this.toolObject = getMethodToolFieldValue(toolCallback, "toolObject");
@@ -256,8 +268,17 @@ public class McpToolCallbackProviderService implements ToolCallbackProvider {
         String username = getCurrentUserName();
         Identity userIdentity = userAcl.getUserIdentity(username);
         return call(toolInput, toolContext, userIdentity);
+      } catch (SpaceScopeRefusedException e) {
+        // a call outside the run's space is an expected refusal, not an incident
+        throw e;
+      } catch (UserToolDeniedException | UserToolTimeoutException e) {
+        // the user's own answer, or no answer, to an approval card: not an incident
+        if (log.isDebugEnabled()) {
+          log.debug("Tool call not run, with input '{}'", redactBase64ForPublication(toolInput), e);
+        }
+        throw e;
       } catch (Exception e) {
-        log.warn("Error while call Tool with input '{}'", toolInput, e);
+        log.warn("Error while call Tool with input '{}'", redactBase64ForPublication(toolInput), e);
         throw e;
       }
     }
@@ -279,7 +300,9 @@ public class McpToolCallbackProviderService implements ToolCallbackProvider {
 
     /**
      * Runs one tool call as the user: the acting identity check, the scope
-     * check, then for an approval-gated or "always ask" tool the standing
+     * check, the space scope check of a call limited to one space (which may
+     * fill the space argument the tool then runs with), then for an
+     * approval-gated or "always ask" tool the standing
      * approval or the card, then the tool itself, each step traced to the
      * user's chat with who acted, for whom and through which agents.
      * <p>
@@ -299,6 +322,7 @@ public class McpToolCallbackProviderService implements ToolCallbackProvider {
       Authentication authentication = SecurityContextHolder.getContext().getAuthentication();
       String id = UUID.randomUUID().toString();
       String conversationId = getCurrentConversationId();
+      String turnId = getCurrentTurnId();
       ConversationState.setCurrent(new ConversationState(userIdentity));
       UserToolExecutionBuilder executionBuilder = UserToolExecution.builder()
                                                                    .id(id)
@@ -314,6 +338,8 @@ public class McpToolCallbackProviderService implements ToolCallbackProvider {
           throw new IllegalAccessException("Tool '%s' execution isn't allowed switch selected scopes".formatted(toolMethod.getName()));
         }
         String toolName = toSnakeCase(toolMethod.getName());
+        toolInput = enforceSpaceScope(toolName, toolInput, actingIdentity);
+        executionBuilder.toolInput(toolInput);
         boolean alwaysAsk = mcpServerToolService.isAlwaysAsk(toolName);
         if (alwaysAsk && !mcpServerToolService.hasApprovalScope(authentication)) {
           // An "always ask" tool means what it says for every caller: one that
@@ -332,7 +358,7 @@ public class McpToolCallbackProviderService implements ToolCallbackProvider {
                                                                    isCurrentCallRetry(),
                                                                    actingIdentity);
         if (alwaysAsk || mcpServerToolService.isRequireApproval(toolMethod.getName(), authentication)) {
-          approveCall(id, grantRequest, alwaysAsk, executionBuilder);
+          approveCall(id, turnId, grantRequest, alwaysAsk, executionBuilder);
         } else if (isAgentActor(actingIdentity) && mcpServerToolService.isApprovalGatedTool(toolMethod.getName())) {
           // an agent account runs an approval-gated tool only under its own
           // grants, whatever scope the internal client's token holds: a plain
@@ -345,18 +371,27 @@ public class McpToolCallbackProviderService implements ToolCallbackProvider {
         // Call the Tool
         Map<String, Object> toolArguments = extractToolArguments(toolInput);
         toolArguments = transformSnakeToCamelCaseArguments(toolArguments);
-        toolInput = jsonHelper.toJson(toolArguments);
-        String toolOutput = toolCallback.call(toolInput, toolContext);
+        // toolInput keeps the snake_case argument names the model sent, which
+        // the redaction of what is logged or explained relies on
+        String toolRunInput = jsonHelper.toJson(toolArguments);
+        String toolOutput = toolCallback.call(toolRunInput, toolContext);
         mcpToolApprovalService.traceToolExecution(executionBuilder.toolExecutionType(UserToolRequestType.TOOL_EXECUTION_FINISHED)
                                                                   .toolOutput(toolOutput)
                                                                   .completed(true)
                                                                   .build());
-        log.debug("Call Tool '{}#{}' with input: {}. Output: {}",
-                  toolObject.getClass().getName(),
-                  toolMethod.getName(),
-                  toolInput,
-                  toolOutput);
+        if (log.isDebugEnabled()) {
+          log.debug("Call Tool '{}#{}' with input: {}. Output: {}",
+                    toolObject.getClass().getName(),
+                    toolMethod.getName(),
+                    redactBase64ForPublication(toolInput),
+                    toolOutput);
+        }
         return toolOutput;
+      } catch (SpaceScopeRefusedException e) {
+        mcpToolApprovalService.traceToolExecution(executionBuilder.toolExecutionType(UserToolRequestType.TOOL_EXECUTION_OUT_OF_SCOPE)
+                                                                  .completed(true)
+                                                                  .build());
+        throw e;
       } catch (UserToolDeniedException | UserToolRefusedException e) {
         mcpToolApprovalService.traceToolExecution(executionBuilder.toolExecutionType(UserToolRequestType.TOOL_EXECUTION_DENIED)
                                                                   .completed(true)
@@ -380,7 +415,7 @@ public class McpToolCallbackProviderService implements ToolCallbackProvider {
         log.error("Error calling Tool '{}#{}' with input: {}",
                   toolObject.getClass().getName(),
                   toolMethod.getName(),
-                  toolInput,
+                  redactBase64ForPublication(toolInput),
                   cause);
         if (cause instanceof IllegalArgumentException
             || cause instanceof IllegalStateException
@@ -389,7 +424,7 @@ public class McpToolCallbackProviderService implements ToolCallbackProvider {
           throw (Exception) cause;
         } else {
           throw new IllegalStateException(LLM_ERROR_EXPLANATION.formatted(toolMethod.getName(),
-                                                                          toolInput),
+                                                                          redactBase64ForPublication(toolInput)),
                                           e);
         }
       } finally {
@@ -416,6 +451,32 @@ public class McpToolCallbackProviderService implements ToolCallbackProvider {
                                                                                                                                  username));
       }
       return actingIdentity;
+    }
+
+    /**
+     * Keeps a call limited to one space within it, see
+     * {@link McpToolSpaceScopeService}; a call that isn't limited is returned
+     * as it came.
+     *
+     * @param toolName       the MCP tool name
+     * @param toolInput      the call's arguments
+     * @param actingIdentity the acting identity, may be null
+     * @return the arguments the tool runs with
+     * @throws SpaceScopeRefusedException when the call isn't available within
+     *                                      its space scope, or is limited and
+     *                                      no space scope check is wired
+     */
+    private String enforceSpaceScope(String toolName, String toolInput, ActingIdentity actingIdentity) {
+      if (actingIdentity == null || actingIdentity.spaceScope() == null) {
+        return toolInput;
+      } else if (mcpToolSpaceScopeService == null) {
+        throw new SpaceScopeRefusedException("Not executed: '%s' can't check that it stays in the space with id %s".formatted(toolName,
+                                                                                                                         actingIdentity.spaceScope()));
+      }
+      return mcpToolSpaceScopeService.enforce(toolName,
+                                             mcpServerToolService.getToolDefinitionByMethodName(toolMethod.getName()),
+                                             toolInput,
+                                             actingIdentity);
     }
 
     /**
@@ -496,12 +557,15 @@ public class McpToolCallbackProviderService implements ToolCallbackProvider {
      * wait, and traced as denied.
      *
      * @param id               the call identifier
+     * @param turnId           the chat turn that started the call, only echoed
+     *                           on the card and never used to decide anything
      * @param grantRequest     the call as the server resolved it
      * @param alwaysAsk        whether the tool is marked "always ask"
      * @param executionBuilder the trace builder of the call
      * @throws UserToolDeniedException when the user denies the call
      */
     private void approveCall(String id,
+                             String turnId,
                              McpToolGrantRequest grantRequest,
                              boolean alwaysAsk,
                              UserToolExecutionBuilder executionBuilder) {
@@ -533,6 +597,7 @@ public class McpToolCallbackProviderService implements ToolCallbackProvider {
                                                                 .build());
       boolean approved = mcpToolApprovalService.requestApproval(id,
                                                                 grantRequest.conversationId(),
+                                                                turnId,
                                                                 toolMethod.getName(),
                                                                 grantRequest.toolInput(),
                                                                 actingIdentity == null ? grantRequest.username() :
