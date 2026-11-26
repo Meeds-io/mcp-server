@@ -312,6 +312,30 @@ public class McpServerToolService {
       log.warn("The 'disabled' flags couldn't be read ({}): every tool is treated as switched off", e.getMessage());
       return new HashSet<>(getToolDefinitions().keySet());
     }
+    return getDisabledToolNames(flags);
+  }
+
+  /**
+   * The names of every tool switched off, as {@link #getDisabledToolNames()}
+   * reads them, for a caller that must not take a failed read for a switch-off,
+   * such as an administration listing whose answer is sent back on a save.
+   *
+   * @return the switched-off tool names
+   * @throws IllegalStateException when the flags can't be read
+   */
+  @SuppressWarnings("rawtypes")
+  public Set<String> readDisabledToolNames() {
+    Map<String, SettingValue> flags;
+    try {
+      flags = readDisabledFlags();
+    } catch (RuntimeException e) {
+      throw new IllegalStateException("The 'disabled' flags of the tools couldn't be read", e);
+    }
+    return getDisabledToolNames(flags);
+  }
+
+  @SuppressWarnings("rawtypes")
+  private Set<String> getDisabledToolNames(Map<String, SettingValue> flags) {
     return getToolDefinitions().values().stream().filter(d -> {
       SettingValue flag = flags.get(d.getName());
       return flag != null && flag.getValue() != null ? Boolean.parseBoolean(flag.getValue().toString()) : d.isDisabled();

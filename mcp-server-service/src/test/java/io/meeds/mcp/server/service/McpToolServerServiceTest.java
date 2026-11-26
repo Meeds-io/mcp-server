@@ -814,6 +814,29 @@ class McpToolServerServiceTest {
   }
 
   @Test
+  @DisplayName("Flags that cannot be read make the strict read fail rather than list every tool as switched off")
+  void flagsThatCannotBeReadMakeTheStrictReadFail() {
+    SimpleToolDefinition toolDefinition = tool(ALPHA_TOOL, "Alpha", TYPE_OBJECT, false, false);
+    ReflectionTestUtils.setField(mcpServerToolService, "toolDefinitions", Map.of(ALPHA_TOOL, toolDefinition));
+    when(settingService.getSettingsByContextAndScope(any(), any(), any(), any())).thenThrow(new RuntimeException("store down"));
+
+    assertThrows(IllegalStateException.class, () -> mcpServerToolService.readDisabledToolNames());
+  }
+
+  @Test
+  @DisplayName("The strict read lists the same switched-off tools as the fail-closed one when the flags are read")
+  void theStrictReadListsTheStoredSwitchOffs() {
+    SimpleToolDefinition switchedOff = tool(ALPHA_TOOL, "Alpha", TYPE_OBJECT, false, true);
+    SimpleToolDefinition enabled = tool(BETA_TOOL, "Beta", TYPE_OBJECT, false, false);
+    ReflectionTestUtils.setField(mcpServerToolService, "toolDefinitions", Map.of(ALPHA_TOOL, switchedOff, BETA_TOOL, enabled));
+
+    storedDisabledFlags(Map.of(BETA_TOOL, SettingValue.create("true"), ALPHA_TOOL, SettingValue.create("false")));
+
+    assertEquals(Set.of(BETA_TOOL), mcpServerToolService.readDisabledToolNames());
+    assertEquals(mcpServerToolService.getDisabledToolNames(), mcpServerToolService.readDisabledToolNames());
+  }
+
+  @Test
   void aNullToolDefinitionIsRefused() {
     assertFalse(mcpServerToolService.isAllowedTool((SimpleToolDefinition) null,
                                                    bearerWithAuthorities("some-external-client", READ_SCOPE_AUTHORITY)));
