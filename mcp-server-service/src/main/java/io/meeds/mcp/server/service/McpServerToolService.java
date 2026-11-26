@@ -678,7 +678,12 @@ public class McpServerToolService {
     } else {
       savedDefinitions = Collections.emptyList();
       settingService.remove(AI_AGENT_CONTEXT, TOOLS_SCOPE);
-      settingService.remove(AI_AGENT_CONTEXT, DISABLED_SCOPE);
+      if (forceReimport) {
+        // a blank read is also what a failed read gives (the cached setting
+        // service answers null on an exception): the switch-offs, shared by
+        // every node, go only on an explicit reimport
+        settingService.remove(AI_AGENT_CONTEXT, DISABLED_SCOPE);
+      }
       forceReimport = false;
     }
     Enumeration<URL> toolDefinitionResources = container.getPortalClassLoader().getResources(AI_TOOLS_JSON_PATH);

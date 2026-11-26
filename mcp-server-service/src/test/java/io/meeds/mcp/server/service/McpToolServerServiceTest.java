@@ -76,6 +76,8 @@ import org.springframework.test.util.ReflectionTestUtils;
 import org.exoplatform.commons.api.settings.ExoFeatureService;
 import org.exoplatform.commons.api.settings.SettingService;
 import org.exoplatform.commons.api.settings.SettingValue;
+import org.exoplatform.commons.api.settings.data.Context;
+import org.exoplatform.commons.api.settings.data.Scope;
 import org.exoplatform.container.PortalContainer;
 import org.exoplatform.services.listener.ListenerService;
 
@@ -159,6 +161,34 @@ class McpToolServerServiceTest {
     verify(settingService).set(any(), any(), any(), any());
 
     assertFalse((boolean) ReflectionTestUtils.getField(mcpServerToolService, FORCE_REIMPORT_PARAM));
+  }
+
+  @Test
+  void aBlankReadOfTheStoredDefinitionsKeepsTheSwitchedOffFlags(@TempDir
+  Path tmp) {
+    ReflectionTestUtils.setField(mcpServerToolService, FORCE_REIMPORT_PARAM, false);
+    when(settingService.get(any(), any(), any())).thenReturn(null);
+    mockContainerResources(writeToolDefinitionsJson(tmp, List.of(tool(ALPHA_TOOL, "Alpha", TYPE_OBJECT, false, false))));
+
+    mcpServerToolService.getToolDefinitions();
+
+    verify(settingService, never()).remove(any(Context.class), argThat((Scope scope) -> isDisabledScope(scope)));
+  }
+
+  @Test
+  void aForcedReimportRemovesTheSwitchedOffFlags(@TempDir
+  Path tmp) {
+    ReflectionTestUtils.setField(mcpServerToolService, FORCE_REIMPORT_PARAM, true);
+    when(settingService.get(any(), any(), any())).thenReturn(null);
+    mockContainerResources(writeToolDefinitionsJson(tmp, List.of(tool(ALPHA_TOOL, "Alpha", TYPE_OBJECT, false, false))));
+
+    mcpServerToolService.getToolDefinitions();
+
+    verify(settingService).remove(any(Context.class), argThat((Scope scope) -> isDisabledScope(scope)));
+  }
+
+  private static boolean isDisabledScope(Scope scope) {
+    return scope != null && scope.getId() != null && scope.getId().startsWith("AI_AGENT_TOOL_DISABLED_");
   }
 
   @Test
