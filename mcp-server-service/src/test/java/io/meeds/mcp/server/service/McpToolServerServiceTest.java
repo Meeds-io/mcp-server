@@ -33,6 +33,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.argThat;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.ArgumentMatchers.startsWith;
 import static org.mockito.Mockito.doReturn;
 import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.mock;
@@ -47,8 +48,10 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.Collections;
 import java.util.Enumeration;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
@@ -267,8 +270,9 @@ class McpToolServerServiceTest {
     mcpServerToolService.updateToolDefinition(ALPHA_TOOL, NEW_TITLE, NEW_DESCRIPTION, TYPE_OBJECT, false, false);
 
     ArgumentCaptor<SettingValue<?>> settingValueCaptor = ArgumentCaptor.forClass(SettingValue.class);
-    verify(settingService, times(2)).set(any(), any(), any(), settingValueCaptor.capture());
-    for (SettingValue<?> persisted : settingValueCaptor.getAllValues()) {
+    verify(settingService, times(3)).set(any(), any(), any(), settingValueCaptor.capture());
+    // the two whole-set saves, and the tool's disabled flag between them
+    for (SettingValue<?> persisted : settingValueCaptor.getAllValues().stream().filter(v -> !"false".equals(v.getValue())).toList()) {
       List<SimpleToolDefinition> tools = McpToolUtils.fromJsonStringBase64(persisted.getValue().toString()).tools();
       assertEquals(List.of(ALPHA_TOOL, BETA_TOOL), tools.stream().map(SimpleToolDefinition::getName).toList());
       SimpleToolDefinition beta = tools.get(1);
@@ -591,8 +595,10 @@ class McpToolServerServiceTest {
     assertTrue(updated.isRequireApproval());
     assertTrue(updated.isDisabled());
 
-    verify(settingService).set(any(), any(), any(), settingValueCaptor.capture());
-    Object persistedValue = settingValueCaptor.getValue().getValue();
+    verify(settingService, times(2)).set(any(), any(), any(), settingValueCaptor.capture());
+    // the disabled flag is stored first, then the whole set
+    assertEquals("true", settingValueCaptor.getAllValues().get(0).getValue());
+    Object persistedValue = settingValueCaptor.getAllValues().get(1).getValue();
     assertNotNull(persistedValue);
 
     ToolDefinitionMethods decoded = McpToolUtils.fromJsonStringBase64(persistedValue.toString());
@@ -723,6 +729,149 @@ class McpToolServerServiceTest {
     assertTrue(mcpServerToolService.hasApprovalScope(internalClientAuthentication("c", WRITE_APPROVE_SCOPE_AUTHORITY, "c")));
     assertFalse(mcpServerToolService.hasApprovalScope(internalClientAuthentication("c", WRITE_SCOPE_AUTHORITY, "c")));
     assertFalse(mcpServerToolService.hasApprovalScope(null));
+  }
+
+  @Test
+  @DisplayName("A tool switched off is refused to a client holding every scope, the internal client included, and allowed again once switched on")
+  void aSwitchedOffToolIsRefusedToEveryClientUntilSwitchedOnAgain() {
+    SimpleToolDefinition toolDefinition = new SimpleToolDefinition();
+    toolDefinition.setName(TOOL_NAME);
+    Authentication externalAuthentication = bearerWithAuthorities("some-external-client",
+                                                                  READ_SCOPE_AUTHORITY,
+                                                                  WRITE_SCOPE_AUTHORITY,
+                                                                  WRITE_APPROVE_SCOPE_AUTHORITY);
+    Authentication internalAuthentication = bearerWithAuthorities(MCP_OAUTH2_CLIENT_CREDENTIALS_REGISTRATION_ID,
+                                                                  READ_SCOPE_AUTHORITY,
+                                                                  WRITE_SCOPE_AUTHORITY,
+                                                                  WRITE_APPROVE_SCOPE_AUTHORITY);
+    assertTrue(mcpServerToolService.isAllowedTool(toolDefinition, externalAuthentication));
+    assertTrue(mcpServerToolService.isAllowedTool(toolDefinition, internalAuthentication));
+
+    toolDefinition.setDisabled(true);
+
+    assertFalse(mcpServerToolService.isAllowedTool(toolDefinition, externalAuthentication));
+    assertFalse(mcpServerToolService.isAllowedTool(toolDefinition, internalAuthentication));
+
+    toolDefinition.setDisabled(false);
+
+    assertTrue(mcpServerToolService.isAllowedTool(toolDefinition, externalAuthentication));
+    assertTrue(mcpServerToolService.isAllowedTool(toolDefinition, internalAuthentication));
+  }
+
+  @Test
+  @DisplayName("A switch-off stored by another node refuses the tool although this node's definition says enabled, and lists it nowhere")
+  void aSwitchOffStoredByAnotherNodeRefusesTheTool() {
+    SimpleToolDefinition toolDefinition = tool(ALPHA_TOOL, "Alpha", TYPE_OBJECT, false, false);
+    ReflectionTestUtils.setField(mcpServerToolService, "toolDefinitions", Map.of(ALPHA_TOOL, toolDefinition));
+    Authentication client = bearerWithAuthorities("some-external-client", READ_SCOPE_AUTHORITY, WRITE_SCOPE_AUTHORITY);
+    assertTrue(mcpServerToolService.isAllowedTool(toolDefinition, client));
+    assertTrue(mcpServerToolService.getDisabledToolNames().isEmpty());
+
+    storedDisabledFlags(Map.of(ALPHA_TOOL, SettingValue.create("true")));
+
+    assertFalse(mcpServerToolService.isAllowedTool(toolDefinition, client));
+    assertFalse(mcpServerToolService.isAllowedTool(ALPHA_TOOL, client));
+    assertTrue(mcpServerToolService.isToolDisabled(ALPHA_TOOL));
+    assertEquals(Set.of(ALPHA_TOOL), mcpServerToolService.getDisabledToolNames());
+  }
+
+  @Test
+  @DisplayName("A switch-on stored by another node allows the tool although this node's definition says switched off")
+  void aSwitchOnStoredByAnotherNodeAllowsTheTool() {
+    SimpleToolDefinition toolDefinition = tool(ALPHA_TOOL, "Alpha", TYPE_OBJECT, false, true);
+    ReflectionTestUtils.setField(mcpServerToolService, "toolDefinitions", Map.of(ALPHA_TOOL, toolDefinition));
+    Authentication client = bearerWithAuthorities("some-external-client", READ_SCOPE_AUTHORITY);
+
+    storedDisabledFlags(Map.of(ALPHA_TOOL, SettingValue.create("false")));
+
+    assertTrue(mcpServerToolService.isAllowedTool(toolDefinition, client));
+    assertTrue(mcpServerToolService.getDisabledToolNames().isEmpty());
+  }
+
+  @Test
+  @DisplayName("A tool with no stored flag takes the value of its definition")
+  void aToolWithNoStoredFlagTakesItsDefinitionValue() {
+    SimpleToolDefinition switchedOff = tool(ALPHA_TOOL, "Alpha", TYPE_OBJECT, false, true);
+    SimpleToolDefinition enabled = tool(BETA_TOOL, "Beta", TYPE_OBJECT, false, false);
+    ReflectionTestUtils.setField(mcpServerToolService, "toolDefinitions", Map.of(ALPHA_TOOL, switchedOff, BETA_TOOL, enabled));
+    Authentication client = bearerWithAuthorities("some-external-client", READ_SCOPE_AUTHORITY);
+
+    assertFalse(mcpServerToolService.isAllowedTool(switchedOff, client));
+    assertTrue(mcpServerToolService.isAllowedTool(enabled, client));
+    assertEquals(Set.of(ALPHA_TOOL), mcpServerToolService.getDisabledToolNames());
+  }
+
+  @Test
+  @DisplayName("A flag that cannot be read counts as switched off")
+  void aFlagThatCannotBeReadCountsAsSwitchedOff() {
+    SimpleToolDefinition toolDefinition = tool(ALPHA_TOOL, "Alpha", TYPE_OBJECT, false, false);
+    ReflectionTestUtils.setField(mcpServerToolService, "toolDefinitions", Map.of(ALPHA_TOOL, toolDefinition));
+    Authentication client = bearerWithAuthorities("some-external-client", READ_SCOPE_AUTHORITY);
+    when(settingService.getSettingsByContextAndScope(any(), any(), any(), any())).thenThrow(new RuntimeException("store down"));
+
+    assertFalse(mcpServerToolService.isAllowedTool(toolDefinition, client));
+    assertEquals(Set.of(ALPHA_TOOL), mcpServerToolService.getDisabledToolNames());
+  }
+
+  @Test
+  void aNullToolDefinitionIsRefused() {
+    assertFalse(mcpServerToolService.isAllowedTool((SimpleToolDefinition) null,
+                                                   bearerWithAuthorities("some-external-client", READ_SCOPE_AUTHORITY)));
+  }
+
+  @Test
+  @DisplayName("A listener registered first is notified before the others, whatever the registration order")
+  void aListenerRegisteredFirstIsNotifiedFirst() {
+    SimpleToolDefinition existing = tool(ALPHA_TOOL, "Alpha", TYPE_OBJECT, false, false);
+    ReflectionTestUtils.setField(mcpServerToolService, "toolDefinitions", Map.of(ALPHA_TOOL, existing));
+    List<String> notified = new ArrayList<>();
+    mcpServerToolService.addToolUpdateListener(n -> notified.add("other"));
+    mcpServerToolService.addToolUpdateListenerFirst(n -> notified.add("first"));
+
+    mcpServerToolService.updateToolDefinition(ALPHA_TOOL, "Alpha", "Desc", TYPE_OBJECT, false, true);
+
+    assertEquals(List.of("first", "other"), notified);
+  }
+
+  @Test
+  @DisplayName("A listener registered while the listeners are being notified does not fail the update")
+  void aListenerRegisteredDuringANotificationDoesNotFailTheUpdate() {
+    SimpleToolDefinition existing = tool(ALPHA_TOOL, "Alpha", TYPE_OBJECT, false, false);
+    ReflectionTestUtils.setField(mcpServerToolService, "toolDefinitions", Map.of(ALPHA_TOOL, existing));
+    List<String> notified = new ArrayList<>();
+    // the first tools/list on a node registers its listener at any time,
+    // here while an update notifies the listeners already registered
+    mcpServerToolService.addToolUpdateListener(n -> {
+      notified.add("other");
+      mcpServerToolService.addToolUpdateListenerFirst(m -> notified.add("late"));
+    });
+
+    mcpServerToolService.updateToolDefinition(ALPHA_TOOL, "Alpha", "Desc", TYPE_OBJECT, false, true);
+
+    assertEquals(List.of("other"), notified);
+  }
+
+  private void storedDisabledFlags(Map<String, SettingValue<?>> flags) {
+    when(settingService.getSettingsByContextAndScope(eq("GLOBAL"),
+                                                     eq("AI_AGENT"),
+                                                     eq("APPLICATION"),
+                                                     startsWith("AI_AGENT_TOOL_DISABLED"))).thenReturn((Map) flags);
+  }
+
+  private Authentication bearerWithAuthorities(String clientId, String... authorities) {
+    DefaultOAuth2AuthenticatedPrincipal principal =
+                                                  new DefaultOAuth2AuthenticatedPrincipal(clientId,
+                                                                                          Map.of(OAuth2TokenIntrospectionClaimNames.CLIENT_ID,
+                                                                                                 clientId,
+                                                                                                 OAuth2TokenIntrospectionClaimNames.SUB,
+                                                                                                 clientId),
+                                                                                          List.of());
+    OAuth2AccessToken accessToken = new OAuth2AccessToken(OAuth2AccessToken.TokenType.BEARER,
+                                                          "token",
+                                                          Instant.now(),
+                                                          Instant.now().plusSeconds(60));
+    List<SimpleGrantedAuthority> granted = java.util.Arrays.stream(authorities).map(SimpleGrantedAuthority::new).toList();
+    return new BearerTokenAuthentication(principal, accessToken, granted);
   }
 
   /**

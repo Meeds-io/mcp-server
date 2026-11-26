@@ -34,6 +34,7 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.function.Function;
 import java.util.stream.Collectors;
 
@@ -94,6 +95,16 @@ public class McpServerToolService {
    */
   private static final Scope                ALWAYS_ASK_SCOPE              = Scope.APPLICATION.id("AI_AGENT_TOOL_ALWAYS_ASK");
 
+  /**
+   * Scope of the per-tool "disabled" flags, kept apart from the tool
+   * definition blob for the same reason as {@link #ALWAYS_ASK_SCOPE}: the blob
+   * is memoised per node, while these flags are read from the setting store on
+   * every call, so that a switch-off holds on every node at once. Keyed on the
+   * blob's own key, so that whatever resets the blob resets the flags with it.
+   */
+  private static final Scope                DISABLED_SCOPE                = Scope.APPLICATION.id("AI_AGENT_TOOL_DISABLED_"
+                                                                                                 + TOOLS_KEY);
+
   @Autowired
   private PortalContainer                   container;
 
@@ -115,7 +126,7 @@ public class McpServerToolService {
 
   private Boolean                           mcpEnabled;
 
-  private List<ToolListener>                toolListeners                 = new ArrayList<>();
+  private List<ToolListener>                toolListeners                 = new CopyOnWriteArrayList<>();
 
   @Setter
   private Map<String, SimpleToolDefinition> toolDefinitions;
@@ -254,6 +265,76 @@ public class McpServerToolService {
   }
 
   /**
+   * Tells whether an administrator switched a tool off. The flag is read from
+   * the setting store on every call, past the node's memoised definitions, so
+   * a switch-off or a switch-on made on another node holds here at once; a
+   * tool with no stored flag takes the value of its definition. A flag that
+   * can't be read counts as switched off.
+   *
+   * @param toolDefinition the tool definition
+   * @return true when the tool is switched off, or when its flag can't be read
+   */
+  public boolean isToolDisabled(SimpleToolDefinition toolDefinition) {
+    if (toolDefinition == null) {
+      return false;
+    }
+    if (StringUtils.isBlank(toolDefinition.getName())) {
+      return toolDefinition.isDisabled();
+    }
+    try {
+      SettingValue<?> flag = readDisabledFlags().get(toolDefinition.getName());
+      if (flag != null && flag.getValue() != null) {
+        return Boolean.parseBoolean(flag.getValue().toString());
+      }
+      return toolDefinition.isDisabled();
+    } catch (RuntimeException e) {
+      log.warn("The 'disabled' flag of tool '{}' couldn't be read ({}): the tool is treated as switched off",
+               toolDefinition.getName(),
+               e.getMessage());
+      log.debug("Disabled flag read failure", e);
+      return true;
+    }
+  }
+
+  /**
+   * The names of every tool switched off, with the same rule as
+   * {@link #isToolDisabled(SimpleToolDefinition)} and one read of the flags.
+   *
+   * @return the switched-off tool names, every known tool when the flags
+   *         can't be read
+   */
+  @SuppressWarnings("rawtypes")
+  public Set<String> getDisabledToolNames() {
+    Map<String, SettingValue> flags;
+    try {
+      flags = readDisabledFlags();
+    } catch (RuntimeException e) {
+      log.warn("The 'disabled' flags couldn't be read ({}): every tool is treated as switched off", e.getMessage());
+      return new HashSet<>(getToolDefinitions().keySet());
+    }
+    return getToolDefinitions().values().stream().filter(d -> {
+      SettingValue flag = flags.get(d.getName());
+      return flag != null && flag.getValue() != null ? Boolean.parseBoolean(flag.getValue().toString()) : d.isDisabled();
+    }).map(SimpleToolDefinition::getName).collect(Collectors.toSet());
+  }
+
+  /**
+   * Same check as {@link #isToolDisabled(SimpleToolDefinition)}, for a caller
+   * holding only a name: an MCP tool name or the Java method name behind it,
+   * tried in that order.
+   *
+   * @param toolOrMethodName the MCP tool name or its Java method name
+   * @return true when the tool is known and switched off, false otherwise
+   */
+  public boolean isToolDisabled(String toolOrMethodName) {
+    SimpleToolDefinition toolDefinition = getToolDefinitionByMethodName(toolOrMethodName);
+    if (toolDefinition == null) {
+      toolDefinition = getToolDefinition(toolOrMethodName);
+    }
+    return isToolDisabled(toolDefinition);
+  }
+
+  /**
    * Same check as {@link #isAllowedTool(SimpleToolDefinition, Authentication)},
    * for a caller holding only a name: an MCP tool name or the Java method name
    * behind it, tried in that order.
@@ -296,6 +377,9 @@ public class McpServerToolService {
    * A null authentication is refused first: it is not the internal client, and
    * the scope checks below dereference it.
    * <p>
+   * A tool whose definition an administrator switched off is refused to every
+   * caller, the internal client included.
+   * <p>
    * The internal client is exempt from the global flag, as it has always been:
    * EVA calls its tools through the internal client-credentials grant, and
    * that must keep working while MCP is globally off — the flag says no
@@ -312,6 +396,28 @@ public class McpServerToolService {
    * @return true when the caller may use the tool
    */
   public boolean isAllowedTool(SimpleToolDefinition toolDefinition, Authentication authentication) {
+    return toolDefinition != null && !isToolDisabled(toolDefinition) && isScopeAllowedTool(toolDefinition, authentication);
+  }
+
+  /**
+   * The scope half of {@link #isAllowedTool(SimpleToolDefinition, Authentication)}:
+   * everything but the switched-off flag, so that a listing can memoise it
+   * without freezing a flag another node may change.
+   *
+   * @param toolOrMethodName the MCP tool name or its Java method name
+   * @param authentication   the current OAuth authentication, may be null
+   * @return true when the caller's scopes allow the tool, false when the tool
+   *         is unknown
+   */
+  boolean isScopeAllowedTool(String toolOrMethodName, Authentication authentication) {
+    SimpleToolDefinition toolDefinition = getToolDefinitionByMethodName(toolOrMethodName);
+    if (toolDefinition == null) {
+      toolDefinition = getToolDefinition(toolOrMethodName);
+    }
+    return toolDefinition != null && isScopeAllowedTool(toolDefinition, authentication);
+  }
+
+  private boolean isScopeAllowedTool(SimpleToolDefinition toolDefinition, Authentication authentication) {
     if (authentication == null) {
       return false;
     }
@@ -373,6 +479,7 @@ public class McpServerToolService {
     existingToolDefinition.setInputSchema(inputSchema);
     existingToolDefinition.setRequireApproval(requireApproval);
     existingToolDefinition.setDisabled(disabled);
+    settingService.set(AI_AGENT_CONTEXT, DISABLED_SCOPE, toolName, SettingValue.create(Boolean.toString(disabled)));
     if (existingToolDefinition.getAnnotations() == null) {
       existingToolDefinition.setAnnotations(new ToolAnnotations(title,
                                                                 null,
@@ -401,6 +508,17 @@ public class McpServerToolService {
    */
   public void addToolUpdateListener(ToolListener listener) {
     toolListeners.add(listener);
+  }
+
+  /**
+   * Registers a listener that is notified before every other one, whatever
+   * the order of registration: a cache that must be dropped before any
+   * listener tells a client to read again.
+   *
+   * @param listener the listener to add
+   */
+  public void addToolUpdateListenerFirst(ToolListener listener) {
+    toolListeners.add(0, listener);
   }
 
   /**
@@ -496,6 +614,25 @@ public class McpServerToolService {
   }
 
   /**
+   * Reads every "disabled" flag from the database, past the setting cache.
+   *
+   * @return the flags by tool name, empty when none is set
+   * @throws IllegalStateException when the store answers nothing at all, which
+   *                                 it never does: the guard is defensive
+   */
+  @SuppressWarnings("rawtypes")
+  private Map<String, SettingValue> readDisabledFlags() {
+    Map<String, SettingValue> flags = settingService.getSettingsByContextAndScope(AI_AGENT_CONTEXT.getName(),
+                                                                                  AI_AGENT_CONTEXT.getId(),
+                                                                                  DISABLED_SCOPE.getName(),
+                                                                                  DISABLED_SCOPE.getId());
+    if (flags == null) {
+      throw new IllegalStateException("No answer from the setting store");
+    }
+    return flags;
+  }
+
+  /**
    * Builds the tool registry: every {@code ai-tool-definitions.json} on the
    * portal classpath, each entry overridden by its persisted version when one
    * exists, then persisted back as the new reference set. The icon is the
@@ -517,6 +654,7 @@ public class McpServerToolService {
     } else {
       savedDefinitions = Collections.emptyList();
       settingService.remove(AI_AGENT_CONTEXT, TOOLS_SCOPE);
+      settingService.remove(AI_AGENT_CONTEXT, DISABLED_SCOPE);
       forceReimport = false;
     }
     Enumeration<URL> toolDefinitionResources = container.getPortalClassLoader().getResources(AI_TOOLS_JSON_PATH);
