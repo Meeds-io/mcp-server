@@ -638,7 +638,7 @@
       "name": "get_user_activity_stream",
       "icon": "fa-stream",
       "title": "Get a user's activity stream",
-      "description": "Retrieve the activities (Also Known As 'posts') on a given user's profile stream, filtered to what the current user is allowed to see.",
+      "description": "Retrieve the activities (Also Known As 'posts') on a given user's profile stream, filtered to what the current user is allowed to see. Pages count positions in the stream, the posts the current user cannot see included: a page can hold fewer posts than the limit, or none, while later pages still hold posts. The next page always starts at offset + limit, whatever the number of posts returned: a short or empty page alone does not mean the stream has ended.",
       "input_schema": {
         "type": "object",
         "properties": {
@@ -648,11 +648,11 @@
           },
           "offset": {
             "type": "integer",
-            "description": "Offset of activities to retrieve"
+            "description": "Position in the stream to start from, counting the posts the current user cannot see (default 0). The next page starts at offset + limit, never at offset plus the number of posts returned."
           },
           "limit": {
             "type": "integer",
-            "description": "Limit of activities to retrieve"
+            "description": "Number of stream positions to read from the offset (default 10). The posts the current user cannot see are left out, so a page can hold fewer posts than this, or none, while later pages still hold posts."
           }
         },
         "required": [
