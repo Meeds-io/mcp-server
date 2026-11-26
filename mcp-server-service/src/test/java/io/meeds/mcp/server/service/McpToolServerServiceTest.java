@@ -143,8 +143,6 @@ class McpToolServerServiceTest {
                                                                               Path tmp) {
     ReflectionTestUtils.setField(mcpServerToolService, FORCE_REIMPORT_PARAM, true);
 
-    when(settingService.get(any(), any(), any())).thenReturn(null);
-
     SimpleToolDefinition t1 = tool(ALPHA_TOOL, "Alpha", TYPE_OBJECT, false, false);
     SimpleToolDefinition t2 = tool(BETA_TOOL, "Beta", TYPE_OBJECT, true, false);
 
@@ -164,22 +162,44 @@ class McpToolServerServiceTest {
   }
 
   @Test
-  void aBlankReadOfTheStoredDefinitionsKeepsTheSwitchedOffFlags(@TempDir
+  void aStoreHoldingNoDefinitionsGetsTheShippedOnesAndKeepsTheSwitchedOffFlags(@TempDir
   Path tmp) {
     ReflectionTestUtils.setField(mcpServerToolService, FORCE_REIMPORT_PARAM, false);
-    when(settingService.get(any(), any(), any())).thenReturn(null);
     mockContainerResources(writeToolDefinitionsJson(tmp, List.of(tool(ALPHA_TOOL, "Alpha", TYPE_OBJECT, false, false))));
 
-    mcpServerToolService.getToolDefinitions();
+    assertEquals(List.of(ALPHA_TOOL), List.copyOf(mcpServerToolService.getToolDefinitions().keySet()));
 
+    verify(settingService).remove(any(Context.class), argThat((Scope scope) -> isDefinitionsScope(scope)));
     verify(settingService, never()).remove(any(Context.class), argThat((Scope scope) -> isDisabledScope(scope)));
+    verify(settingService).set(any(), argThat((Scope scope) -> isDefinitionsScope(scope)), any(), any());
+  }
+
+  @Test
+  void aFailedReadOfTheStoredDefinitionsThrowsTouchesNothingAndIsReadAgain(@TempDir
+  Path tmp) {
+    ReflectionTestUtils.setField(mcpServerToolService, FORCE_REIMPORT_PARAM, false);
+    SimpleToolDefinition saved = tool(ALPHA_TOOL, "SavedDesc", TYPE_OBJECT, true, false);
+    when(settingService.getSettingsByContextAndScope(eq("GLOBAL"),
+                                                     eq("AI_AGENT"),
+                                                     eq("APPLICATION"),
+                                                     startsWith("AI_AGENT_TOOL_DEFINITIONS_")))
+                                                                                                .thenThrow(new IllegalStateException("db down"))
+                                                                                                .thenReturn(Map.of(definitionsKey(),
+                                                                                                                   SettingValue.create(McpToolUtils.toJsonStringBase64(new ToolDefinitionMethods(List.of(saved))))));
+    mockContainerResources(writeToolDefinitionsJson(tmp, List.of(tool(ALPHA_TOOL, "Alpha", TYPE_OBJECT, false, false))));
+
+    assertThrows(IllegalStateException.class, () -> mcpServerToolService.getToolDefinitions());
+    verify(settingService, never()).remove(any(Context.class), any(Scope.class));
+    verify(settingService, never()).set(any(), any(), any(), any());
+
+    assertEquals("SavedDesc", mcpServerToolService.getToolDefinitions().get(ALPHA_TOOL).getDescription());
+    verify(settingService, never()).remove(any(Context.class), any(Scope.class));
   }
 
   @Test
   void aForcedReimportRemovesTheSwitchedOffFlags(@TempDir
   Path tmp) {
     ReflectionTestUtils.setField(mcpServerToolService, FORCE_REIMPORT_PARAM, true);
-    when(settingService.get(any(), any(), any())).thenReturn(null);
     mockContainerResources(writeToolDefinitionsJson(tmp, List.of(tool(ALPHA_TOOL, "Alpha", TYPE_OBJECT, false, false))));
 
     mcpServerToolService.getToolDefinitions();
@@ -187,8 +207,51 @@ class McpToolServerServiceTest {
     verify(settingService).remove(any(Context.class), argThat((Scope scope) -> isDisabledScope(scope)));
   }
 
+  @Test
+  void aStoredBlankValueGetsTheShippedDefinitionsAndKeepsTheSwitchedOffFlags(@TempDir
+  Path tmp) {
+    ReflectionTestUtils.setField(mcpServerToolService, FORCE_REIMPORT_PARAM, false);
+    storeDefinitions("");
+    mockContainerResources(writeToolDefinitionsJson(tmp, List.of(tool(ALPHA_TOOL, "Alpha", TYPE_OBJECT, false, false))));
+
+    assertEquals("Alpha", mcpServerToolService.getToolDefinitions().get(ALPHA_TOOL).getDescription());
+
+    verify(settingService).remove(any(Context.class), argThat((Scope scope) -> isDefinitionsScope(scope)));
+    verify(settingService, never()).remove(any(Context.class), argThat((Scope scope) -> isDisabledScope(scope)));
+  }
+
+  @Test
+  void noAnswerFromTheStoreForTheStoredDefinitionsThrowsAndTouchesNothing() {
+    ReflectionTestUtils.setField(mcpServerToolService, FORCE_REIMPORT_PARAM, false);
+    when(settingService.getSettingsByContextAndScope(eq("GLOBAL"),
+                                                     eq("AI_AGENT"),
+                                                     eq("APPLICATION"),
+                                                     startsWith("AI_AGENT_TOOL_DEFINITIONS_"))).thenReturn(null);
+
+    assertThrows(IllegalStateException.class, () -> mcpServerToolService.getToolDefinitions());
+    verify(settingService, never()).remove(any(Context.class), any(Scope.class));
+    verify(settingService, never()).set(any(), any(), any(), any());
+  }
+
   private static boolean isDisabledScope(Scope scope) {
     return scope != null && scope.getId() != null && scope.getId().startsWith("AI_AGENT_TOOL_DISABLED_");
+  }
+
+  private static boolean isDefinitionsScope(Scope scope) {
+    return scope != null && scope.getId() != null && scope.getId().startsWith("AI_AGENT_TOOL_DEFINITIONS_");
+  }
+
+  private static String definitionsKey() {
+    return (String) ReflectionTestUtils.getField(McpServerToolService.class, "TOOLS_KEY");
+  }
+
+  private void storeDefinitions(String definitionsBase64) {
+    when(settingService.getSettingsByContextAndScope(eq("GLOBAL"),
+                                                     eq("AI_AGENT"),
+                                                     eq("APPLICATION"),
+                                                     startsWith("AI_AGENT_TOOL_DEFINITIONS_")))
+                                                                                                .thenReturn(Map.of(definitionsKey(),
+                                                                                                                   SettingValue.create(definitionsBase64)));
   }
 
   @Test
@@ -203,7 +266,7 @@ class McpToolServerServiceTest {
     SimpleToolDefinition savedOverride = tool(ALPHA_TOOL, "SavedDesc", "{\"type\":\"object\",\"saved\":true}", true, true);
     String savedBase64 = McpToolUtils.toJsonStringBase64(new ToolDefinitionMethods(List.of(savedOverride)));
 
-    when(settingService.get(any(), any(), any())).thenReturn((SettingValue) SettingValue.create(savedBase64));
+    storeDefinitions(savedBase64);
 
     URL url = writeToolDefinitionsJson(tmp, List.of(parsed, other));
     mockContainerResources(url);
@@ -246,7 +309,7 @@ class McpToolServerServiceTest {
     SimpleToolDefinition savedBeta = tool(BETA_TOOL, "SavedBeta", TYPE_OBJECT, true, false);
     savedBeta.setIcon("fa-stale");
     String savedBase64 = McpToolUtils.toJsonStringBase64(new ToolDefinitionMethods(List.of(savedAlpha, savedBeta)));
-    when(settingService.get(any(), any(), any())).thenReturn((SettingValue) SettingValue.create(savedBase64));
+    storeDefinitions(savedBase64);
 
     mockContainerResources(writeToolDefinitionsJson(tmp, List.of(shippedAlpha, shippedBeta)));
 
@@ -285,7 +348,7 @@ class McpToolServerServiceTest {
     String savedBase64 = McpToolUtils.toJsonStringBase64(new ToolDefinitionMethods(List.of(savedAlpha,
                                                                                             savedBeta,
                                                                                             savedRemoved)));
-    when(settingService.get(any(), any(), any())).thenReturn((SettingValue) SettingValue.create(savedBase64));
+    storeDefinitions(savedBase64);
 
     Path file = tmp.resolve("ai-tool-definitions.json");
     Files.writeString(file, """

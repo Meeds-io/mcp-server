@@ -100,7 +100,8 @@ public class McpServerToolService {
    * definition blob for the same reason as {@link #ALWAYS_ASK_SCOPE}: the blob
    * is memoised per node, while these flags are read from the setting store on
    * every call, so that a switch-off holds on every node at once. Keyed on the
-   * blob's own key, so that whatever resets the blob resets the flags with it.
+   * blob's own key, so that a new key starts with no flag; only a forced
+   * reimport removes them with the blob.
    */
   private static final Scope                DISABLED_SCOPE                = Scope.APPLICATION.id("AI_AGENT_TOOL_DISABLED_"
                                                                                                  + TOOLS_KEY);
@@ -679,9 +680,6 @@ public class McpServerToolService {
       savedDefinitions = Collections.emptyList();
       settingService.remove(AI_AGENT_CONTEXT, TOOLS_SCOPE);
       if (forceReimport) {
-        // a blank read is also what a failed read gives (the cached setting
-        // service answers null on an exception): the switch-offs, shared by
-        // every node, go only on an explicit reimport
         settingService.remove(AI_AGENT_CONTEXT, DISABLED_SCOPE);
       }
       forceReimport = false;
@@ -739,13 +737,29 @@ public class McpServerToolService {
   }
 
   /**
+   * Reads the persisted tool definitions from the database, past the setting
+   * cache, which answers null on a failed read: a failure must not pass for
+   * an absence, which removes the stored definitions and rewrites them from
+   * the shipped files, administrator edits lost, on every node.
+   *
    * @return the persisted tool definitions as a base64 JSON string, or null
    *         when none were persisted yet
+   * @throws IllegalStateException when the store answers nothing at all,
+   *                                 which it never does: the guard is
+   *                                 defensive; a store failure passes
+   *                                 through, and the next access to the
+   *                                 definitions reads again
    */
+  @SuppressWarnings("rawtypes")
   private String getToolsContent() {
-    SettingValue<?> settingValue = settingService.get(AI_AGENT_CONTEXT,
-                                                      TOOLS_SCOPE,
-                                                      TOOLS_KEY);
+    Map<String, SettingValue> settings = settingService.getSettingsByContextAndScope(AI_AGENT_CONTEXT.getName(),
+                                                                                     AI_AGENT_CONTEXT.getId(),
+                                                                                     TOOLS_SCOPE.getName(),
+                                                                                     TOOLS_SCOPE.getId());
+    if (settings == null) {
+      throw new IllegalStateException("No answer from the setting store");
+    }
+    SettingValue settingValue = settings.get(TOOLS_KEY);
     return settingValue == null || settingValue.getValue() == null ? null : settingValue.getValue().toString();
   }
 
