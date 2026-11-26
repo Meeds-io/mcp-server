@@ -170,7 +170,7 @@ class McpToolServerServiceTest {
     assertEquals(List.of(ALPHA_TOOL), List.copyOf(mcpServerToolService.getToolDefinitions().keySet()));
 
     verify(settingService).remove(any(Context.class), argThat((Scope scope) -> isDefinitionsScope(scope)));
-    verify(settingService, never()).remove(any(Context.class), argThat((Scope scope) -> isDisabledScope(scope)));
+    verifySwitchedOffFlagsKept();
     verify(settingService).set(any(), argThat((Scope scope) -> isDefinitionsScope(scope)), any(), any());
   }
 
@@ -217,7 +217,7 @@ class McpToolServerServiceTest {
     assertEquals("Alpha", mcpServerToolService.getToolDefinitions().get(ALPHA_TOOL).getDescription());
 
     verify(settingService).remove(any(Context.class), argThat((Scope scope) -> isDefinitionsScope(scope)));
-    verify(settingService, never()).remove(any(Context.class), argThat((Scope scope) -> isDisabledScope(scope)));
+    verifySwitchedOffFlagsKept();
   }
 
   @Test
@@ -231,6 +231,14 @@ class McpToolServerServiceTest {
     assertThrows(IllegalStateException.class, () -> mcpServerToolService.getToolDefinitions());
     verify(settingService, never()).remove(any(Context.class), any(Scope.class));
     verify(settingService, never()).set(any(), any(), any(), any());
+  }
+
+  // every way the setting service removes settings: the whole scope, one key
+  // of it, or the whole context
+  private void verifySwitchedOffFlagsKept() {
+    verify(settingService, never()).remove(any(Context.class), argThat((Scope scope) -> isDisabledScope(scope)));
+    verify(settingService, never()).remove(any(Context.class), argThat((Scope scope) -> isDisabledScope(scope)), any());
+    verify(settingService, never()).remove(any(Context.class));
   }
 
   private static boolean isDisabledScope(Scope scope) {
