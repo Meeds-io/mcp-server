@@ -100,7 +100,8 @@ public class McpServerToolService {
    * definition blob for the same reason as {@link #ALWAYS_ASK_SCOPE}: the blob
    * is memoised per node, while these flags are read from the setting store on
    * every call, so that a switch-off holds on every node at once. Keyed on the
-   * blob's own key, so that whatever resets the blob resets the flags with it.
+   * blob's own key, so that a new key starts with no flag; only a forced
+   * reimport removes them with the blob.
    */
   private static final Scope                DISABLED_SCOPE                = Scope.APPLICATION.id("AI_AGENT_TOOL_DISABLED_"
                                                                                                  + TOOLS_KEY);
@@ -312,6 +313,30 @@ public class McpServerToolService {
       log.warn("The 'disabled' flags couldn't be read ({}): every tool is treated as switched off", e.getMessage());
       return new HashSet<>(getToolDefinitions().keySet());
     }
+    return getDisabledToolNames(flags);
+  }
+
+  /**
+   * The names of every tool switched off, as {@link #getDisabledToolNames()}
+   * reads them, for a caller that must not take a failed read for a switch-off,
+   * such as an administration listing whose answer is sent back on a save.
+   *
+   * @return the switched-off tool names
+   * @throws IllegalStateException when the flags can't be read
+   */
+  @SuppressWarnings("rawtypes")
+  public Set<String> readDisabledToolNames() {
+    Map<String, SettingValue> flags;
+    try {
+      flags = readDisabledFlags();
+    } catch (RuntimeException e) {
+      throw new IllegalStateException("The 'disabled' flags of the tools couldn't be read", e);
+    }
+    return getDisabledToolNames(flags);
+  }
+
+  @SuppressWarnings("rawtypes")
+  private Set<String> getDisabledToolNames(Map<String, SettingValue> flags) {
     return getToolDefinitions().values().stream().filter(d -> {
       SettingValue flag = flags.get(d.getName());
       return flag != null && flag.getValue() != null ? Boolean.parseBoolean(flag.getValue().toString()) : d.isDisabled();
@@ -654,7 +679,9 @@ public class McpServerToolService {
     } else {
       savedDefinitions = Collections.emptyList();
       settingService.remove(AI_AGENT_CONTEXT, TOOLS_SCOPE);
-      settingService.remove(AI_AGENT_CONTEXT, DISABLED_SCOPE);
+      if (forceReimport) {
+        settingService.remove(AI_AGENT_CONTEXT, DISABLED_SCOPE);
+      }
       forceReimport = false;
     }
     Enumeration<URL> toolDefinitionResources = container.getPortalClassLoader().getResources(AI_TOOLS_JSON_PATH);
@@ -710,13 +737,29 @@ public class McpServerToolService {
   }
 
   /**
+   * Reads the persisted tool definitions from the database, past the setting
+   * cache, which answers null on a failed read: a failure must not pass for
+   * an absence, which removes the stored definitions and rewrites them from
+   * the shipped files, administrator edits lost, on every node.
+   *
    * @return the persisted tool definitions as a base64 JSON string, or null
    *         when none were persisted yet
+   * @throws IllegalStateException when the store answers nothing at all,
+   *                                 which it never does: the guard is
+   *                                 defensive; a store failure passes
+   *                                 through, and the next access to the
+   *                                 definitions reads again
    */
+  @SuppressWarnings("rawtypes")
   private String getToolsContent() {
-    SettingValue<?> settingValue = settingService.get(AI_AGENT_CONTEXT,
-                                                      TOOLS_SCOPE,
-                                                      TOOLS_KEY);
+    Map<String, SettingValue> settings = settingService.getSettingsByContextAndScope(AI_AGENT_CONTEXT.getName(),
+                                                                                     AI_AGENT_CONTEXT.getId(),
+                                                                                     TOOLS_SCOPE.getName(),
+                                                                                     TOOLS_SCOPE.getId());
+    if (settings == null) {
+      throw new IllegalStateException("No answer from the setting store");
+    }
+    SettingValue settingValue = settings.get(TOOLS_KEY);
     return settingValue == null || settingValue.getValue() == null ? null : settingValue.getValue().toString();
   }
 
